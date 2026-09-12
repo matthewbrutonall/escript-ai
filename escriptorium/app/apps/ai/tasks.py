@@ -33,6 +33,7 @@ from .ketos_hook import reserve_held_out_parts
 from .models import AILayerGate, AILineDisagreement
 from .notify import notify_user
 from .pipeline import transcribe_part
+from .workflow import client_process
 from .triage import normalised_cer
 
 logger = logging.getLogger(__name__)
@@ -76,7 +77,11 @@ def ai_transcribe(self, instance_pks, ai_config_pk=None, transcription_pk=None,
     total_cost = 0.0
     written_pks = []
     examples = load_examples_for_document(transcription.document)
+    process = client_process("ai.tasks.ai_transcribe")
     for part in parts:
+        send_event("document", part.document.pk, "part:workflow", {
+            "id": part.pk, "process": process, "status": "ongoing",
+            "task_id": self.request.id})
         try:
             res = transcribe_part(part, config, transcription, backend,
                                   user=user, per_crop=per_crop, job=job,
@@ -88,7 +93,7 @@ def ai_transcribe(self, instance_pks, ai_config_pk=None, transcription_pk=None,
                 tokens_in=res['tokens_in'], tokens_out=res['tokens_out'],
                 actual_cost=res['cost'], user=user, document=part.document)
             send_event("document", part.document.pk, "part:workflow", {
-                "id": part.pk, "process": "ai-transcribe", "status": "done",
+                "id": part.pk, "process": process, "status": "done",
                 "task_id": self.request.id})
         except Exception as e:
             logger.exception(e)
@@ -99,7 +104,7 @@ def ai_transcribe(self, instance_pks, ai_config_pk=None, transcription_pk=None,
             notify_user(user, _("Something went wrong during AI transcription!"),
                         id="ai-transcription-error", level='danger')
             send_event("document", part.document.pk, "part:workflow", {
-                "id": part.pk, "process": "ai-transcribe", "status": "canceled",
+                "id": part.pk, "process": process, "status": "canceled",
                 "task_id": self.request.id})
             raise
 

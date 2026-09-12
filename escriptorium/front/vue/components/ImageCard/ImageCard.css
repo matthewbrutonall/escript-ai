@@ -238,6 +238,11 @@
 }
 .escr-image-card .image-status svg.ongoing {
     fill: var(--in-progress);
+    animation: escr-workflow-blink 1s ease-in-out infinite alternate;
+}
+@keyframes escr-workflow-blink {
+    from { opacity: 1; }
+    to { opacity: 0.2; }
 }
 .escr-image-card .image-status svg.error {
     fill: var(--alert);

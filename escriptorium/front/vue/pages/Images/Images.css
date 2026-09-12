@@ -328,6 +328,11 @@ td .task-metadata .status.pending::before {
 .v-popper--theme-escr-task-tooltip .v-popper__inner .task-metadata .status.ongoing::before,
 td .task-metadata .status.ongoing::before {
     background-color: var(--in-progress);
+    animation: escr-workflow-blink 1s ease-in-out infinite alternate;
+}
+@keyframes escr-workflow-blink {
+    from { opacity: 1; }
+    to { opacity: 0.2; }
 }
 .v-popper--theme-escr-task-tooltip .v-popper__inner .task-metadata .status.error::before,
 td.task-metadata .status.error::before {

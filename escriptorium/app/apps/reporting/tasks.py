@@ -24,9 +24,12 @@ def update_client_state(task_kwargs, task_name, status, task_id=None, data=None)
 
     for part_pk in part_pks:
         part = DocumentPart.objects.get(pk=part_pk)
+        process = task_name.split('.')[-1]
+        if process in ("ai_transcribe", "ai-transcribe"):
+            process = "transcribe"
         send_event('document', part.document.pk, "part:workflow", {
             "id": part.pk,
-            "process": task_name.split('.')[-1],
+            "process": process,
             "status": status,
             "task_id": task_id,
             "data": data or {}

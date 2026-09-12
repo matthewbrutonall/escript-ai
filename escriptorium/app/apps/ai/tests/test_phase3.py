@@ -7,6 +7,7 @@ from ai.assignment import (
 )
 from ai.fixthis import LINE_KEY, extract_line_text, fix_prompt
 from ai.passim_fallback import align_witness_to_lines
+from ai.workflow import client_process
 
 
 class AssignmentTests(unittest.TestCase):
@@ -67,6 +68,16 @@ class PassimFallbackTests(unittest.TestCase):
         out = align_witness_to_lines("completely different words here",
                                      [(9, "q̃ p̃ ⁊")], threshold=0.8)
         self.assertNotIn(9, out)
+
+
+class WorkflowProcessTests(unittest.TestCase):
+    def test_ai_transcribe_maps_to_transcribe_icon(self):
+        self.assertEqual(client_process("ai.tasks.ai_transcribe"), "transcribe")
+        self.assertEqual(client_process("ai-transcribe"), "transcribe")
+
+    def test_kraken_names_unchanged(self):
+        self.assertEqual(client_process("core.tasks.transcribe"), "transcribe")
+        self.assertEqual(client_process("core.tasks.segment"), "segment")
 
 
 class FixThisTests(unittest.TestCase):
