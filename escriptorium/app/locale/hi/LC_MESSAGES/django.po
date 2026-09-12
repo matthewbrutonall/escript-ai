@@ -1,0 +1,506 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: Escript AI\n"
+"POT-Creation-Date: 2026-09-12 00:05+0000\n"
+"Language: hi\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Home"
+msgstr "मुखपृष्ठ"
+
+msgid "Language"
+msgstr "भाषा"
+
+msgid "Sign in"
+msgstr "साइन इन"
+
+msgid "Login"
+msgstr "लॉगिन"
+
+msgid "Open projects"
+msgstr "परियोजनाएँ खोलें"
+
+msgid "Acknowledgements"
+msgstr "आभार"
+
+msgid "Contact"
+msgstr "संपर्क"
+
+msgid "Public pages are translated. After you sign in, most of the app is still in English."
+msgstr "सार्वजनिक पृष्ठ अनूदित हैं। साइन इन के बाद ऐप का अधिकतर हिस्सा अभी अंग्रेज़ी में है।"
+
+msgid "Old manuscripts and modern handwriting. Latin, Arabic, Hindi, and whatever else is on the page. The machine types a first pass. You correct it."
+msgstr "पुरानी पाण्डुलिपियाँ और आधुनिक हस्तलेख। लैटिन, अरबी, हिन्दी, और पृष्ठ पर जो भी हो। मशीन पहला प्रारूप टाइप करती है। आप उसे सुधारते हैं।"
+
+msgid "Project capabilities"
+msgstr "क्षमताओं"
+
+msgid "First pass"
+msgstr "पहला प्रारूप"
+
+msgid "The AI types what it sees onto a separate layer. Your original page stays put."
+msgstr "एआई जो देखता है उसे एक अलग परत पर टाइप करता है। मूल पृष्ठ वैसा ही रहता है।"
+
+msgid "You decide"
+msgstr "आप तय करते हैं"
+
+msgid "Nothing is finished text until you have looked at it."
+msgstr "जब तक आप देख न लें, कोई पाठ पूरा नहीं माना जाता।"
+
+msgid "Any script"
+msgstr "कोई भी लिपि"
+
+msgid "Latin (the alphabet used for English and other European languages), Arabic, Hindi, and the rest. If you can see the writing, it will try to read it."
+msgstr "लैटिन (अंग्रेज़ी और अन्य यूरोपीय भाषाओं की लिपि), अरबी, हिन्दी, और बाकी। लिखी हुई दिखे तो पढ़ने की कोशिश करेगा।"
+
+msgid "What you actually get"
+msgstr "वास्तव में क्या मिलता है"
+
+msgid "English"
+msgstr "अंग्रेज़ी"
+
+msgid "Arabic"
+msgstr "अरबी"
+
+msgid "Hindi"
+msgstr "हिन्दी"
+
+msgid "<strong>A typed layer on top of the page</strong> — not a replacement for it. You keep the image, correct the text, and export when it is good enough."
+msgstr "<strong>पृष्ठ के ऊपर एक टाइप की हुई परत</strong> — उसके स्थान पर नहीं। छवि आपके पास रहती है, पाठ सुधारते हैं, और जब ठीक लगे तब निर्यात करते हैं।"
+
+msgid "Not just old, not just Latin"
+msgstr "केवल पुराना नहीं, केवल लैटिन नहीं"
+
+msgid "Arabic, Hindi, and other scripts use the same workflow as English. If the lines on the page are clear, it does not care which alphabet they are in — or whether the ink is a century old or last week’s."
+msgstr "अरबी, हिन्दी और अन्य लिपियाँ अंग्रेज़ी जैसा ही क्रम अपनाती हैं। पंक्तियाँ साफ़ हों तो कौन-सी लिपि है, या स्याही सौ साल पुरानी है या पिछले हफ़्ते की — इससे फ़र्क नहीं पड़ता।"
+
+msgid "Keys stay under your control"
+msgstr "कुंजियाँ आपके नियंत्रण में रहती हैं"
+
+msgid "Remote AI calls need a key you configure, plus document policy, before anything leaves the instance."
+msgstr "दूरस्थ एआई कॉल के लिए आपकी कुंजी और दस्तावेज़ नीति चाहिए, तभी कुछ इंस्टेंस से बाहर जाता है।"
+
+msgid "You stay in charge"
+msgstr "नियंत्रण आपके पास रहता है"
+
+msgid "The useful path is read, tweak, and export. Training a local recognition model is there when a collection needs it."
+msgstr "काम का रास्ता: पढ़ें, सुधारें, निर्यात करें। स्थानीय पहचान मॉडल तब है जब संग्रह को उसकी ज़रूरत हो."
+
+msgid "Escript AI is independent open-source work derived from"
+msgstr "एस्क्रिप्ट एआई स्वतंत्र ओपन-सोर्स कार्य है, व्युत्पन्न"
+
+msgid "and built on the"
+msgstr "और इस इंजन पर बना है"
+
+msgid "OCR/HTR engine. It is not an official eScriptorium release and is not endorsed by the upstream project."
+msgstr "OCR/HTR इंजन। यह eScriptorium का आधिकारिक संस्करण नहीं है और अपस्ट्रीम परियोजना इसका समर्थन नहीं करती।"
+
+msgid "My Projects"
+msgstr "मेरी परियोजनाएँ"
+
+msgid "My Models"
+msgstr "मेरे मॉडल"
+
+msgid "My Documents"
+msgstr "मेरे दस्तावेज़"
+
+msgid "Hello %(username)s"
+msgstr "नमस्ते %(username)s"
+
+msgid "Change password"
+msgstr "पासवर्ड बदलें"
+
+msgid "Profile"
+msgstr "प्रोफ़ाइल"
+
+msgid "Task reports"
+msgstr "कार्य रिपोर्ट"
+
+msgid "Tasks monitoring"
+msgstr "कार्य निगरानी"
+
+msgid "Downloads"
+msgstr "डाउनलोड"
+
+msgid "Site administration"
+msgstr "साइट प्रशासन"
+
+msgid "Invite"
+msgstr "आमंत्रित करें"
+
+msgid "Logout"
+msgstr "लॉग आउट"
+
+msgid "Please Sign In"
+msgstr "कृपया साइन इन करें"
+
+msgid "Password"
+msgstr "पासवर्ड"
+
+msgid "Lost password?"
+msgstr "पासवर्ड भूल गए?"
+
+msgid "Create new Project"
+msgstr "नई परियोजना बनाएँ"
+
+msgid "Create a new Project"
+msgstr "नई परियोजना बनाएँ"
+
+msgid "Create new Document"
+msgstr "नया दस्तावेज़ बनाएँ"
+
+msgid "Create a new Document"
+msgstr "नया दस्तावेज़ बनाएँ"
+
+msgid "Documents"
+msgstr "दस्तावेज़"
+
+msgid "Document"
+msgstr "दस्तावेज़"
+
+msgid "Name"
+msgstr "नाम"
+
+msgid "Owner"
+msgstr "स्वामी"
+
+msgid "Actions"
+msgstr "क्रियाएँ"
+
+msgid "Tags"
+msgstr "टैग"
+
+msgid "Manage tags"
+msgstr "टैग प्रबंधित करें"
+
+msgid "Share this Project"
+msgstr "यह परियोजना साझा करें"
+
+msgid "Share this Document"
+msgstr "यह दस्तावेज़ साझा करें"
+
+msgid "Share"
+msgstr "साझा करें"
+
+msgid "Close"
+msgstr "बंद करें"
+
+msgid "Delete"
+msgstr "हटाएँ"
+
+msgid "Edit"
+msgstr "संपादित करें"
+
+msgid "Save"
+msgstr "सहेजें"
+
+msgid "Cancel"
+msgstr "रद्द करें"
+
+msgid "Update"
+msgstr "अपडेट"
+
+msgid "Create"
+msgstr "बनाएँ"
+
+msgid "Import"
+msgstr "आयात"
+
+msgid "Export"
+msgstr "निर्यात"
+
+msgid "Download"
+msgstr "डाउनलोड"
+
+msgid "Train"
+msgstr "प्रशिक्षण"
+
+msgid "Transcribe"
+msgstr "लिप्यंतरण"
+
+msgid "Segment"
+msgstr "खंडित करें"
+
+msgid "Align"
+msgstr "संरेखित करें"
+
+msgid "Binarize"
+msgstr "द्विआधारी करें"
+
+msgid "Select a model"
+msgstr "एक मॉडल चुनें"
+
+msgid "Select a transcription"
+msgstr "एक प्रतिलेखन चुनें"
+
+msgid "Layer name"
+msgstr "परत का नाम"
+
+msgid "-- New --"
+msgstr "-- नया --"
+
+msgid "Model"
+msgstr "मॉडल"
+
+msgid "Description"
+msgstr "विवरण"
+
+msgid "Ontology"
+msgstr "ऑन्टोलॉजी"
+
+msgid "Images"
+msgstr "छवियाँ"
+
+msgid "Models"
+msgstr "मॉडल"
+
+msgid "Reports"
+msgstr "रिपोर्ट"
+
+msgid "Select all"
+msgstr "सभी चुनें"
+
+msgid "Unselect all"
+msgstr "सभी अचयनित करें"
+
+msgid "Selected"
+msgstr "चयनित"
+
+msgid "Loading"
+msgstr "लोड हो रहा है"
+
+msgid "Filters"
+msgstr "फ़िल्टर"
+
+msgid "Preview"
+msgstr "पूर्वावलोकन"
+
+msgid "Last modified"
+msgstr "अंतिम संशोधन"
+
+msgid "Image count"
+msgstr "छवियों की संख्या"
+
+msgid "Search"
+msgstr "खोज"
+
+msgid "Find"
+msgstr "ढूँढें"
+
+msgid "Results"
+msgstr "परिणाम"
+
+msgid "Content"
+msgstr "सामग्री"
+
+msgid "Settings"
+msgstr "सेटिंग्स"
+
+msgid "Details"
+msgstr "विवरण"
+
+msgid "Status"
+msgstr "स्थिति"
+
+msgid "Queued"
+msgstr "कतार में"
+
+msgid "Running"
+msgstr "चल रहा है"
+
+msgid "Finished"
+msgstr "पूर्ण"
+
+msgid "Error"
+msgstr "त्रुटि"
+
+msgid "Canceled"
+msgstr "रद्द"
+
+msgid "Crashed"
+msgstr "क्रैश"
+
+msgid "image(s) selected."
+msgstr "छवि(याँ) चयनित।"
+
+msgid "Beware that re-segmenting will delete any existing transcriptions!"
+msgstr "सावधान: फिर से खंडित करने से मौजूदा प्रतिलेखन मिट जाएगा!"
+
+msgid "Drop images here or click to upload."
+msgstr "छवियाँ यहाँ छोड़ें या अपलोड के लिए क्लिक करें।"
+
+msgid "Your username and password didn't match. Please try again."
+msgstr "उपयोगकर्ता नाम और पासवर्ड मेल नहीं खाए। फिर कोशिश करें।"
+
+msgid "Please login to see this page."
+msgstr "यह पृष्ठ देखने के लिए लॉगिन करें।"
+
+msgid "Search in all your projects"
+msgstr "अपनी सभी परियोजनाओं में खोजें"
+
+msgid "1 document."
+msgstr "1 दस्तावेज़।"
+
+msgid "1 image."
+msgstr "1 छवि।"
+
+msgid "Metadata"
+msgstr "मेटाडेटा"
+
+msgid "Back to document list"
+msgstr "दस्तावेज़ सूची पर वापस"
+
+msgid "Back to profile"
+msgstr "प्रोफ़ाइल पर वापस"
+
+msgid "Files"
+msgstr "फ़ाइलें"
+
+msgid "Invitations"
+msgstr "आमंत्रण"
+
+msgid "Teams"
+msgstr "टीमें"
+
+msgid "Users"
+msgstr "उपयोगकर्ता"
+
+msgid "Username"
+msgstr "उपयोगकर्ता नाम"
+
+msgid "Email address"
+msgstr "ईमेल पता"
+
+msgid "email address"
+msgstr "ईमेल पता"
+
+msgid "Send"
+msgstr "भेजें"
+
+msgid "Accept"
+msgstr "स्वीकार करें"
+
+msgid "Remove"
+msgstr "हटाएँ"
+
+msgid "Remove filter"
+msgstr "फ़िल्टर हटाएँ"
+
+msgid "Leave"
+msgstr "छोड़ें"
+
+msgid "Information"
+msgstr "जानकारी"
+
+msgid "API key"
+msgstr "एपीआई कुंजी"
+
+msgid "Transcription done!"
+msgstr "प्रतिलेखन पूरा!"
+
+msgid "Segmentation done!"
+msgstr "खंडन पूरा!"
+
+msgid "Something went wrong during the transcription!"
+msgstr "प्रतिलेखन के दौरान कुछ गलत हुआ!"
+
+msgid "Something went wrong during the segmentation!"
+msgstr "खंडन के दौरान कुछ गलत हुआ!"
+
+msgid "Document created successfully!"
+msgstr "दस्तावेज़ बन गया!"
+
+msgid "Project created successfully!"
+msgstr "परियोजना बन गई!"
+
+msgid "New model"
+msgstr "नया मॉडल"
+
+msgid "Or select an existing one"
+msgstr "या मौजूदा चुनें"
+
+msgid "Start transcribing selected images."
+msgstr "चयनित छवियों का प्रतिलेखन शुरू करें।"
+
+msgid "Segment selected images."
+msgstr "चयनित छवियों को खंडित करें।"
+
+msgid "Make sure that the segmentation is good before going forward because resegmenting will delete all bound transcriptions."
+msgstr "आगे बढ़ने से पहले खंडन ठीक हो — फिर खंडित करने से जुड़े प्रतिलेखन मिट जाते हैं।"
+
+msgid "Please be aware that the epoch versions of the models will only be available for %(MODELS_VERSION_RETENTION)s days."
+msgstr "ध्यान दें: मॉडलों के epoch संस्करण केवल %(MODELS_VERSION_RETENTION)s दिनों तक उपलब्ध रहेंगे।"
+
+msgid "Upload a model"
+msgstr "मॉडल अपलोड करें"
+
+msgid "Find a model"
+msgstr "मॉडल खोजें"
+
+msgid "Publish a model"
+msgstr "मॉडल प्रकाशित करें"
+
+msgid "Role"
+msgstr "भूमिका"
+
+msgid "Script"
+msgstr "लिपि"
+
+msgid "Size"
+msgstr "आकार"
+
+msgid "Trained from"
+msgstr "प्रशिक्षित से"
+
+msgid "Training Status"
+msgstr "प्रशिक्षण स्थिति"
+
+msgid "Accuracy"
+msgstr "सटीकता"
+
+msgid "Right"
+msgstr "अधिकार"
+
+msgid "Public"
+msgstr "सार्वजनिक"
+
+msgid "User"
+msgstr "उपयोगकर्ता"
+
+msgid "Upload"
+msgstr "अपलोड"
+
+msgid "Model name"
+msgstr "मॉडल का नाम"
+
+msgid "Model role"
+msgstr "मॉडल भूमिका"
+
+msgid "Model script"
+msgstr "मॉडल लिपि"
+
+msgid "Filter by script"
+msgstr "लिपि से छानें"
+
+msgid "Share model"
+msgstr "मॉडल साझा करें"
+
+msgid "Delete model"
+msgstr "मॉडल हटाएँ"
+
+msgid "Cancel training"
+msgstr "प्रशिक्षण रद्द करें"
+
+msgid "Is currently training"
+msgstr "प्रशिक्षण चल रहा है"
+
+msgid "Is done training"
+msgstr "प्रशिक्षण पूरा"
+
+msgid "Toggle versions"
+msgstr "संस्करण दिखाएँ/छिपाएँ"
+
+msgid "Parent from which the model was trained"
+msgstr "मूल मॉडल जिससे प्रशिक्षित"

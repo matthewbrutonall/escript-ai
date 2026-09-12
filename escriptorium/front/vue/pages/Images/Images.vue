@@ -1,0 +1,1363 @@
+<template>
+    <EscrPage
+        class="escr-images-page"
+        :breadcrumbs="breadcrumbs"
+        :sidebar-actions="sidebarActions"
+        :loading="loading && loading.document"
+    >
+        <template #page-content>
+            <div class="escr-container">
+                <!-- header with metadata and import button -->
+                <div class="escr-images-header">
+                    <div class="escr-images-title">
+                        <h3 :title="documentName">
+                            {{ documentName || $t("images.loading") }}
+                        </h3>
+                        <h1>{{ $t("images.title") }}</h1>
+                    </div>
+                    <VDropdown
+                        placement="bottom-end"
+                        :triggers="['hover']"
+                        theme="escr-tooltip-small"
+                    >
+                        <EscrButton
+                            color="primary"
+                            :disabled="loading && loading.document"
+                            :on-click="() => openModal('import')"
+                            :label="$t('images.import')"
+                        >
+                            <template #button-icon>
+                                <ImportIcon />
+                            </template>
+                        </EscrButton>
+                        <template #popper>
+                            <span class="escr-tooltip-text">
+                                {{ $t("images.importHint") }}
+                            </span>
+                        </template>
+                    </VDropdown>
+                </div>
+
+                <!-- toolbar with searching, selecting -->
+                <div class="escr-images-toolbar">
+                    <div class="escr-toolbar-left">
+                        <span
+                            v-if="!loading.document && parts && parts.length"
+                            class="escr-parts-count"
+                        >
+                            {{
+                                (!loading.document && partsCount)
+                                    ? $t("images.nImages", { n: partsCount.toLocaleString() })
+                                    : ''
+                            }}
+                        </span>
+                        <EscrLoader
+                            v-else
+                            class="escr-parts-count"
+                            :loading="loading && (loading.document || loading.images)"
+                            :no-data-message="$t('images.zeroImages')"
+                        />
+                        <TextField
+                            :disabled="(loading && loading.images) || !parts.length"
+                            :on-input="onSearch"
+                            :on-keydown="onSearchKeydown"
+                            :label-visible="false"
+                            :value="textFilterValue"
+                            class="search-text-field"
+                            :label="$t('images.searchLabel')"
+                            :placeholder="$t('images.searchPlaceholder')"
+                        />
+                        <EscrButton
+                            color="secondary"
+                            :label="$t('images.search')"
+                            size="small"
+                            :disabled="(loading && loading.images) || !parts.length"
+                            :on-click="onSubmitSearch"
+                        />
+                        <div
+                            v-if="importProgress"
+                            class="import-progress"
+                        >
+                            <!-- always loading: this is a spinner beside the progress
+                            text, it has no no-data state -->
+                            <EscrLoader
+                                :loading="true"
+                                no-data-message=""
+                            />
+                            <span>{{ importProgress }}</span>
+                        </div>
+                    </div>
+                    <div class="escr-toolbar-right">
+                        <TextField
+                            v-tooltip="{
+                                content: rangeValidationError,
+                                html: true,
+                                shown: !!rangeValidationError,
+                                triggers: [],
+                                noAutoFocus: true,
+                                theme: 'escr-tooltip-small',
+                                placement: 'top-end',
+                            }"
+                            :disabled="(loading && loading.images) || !parts.length"
+                            :on-input="onRangeInput"
+                            :invalid="!!rangeValidationError"
+                            :label-visible="false"
+                            :value="rangeInputValue"
+                            class="range-text-field"
+                            :label="$t('images.selectRangeLabel')"
+                            :placeholder="$t('images.selectRange')"
+                        />
+                        <EscrButton
+                            color="text"
+                            :label="$t('images.selectAll')"
+                            size="small"
+                            :disabled="(loading && loading.images) || selectedParts.length === parts.length"
+                            :on-click="selectAll"
+                        />
+                        <div class="new-section">
+                            <ToggleButton
+                                color="secondary"
+                                :label="$t('images.reorder')"
+                                :checked="isReorderMode"
+                                :disabled="(loading && loading.images) || !parts.length"
+                                :on-change="() => isReorderMode = !isReorderMode"
+                            >
+                                <template #button-icon>
+                                    <LineOrderingIcon />
+                                </template>
+                            </ToggleButton>
+                        </div>
+                        <SegmentedButtonGroup
+                            color="secondary"
+                            name="images-display-mode"
+                            :disabled="loading && loading.images"
+                            :options="viewOptions"
+                            :on-change-selection="setDisplayMode"
+                        />
+                    </div>
+                </div>
+
+                <!-- selection toolbar -->
+                <div
+                    v-if="selectedParts && selectedParts.length > 0"
+                    class="escr-image-selection-toolbar"
+                >
+                    <span class="selected-count">
+                        {{ $t("images.nSelected", { n: selectedParts.length }) }}
+                    </span>
+                    <div
+                        v-if="isReorderMode"
+                        class="escr-toolbar-center"
+                    >
+                        <EscrButton
+                            color="secondary"
+                            :label="$t('images.moveToTop')"
+                            size="small"
+                            :on-click="() => moveSelectedParts({ index: 0 })"
+                        >
+                            <template #button-icon>
+                                <MoveToTopIcon />
+                            </template>
+                        </EscrButton>
+                        <EscrButton
+                            color="secondary"
+                            :label="$t('images.moveToBottom')"
+                            size="small"
+                            :on-click="() => moveSelectedParts({ index: -1 })"
+                        >
+                            <template #button-icon>
+                                <MoveToBottomIcon />
+                            </template>
+                        </EscrButton>
+                        <EscrButton
+                            color="secondary"
+                            :label="$t('images.moveTo')"
+                            size="small"
+                            :on-click="openMoveModal"
+                        >
+                            <template #button-icon>
+                                <MoveImageIcon />
+                            </template>
+                        </EscrButton>
+                    </div>
+                    <div
+                        v-else
+                        class="escr-toolbar-center"
+                    >
+                        <EscrButton
+                            color="secondary"
+                            :label="$t('images.segment')"
+                            size="small"
+                            :disabled="loading && loading.images"
+                            :on-click="() => openModal('segment')"
+                        >
+                            <template #button-icon>
+                                <SegmentIcon />
+                            </template>
+                        </EscrButton>
+                        <EscrButton
+                            color="secondary"
+                            :label="$t('images.transcribe')"
+                            size="small"
+                            :disabled="loading && loading.images"
+                            :on-click="() => openModal('transcribe')"
+                        >
+                            <template #button-icon>
+                                <TranscribeIcon />
+                            </template>
+                        </EscrButton>
+                        <EscrButton
+                            color="secondary"
+                            :label="$t('images.align')"
+                            size="small"
+                            :disabled="loading && loading.images"
+                            :on-click="() => openModal('align')"
+                        >
+                            <template #button-icon>
+                                <AlignIcon />
+                            </template>
+                        </EscrButton>
+                        <EscrButton
+                            color="secondary"
+                            :label="$t('images.trainModel')"
+                            size="small"
+                            :disabled="loading && loading.images || selectedParts.length === 0"
+                            :on-click="goToTraining"
+                        >
+                            <template #button-icon>
+                                <TrainIcon />
+                            </template>
+                        </EscrButton>
+                        <EscrButton
+                            color="secondary"
+                            :label="$t('images.redrawMasks')"
+                            size="small"
+                            :disabled="loading && loading.images"
+                            :on-click="() => openRedrawModal()"
+                        >
+                            <template #button-icon>
+                                <MasksIcon />
+                            </template>
+                        </EscrButton>
+                        <EscrButton
+                            color="secondary"
+                            :label="$t('images.export')"
+                            size="small"
+                            :disabled="loading && loading.images"
+                            :on-click="() => openModal('export')"
+                        >
+                            <template #button-icon>
+                                <ExportIcon />
+                            </template>
+                        </EscrButton>
+                        <VMenu
+                            placement="bottom-start"
+                            :triggers="['click']"
+                            theme="vertical-menu"
+                        >
+                            <EscrButton
+                                class="context-menu-button"
+                                color="secondary"
+                                round
+                                size="small"
+                                :disabled="loading && loading.images"
+                                :on-click="() => {}"
+                            >
+                                <template #button-icon>
+                                    <HorizMenuIcon />
+                                </template>
+                            </EscrButton>
+                            <template #popper>
+                                <ul class="escr-vertical-menu">
+                                    <li>
+                                        <button
+                                            @mousedown="() => openModal('downloadArchive')"
+                                        >
+                                            <DownloadIcon class="escr-menuitem-icon" />
+                                            <span>{{ $t("images.downloadArchive") }}</span>
+                                        </button>
+                                    </li>
+                                    <li>
+                                        <button
+                                            @mousedown="() => openDeleteModal()"
+                                        >
+                                            <TrashIcon class="escr-menuitem-icon" />
+                                            <span>{{ $t("images.delete") }}</span>
+                                        </button>
+                                    </li>
+                                </ul>
+                            </template>
+                        </VMenu>
+                    </div>
+                    <EscrButton
+                        color="secondary"
+                        :label="$t('images.clearAll')"
+                        size="small"
+                        :disabled="loading && loading.images"
+                        :on-click="selectNone"
+                    >
+                        <template #button-icon>
+                            <XCircleFilledIcon />
+                        </template>
+                    </EscrButton>
+                </div>
+
+                <!-- image grid -->
+                <div
+                    v-if="displayMode === 'grid' && parts && parts.length"
+                    class="escr-image-grid"
+                    :dir="readDirection"
+                >
+                    <ul>
+                        <!-- image cards -->
+                        <ImageCard
+                            v-for="part in filteredParts"
+                            :key="part.pk"
+                            :part="part"
+                            :close-context-menu="closeContextMenu"
+                            :open-context-menu="openContextMenu"
+                            :context-menu-open="contextMenuOpen === part.pk"
+                            :on-toggle-selected="onToggleSelected"
+                            :is-draggable="isReorderMode"
+                        />
+                        <li
+                            v-if="filteredParts.length < parts.length || parts.length < partsCount"
+                            dir="ltr"
+                        >
+                            <HiddenImagesIndicator
+                                :filtered-parts="filteredParts"
+                                :hidden-selected-count="hiddenSelectedCount"
+                                :on-clear-text-filter="() => textFilter = ''"
+                            />
+                        </li>
+                    </ul>
+                    <EscrButton
+                        v-if="nextPage"
+                        :label="$t('images.loadMore')"
+                        class="escr-load-more-btn"
+                        color="outline-primary"
+                        size="small"
+                        :disabled="loading && loading.images"
+                        :on-click="onLoadMore"
+                    />
+                    <div
+                        v-if="loading && loading.images"
+                        class="images-loading-overlay"
+                    >
+                        <div
+                            class="escr-spinner"
+                            role="status"
+                        >
+                            <span class="sr-only">{{ $t("images.loading") }}</span>
+                        </div>
+                    </div>
+                </div>
+                <div
+                    v-else-if="displayMode === 'list' && parts && parts.length"
+                    class="escr-image-list"
+                >
+                    <EscrTable
+                        :disabled="loading && loading.images"
+                        :headers="partsHeaders"
+                        :is-dragging="isDragging"
+                        :items="tableParts"
+                        item-key="pk"
+                        linkable
+                        :on-drag-start="handleDragStart"
+                        :on-drop="handleDrop"
+                        :on-select-all="onToggleSelectAll"
+                        :on-toggle-selected="onToggleSelected"
+                        :orderable="isReorderMode"
+                        selectable
+                        :selected-items="selectedParts"
+                    />
+                    <HiddenImagesIndicator
+                        v-if="filteredParts.length < parts.length || parts.length < partsCount"
+                        dir="ltr"
+                        :filtered-parts="filteredParts"
+                        :hidden-selected-count="hiddenSelectedCount"
+                        :on-clear-text-filter="() => textFilter = ''"
+                    />
+                    <EscrButton
+                        v-if="nextPage"
+                        :label="$t('images.loadMore')"
+                        class="escr-load-more-btn"
+                        color="outline-primary"
+                        size="small"
+                        :disabled="loading && loading.images"
+                        :on-click="onLoadMore"
+                    />
+                    <div
+                        v-if="loading && loading.images"
+                        class="images-loading-overlay"
+                    >
+                        <div
+                            class="escr-spinner"
+                            role="status"
+                        >
+                            <span class="sr-only">{{ $t("images.loading") }}</span>
+                        </div>
+                    </div>
+                </div>
+                <EscrLoader
+                    v-else
+                    class="grid-spinner"
+                    :loading="loading && loading.images"
+                    :no-data-message="$t('confirm.noImages')"
+                />
+
+                <!-- import images modal -->
+                <ImportModal
+                    v-if="taskModalOpen && taskModalOpen.import"
+                    :disabled="loading && loading.document"
+                    :on-cancel="() => closeTaskModal('import')"
+                    :on-submit="onSubmitImport"
+                />
+                <!-- cancel image uploads modal -->
+                <ConfirmModal
+                    v-if="taskModalOpen && taskModalOpen.imageCancelWarning"
+                    :body-text="$t('confirm.cancelUploadBody')"
+                    :title="$t('confirm.cancelUploadTitle')"
+                    :cancel-verb="$t('common.no')"
+                    :confirm-verb="$t('confirm.yesCancel')"
+                    :disabled="loading && (loading.images || loading.document)"
+                    :on-cancel="() => closeTaskModal('imageCancelWarning')"
+                    :on-confirm="confirmImageCancelWarning"
+                    :cannot-undo="false"
+                />
+
+                <!-- move images modal -->
+                <MoveImagesModal
+                    v-if="moveModalOpen"
+                    :disabled="loading && loading.images"
+                    :on-cancel="onCancelMove"
+                    :on-submit="onSubmitMove"
+                />
+
+                <!-- segment images modal -->
+                <SegmentModal
+                    v-if="taskModalOpen && taskModalOpen.segment"
+                    :models="segmentationModels"
+                    :disabled="loading && (loading.images || loading.document)"
+                    :on-cancel="() => {
+                        closeTaskModal('segment');
+                        if (selectedParts.length === 1) setSelectedParts([]);
+                    }"
+                    :on-submit="handleSubmitSegmentation"
+                    :scope="selectedParts.length === 1
+                        ? $t('scope.image')
+                        : $t('scope.images', { n: selectedParts.length })"
+                />
+                <!-- transcribe images modal -->
+                <TranscribeModal
+                    v-if="taskModalOpen && taskModalOpen.transcribe"
+                    :models="recognitionModels"
+                    :ai-backends="aiBackends"
+                    :transcriptions="transcriptions"
+                    :disabled="loading && (loading.images || loading.document)"
+                    :on-cancel="() => {
+                        closeTaskModal('transcribe');
+                        if (selectedParts.length === 1) setSelectedParts([]);
+                    }"
+                    :on-submit="handleSubmitTranscribe"
+                    :scope="selectedParts.length === 1
+                        ? $t('scope.image')
+                        : $t('scope.images', { n: selectedParts.length })"
+                />
+                <!-- overwrite segmentation modal -->
+                <ConfirmModal
+                    v-if="taskModalOpen && taskModalOpen.overwriteWarning"
+                    :body-text="$t('confirm.overwriteSegBody')"
+                    :title="$t('confirm.overwriteSegTitle')"
+                    :confirm-verb="$t('common.continue')"
+                    :disabled="loading && (loading.images || loading.document)"
+                    :cannot-undo="true"
+                    :on-cancel="() => closeTaskModal('overwriteWarning')"
+                    :on-confirm="confirmOverwriteWarning"
+                />
+                <!-- align images modal -->
+                <AlignModal
+                    v-if="taskModalOpen && taskModalOpen.align"
+                    :transcriptions="transcriptions"
+                    :region-types="regionTypes"
+                    :disabled="loading && (loading.images || loading.document)"
+                    :on-cancel="() => {
+                        closeTaskModal('align');
+                        if (selectedParts.length === 1) setSelectedParts([]);
+                    }"
+                    :on-submit="handleSubmitAlign"
+                    :textual-witnesses="textualWitnesses"
+                    :scope="selectedParts.length === 1
+                        ? $t('scope.image')
+                        : $t('scope.images', { n: selectedParts.length })"
+                />
+                <!-- export images modal -->
+                <ExportModal
+                    v-if="taskModalOpen && taskModalOpen.export"
+                    :markdown-enabled="markdownEnabled"
+                    :tei-enabled="teiEnabled"
+                    :transcriptions="transcriptions"
+                    :region-types="regionTypes"
+                    :disabled="loading && (loading.images || loading.document)"
+                    :on-cancel="() => {
+                        closeTaskModal('export');
+                        if (selectedParts.length === 1) setSelectedParts([]);
+                    }"
+                    :on-submit="handleSubmitExport"
+                    :scope="selectedParts.length === 1
+                        ? $t('scope.image')
+                        : $t('scope.images', { n: selectedParts.length })"
+                />
+                <!-- download archive images modal -->
+                <DownloadArchiveModal
+                    v-if="taskModalOpen && taskModalOpen.downloadArchive"
+                    :disabled="loading && (loading.images || loading.document)"
+                    :on-cancel="() => closeTaskModal('downloadArchive')"
+                    :on-submit="handleSubmitDownloadArchive"
+                    :scope="$t('scope.document')"
+                />
+                <!-- redraw masks modal -->
+                <ConfirmModal
+                    v-if="redrawModalOpen"
+                    :body-text="$t('confirm.redrawMasksBody')"
+                    color="primary"
+                    :title="$t('images.redrawMasks')"
+                    :cannot-undo="true"
+                    :disabled="loading && loading.images"
+                    :on-cancel="() => closeRedrawModal()"
+                    :on-confirm="onRedrawMasks"
+                />
+                <!-- delete images modal -->
+                <ConfirmModal
+                    v-if="deleteModalOpen"
+                    :body-text="partTitleToDelete
+                        ? $t('confirm.deleteNamed', { name: partTitleToDelete })
+                        : $t('confirm.deleteSelectedImages')"
+                    :confirm-verb="$t('common.delete')"
+                    :title="selectedParts.length === 1
+                        ? $t('confirm.deleteImageTitle')
+                        : $t('confirm.deleteImagesTitle')"
+                    :cannot-undo="true"
+                    :disabled="loading && loading.images"
+                    :on-cancel="() => closeDeleteModal(!!partTitleToDelete)"
+                    :on-confirm="deleteSelectedParts"
+                />
+            </div>
+        </template>
+    </EscrPage>
+</template>
+<script>
+import { Dropdown as VDropdown, Menu as VMenu } from "floating-vue";
+import { range } from "lodash";
+import ReconnectingWebSocket from "reconnectingwebsocket";
+import { mapActions, mapMutations, mapState } from "vuex";
+
+import AlignIcon from "../../components/Icons/AlignIcon/AlignIcon.vue";
+import AlignModal from "../../components/AlignModal/AlignModal.vue";
+import ConfirmModal from "../../components/ConfirmModal/ConfirmModal.vue";
+import EscrButton from "../../components/Button/Button.vue";
+import EscrLoader from "../../components/Loader/Loader.vue";
+import EscrPage from "../Page/Page.vue";
+import EscrTable from "../../components/Table/Table.vue";
+import ExportIcon from "../../components/Icons/ExportIcon/ExportIcon.vue";
+import DownloadArchiveModal from "../../components/DownloadArchiveModal/DownloadArchiveModal.vue";
+import DownloadIcon from "../../components/Icons/DownloadIcon/DownloadIcon.vue";
+import ExportModal from "../../components/ExportModal/ExportModal.vue";
+import GridIcon from "../../components/Icons/GridIcon/GridIcon.vue";
+import HiddenImagesIndicator from "./HiddenImagesIndicator.vue";
+import HorizMenuIcon from "../../components/Icons/HorizMenuIcon/HorizMenuIcon.vue";
+import ImageCard from "../../components/ImageCard/ImageCard.vue";
+import ImageWorkflowStatus from "./ImageWorkflowStatus.vue";
+import ImportIcon from "../../components/Icons/ImportIcon/ImportIcon.vue";
+import ImportModal from "../../components/ImportModal/ImportModal.vue";
+import LineOrderingIcon from "../../components/Icons/LineOrderingIcon/LineOrderingIcon.vue";
+import ListIcon from "../../components/Icons/ListIcon/ListIcon.vue";
+import MasksIcon from "../../components/Icons/MasksIcon/MasksIcon.vue";
+import ModelsIcon from "../../components/Icons/ModelsIcon/ModelsIcon.vue";
+import ModelsPanel from "../../components/ModelsPanel/ModelsPanel.vue";
+import MoveImageIcon from "../../components/Icons/MoveImageIcon/MoveImageIcon.vue";
+import MoveImagesModal from "../../components/MoveImagesModal/MoveImagesModal.vue";
+import MoveToBottomIcon from "../../components/Icons/MoveToBottomIcon/MoveToBottomIcon.vue";
+import MoveToTopIcon from "../../components/Icons/MoveToTopIcon/MoveToTopIcon.vue";
+import PeopleIcon from "../../components/Icons/PeopleIcon/PeopleIcon.vue";
+import SearchIcon from "../../components/Icons/SearchIcon/SearchIcon.vue";
+import SearchPanel from "../../components/SearchPanel/SearchPanel.vue";
+import SegmentIcon from "../../components/Icons/SegmentIcon/SegmentIcon.vue";
+import SegmentModal from "../../components/SegmentModal/SegmentModal.vue";
+import SegmentedButtonGroup from "../../components/SegmentedButtonGroup/SegmentedButtonGroup.vue";
+import SharePanel from "../../components/SharePanel/SharePanel.vue";
+import TextField from "../../components/TextField/TextField.vue";
+import ToggleButton from "../../components/ToggleButton/ToggleButton.vue";
+import TrainIcon from "../../components/Icons/TrainIcon/TrainIcon.vue";
+import TranscribeIcon from "../../components/Icons/TranscribeIcon/TranscribeIcon.vue";
+import TranscribeModal from "../../components/TranscribeModal/TranscribeModal.vue";
+import TrashIcon from "../../components/Icons/TrashIcon/TrashIcon.vue";
+import XCircleFilledIcon from "../../components/Icons/XCircleFilledIcon/XCircleFilledIcon.vue";
+import "../../components/VerticalMenu/VerticalMenu.css";
+import "./Images.css";
+
+export default {
+    name: "EscrImages",
+    components: {
+        AlignIcon,
+        AlignModal,
+        ConfirmModal,
+        DownloadArchiveModal,
+        DownloadIcon,
+        EscrButton,
+        EscrLoader,
+        EscrPage,
+        EscrTable,
+        ExportIcon,
+        ExportModal,
+        // eslint-disable-next-line vue/no-unused-components
+        GridIcon,
+        HiddenImagesIndicator,
+        HorizMenuIcon,
+        ImageCard,
+        ImportIcon,
+        ImportModal,
+        LineOrderingIcon,
+        // eslint-disable-next-line vue/no-unused-components
+        ListIcon,
+        MasksIcon,
+        // eslint-disable-next-line vue/no-unused-components
+        ModelsIcon,
+        // eslint-disable-next-line vue/no-unused-components
+        ModelsPanel,
+        MoveImageIcon,
+        MoveImagesModal,
+        MoveToBottomIcon,
+        MoveToTopIcon,
+        // eslint-disable-next-line vue/no-unused-components
+        PeopleIcon,
+        // eslint-disable-next-line vue/no-unused-components
+        SearchIcon,
+        // eslint-disable-next-line vue/no-unused-components
+        SearchPanel,
+        SegmentIcon,
+        SegmentModal,
+        SegmentedButtonGroup,
+        // eslint-disable-next-line vue/no-unused-components
+        SharePanel,
+        TextField,
+        ToggleButton,
+        TrainIcon,
+        TranscribeIcon,
+        TranscribeModal,
+        TrashIcon,
+        VDropdown,
+        VMenu,
+        XCircleFilledIcon,
+    },
+    props: {
+        /**
+         * The primary key/id of the current document.
+         */
+        id: {
+            type: Number,
+            required: true,
+        },
+        /**
+         * Whether or not OpenITI Markdown export is enabled on the current instance.
+         */
+        markdownEnabled: {
+            type: Boolean,
+            required: true,
+        },
+        /**
+         * Whether or not OpenITI TEI XML export is enabled on the current instance.
+         */
+        teiEnabled: {
+            type: Boolean,
+            required: true,
+        },
+        /**
+         * Whether or not search is disabled on the current instance.
+         */
+        searchDisabled: {
+            type: Boolean,
+            required: true,
+        },
+    },
+    data() {
+        return {
+            contextMenuOpen: null,
+            displayMode: "grid",
+            importProgress: "",
+            isReorderMode: false,
+            lastSelected: null,
+            rangeValidationError: null,
+            rangeInputValue: "",
+            rangeRegex: /^\d+((,|-)\d+)*$/g,
+            redrawModalOpen: false,
+            textFilter: "",
+            textFilterValue: "",
+        }
+    },
+    computed: {
+        ...mapState({
+            deleteModalOpen: (state) => state.images.deleteModalOpen,
+            documentName: (state) => state.document.name,
+            isDragging: (state) => state.images.isDragging,
+            loading: (state) => state.images.loading,
+            models: (state) => state.document.models,
+            moveModalOpen: (state) => state.images.moveModalOpen,
+            nextPage: (state) => state.images.nextPage,
+            partTitleToDelete: (state) => state.images.partTitleToDelete,
+            parts: (state) => state.document.parts,
+            partsCount: (state) => state.document.partsCount,
+            projectId: (state) => state.project.id,
+            projectName: (state) => state.document.projectName,
+            projectSlug: (state) => state.document.projectSlug,
+            readDirection: (state) => state.document.readDirection,
+            recognitionModels: (state) => state.user.recognitionModels,
+            aiBackends: (state) => state.user.aiBackends,
+            regionTypes: (state) => state.document.regionTypes,
+            segmentationModels: (state) => state.user.segmentationModels,
+            selectedParts: (state) => state.images.selectedParts,
+            taskModalOpen: (state) => state.tasks.modalOpen,
+            textualWitnesses: (state) => state.document.textualWitnesses,
+            transcriptions: (state) => state.document.transcriptions,
+        }),
+        /**
+         * Links and titles for the breadcrumbs above the page.
+         */
+        breadcrumbs() {
+            let docBreadcrumbs = [
+                { title: this.$t("common.loading") },
+                { title: this.$t("common.loading") },
+            ];
+            if (this.projectName && this.projectSlug && this.documentName) {
+                docBreadcrumbs = [
+                    {
+                        title: this.projectName,
+                        href: `/project/${this.projectSlug}/`
+                    },
+                    {
+                        title: this.documentName,
+                        href: `/document/${this.id}/`
+                    },
+                ];
+            }
+            return [
+                { title: this.$t("common.myProjects"), href: "/projects/" },
+                ...docBreadcrumbs,
+                { title: this.$t("images.title") },
+            ];
+        },
+        /**
+         * Parts (title) filtered by search query
+         */
+        filteredParts() {
+            if (this.textFilter) {
+                return this.sortedParts.filter((part) => {
+                    return part.title.toLowerCase().includes(this.textFilter.toLowerCase());
+                });
+            }
+            else {
+                return this.sortedParts;
+            }
+        },
+        tableParts() {
+            return this.filteredParts.map((part) => ({
+                ...part,
+                alignWorkflow: { status: part.workflow.align },
+                segmentWorkflow: { status: part.workflow.segment },
+                transcribeWorkflow: { status: part.workflow.transcribe },
+            }));
+        },
+        /**
+         * Parts sorted by order
+         */
+        sortedParts() {
+            return this.parts.toSorted((a, b) => a.order - b.order);
+        },
+        /**
+         * Sidebar quick actions for the document dashboard.
+         */
+        sidebarActions() {
+            let actions = [
+                {
+                    data: {
+                        disabled: this.loading?.document,
+                        users: this.sharedWithUsers,
+                        groups: this.sharedWithGroups,
+                        openShareModal: this.openShareModal,
+                    },
+                    icon: PeopleIcon,
+                    key: "share",
+                    label: this.$t("document.groupsUsers"),
+                    panel: SharePanel,
+                },
+                {
+                    data: {
+                        loading: this.loading?.document || this.loading?.models,
+                        models: this.models,
+                    },
+                    icon: ModelsIcon,
+                    key: "models",
+                    label: this.$t("nav.models"),
+                    panel: ModelsPanel,
+                }
+            ];
+            // if search is enabled on the instance, add search as first item
+            if (!this.searchDisabled) {
+                actions.unshift({
+                    data: {
+                        disabled: this.loading?.document,
+                        searchScope: "Document",
+                        projectId: this.projectId,
+                        documentId: this.id,
+                    },
+                    icon: SearchIcon,
+                    key: "search",
+                    label: this.$t("document.searchDocument"),
+                    panel: SearchPanel,
+                });
+            }
+            return actions
+        },
+        /**
+         * number of items selected but filtered out
+         */
+        hiddenSelectedCount() {
+            return this.selectedParts.filter(
+                (pk) => !this.filteredParts.map((part) => part.pk).includes(pk)
+            ).length;
+        },
+        /**
+         * Get objects for the two view modes (grid, list)
+         */
+        viewOptions() {
+            return [
+                {
+                    value: "grid",
+                    label: GridIcon,
+                    selected: this.displayMode === "grid",
+                    tooltip: this.$t("images.gridView"),
+                },
+                {
+                    value: "list",
+                    label: ListIcon,
+                    selected: this.displayMode === "list",
+                    tooltip: this.$t("images.listView"),
+                },
+            ]
+        },
+        /**
+         * Headers formatted for EscrTable, for list view
+         */
+        partsHeaders() {
+            return [
+                {
+                    label: this.$t("images.number"),
+                    value: "order",
+                    format: (val) => val + 1,
+                    class: "number",
+                },
+                { label: this.$t("common.name"), value: "title", image: "thumbnail" },
+                {
+                    label: this.$t("images.segment"),
+                    value: "segmentWorkflow",
+                    key: "segment",
+                    class: "workflow",
+                    component: ImageWorkflowStatus,
+                },
+                {
+                    label: this.$t("images.transcribe"),
+                    value: "transcribeWorkflow",
+                    key: "transcribe",
+                    class: "workflow",
+                    component: ImageWorkflowStatus,
+                },
+                {
+                    label: this.$t("images.align"),
+                    value: "alignWorkflow",
+                    key: "align",
+                    class: "workflow",
+                    component: ImageWorkflowStatus,
+                },
+                {
+                    label: this.$t("images.lastEdited"),
+                    value: "updated_at",
+                    format: (val) => new Date(val).toLocaleDateString(
+                        undefined,
+                        {
+                            year: "numeric",
+                            month: "short",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            hour12: false,
+                            hourCycle: "h23",
+                        },
+                    ),
+                },
+            ];
+        },
+    },
+    /**
+     * On load, fetch basic details about the document.
+     */
+    async created() {
+        // set mode based on user preference (grid or list view)
+        const initMode = this.getDisplayMode() || "grid";
+        this.setDisplayMode(initMode);
+        // set document id by url params
+        this.setId(this.id);
+        // join document websocket room
+        const msg = `{"type": "join-room", "object_cls": "document", "object_pk": ${this.id}}`;
+        const scheme = location.protocol === "https:" ? "wss:" : "ws:";
+        const msgSocket = new ReconnectingWebSocket(`${scheme}//${window.location.host}/ws/notif/`);
+        msgSocket.maxReconnectAttempts = 3;
+        msgSocket.addEventListener("open", function() {
+            msgSocket.send(msg);
+        });
+        // handle document-related websocket events
+        msgSocket.addEventListener("message", this.websocketTaskListener);
+        // load document
+        try {
+            await this.fetchDocument();
+            this.setLoading({ key: "document", loading: false });
+        } catch (error) {
+            this.setLoading({ key: "document", loading: false });
+            this.addError(error);
+        }
+
+        // set selected image if select param is present
+        const params = new URLSearchParams(document.location.search);
+        const select = params.get("select");
+        if (select &&
+            parseInt(select) &&
+            this.parts.some((p) => p.pk === parseInt(select))
+        ) {
+            this.setSelectedParts([parseInt(select)]);
+        }
+        // load models
+        try {
+            await this.fetchDocumentModels();
+            await this.fetchSegmentModels();
+            await this.fetchRecognizeModels();
+            await this.fetchAiBackends();
+            this.setLoading({ key: "models", loading: false });
+        } catch(error) {
+            this.setLoading({ key: "models", loading: false });
+            this.addError(error);
+        }
+        // load groups and users
+        try {
+            await this.fetchGroups();
+            this.setLoading({ key: "groups", loading: false });
+        } catch(error) {
+            this.setLoading({ key: "groups", loading: false });
+            this.addError(error);
+        }
+    },
+    methods: {
+        ...mapActions("alerts", ["addError"]),
+        ...mapActions("document", [
+            "confirmImageCancelWarning",
+            "fetchDocumentModels",
+            "handleSubmitImport",
+            "setId",
+            "updatePartTaskStatus",
+        ]),
+        ...mapActions("images", [
+            "confirmOverwriteWarning",
+            "closeDeleteModal",
+            "deleteSelectedParts",
+            "fetchDocument",
+            "fetchNextPage",
+            "fetchParts",
+            "handleSubmitAlign",
+            "handleSubmitDownloadArchive",
+            "handleSubmitExport",
+            "handleSubmitRedrawMasks",
+            "handleSubmitSegmentation",
+            "handleSubmitTraining",
+            "handleSubmitTranscribe",
+            "modifySelectedPartsByOrder",
+            "movePart",
+            "moveSelectedParts",
+            "onCancelMove",
+            "onSubmitMove",
+            "openDeleteModal",
+            "openMoveModal",
+            "setSelectedPartsByOrder",
+            "togglePartSelected",
+        ]),
+        ...mapActions("tasks", {
+            align: "alignImages",
+            cancelTask: "cancel",
+            closeTaskModal: "closeModal",
+            export: "exportImages",
+            openModal: "openModal",
+            transcribe: "transcribeImages",
+        }),
+        ...mapActions("user", ["fetchGroups", "fetchRecognizeModels", "fetchSegmentModels", "fetchAiBackends"]),
+        ...mapMutations("images", ["setLoading", "setSelectedParts", "setIsDragging"]),
+        ...mapMutations("document", ["setPartsCount"]),
+        ...mapActions("collection", ["loadCollection", "addSelectedParts"]),
+        /**
+         * Close a context menu for an image.
+         */
+        closeContextMenu() {
+            this.contextMenuOpen = null;
+        },
+        /**
+         * Handle range input, validate, and set selected parts if valid
+         */
+        async onRangeInput(e) {
+            this.rangeInputValue = e.target.value;
+            // collect selected indices and validate for errors
+            const { selected, error } = this.validateSelectRange(
+                // be lenient with spaces
+                this.rangeInputValue.replace(" ", "")
+            );
+            this.rangeValidationError = error;
+            if (!error) {
+                // fetch more pages if needed
+                let failureCount = 0;
+                this.setLoading({ key: "images", loading: true });
+                while (this.nextPage &&
+                    (
+                        // more items selected than are loaded
+                        selected.length > this.parts.length ||
+                        // specific items are selected that have not been loaded
+                        selected.some((order) => !this.parts.find((p) => p.order === order))
+                    ) &&
+                    failureCount < 5
+                ) {
+                    try {
+                        await this.fetchNextPage();
+                    } catch (error) {
+                        this.addError(error);
+                        failureCount += 1;
+                        // wait 1 second between attempts
+                        await new Promise((res) => setTimeout(res, 500));
+                    }
+                }
+                // set selected items on state
+                if (failureCount < 5) {
+                    // filter selected to only have filtered items
+                    const filteredSelected = selected.filter(
+                        (p) => (this.filteredParts.find((part) => (part.order + 1 === p)))
+                    );
+                    this.setSelectedPartsByOrder(filteredSelected);
+                } else {
+                    this.addError({ message: "Failed to fetch additional images" });
+                }
+                this.setLoading({ key: "images", loading: false });
+            }
+        },
+        /**
+         * Handle search to filter
+         */
+        onSearch(e) {
+            this.textFilterValue = e.target.value;
+        },
+        /**
+         * Handle pressing enter in the search filter
+         */
+        async onSearchKeydown(e) {
+            if (e.key === "Enter") await this.onSubmitSearch();
+        },
+        /**
+         * Handle submitting search filter
+         */
+        async onSubmitSearch() {
+            await this.loadAll();
+            this.textFilter = this.textFilterValue;
+        },
+        /**
+         * Handle the checkbox input to select/deselect parts
+         */
+        onToggleSelected(e, partPk, order) {
+            // preventDefault to delegate input checking entirely to selectedParts
+            e.preventDefault();
+            // checked = the input is actively being checked, in other words, it was
+            // previously not selected
+            const checked = !this.selectedParts.includes(partPk);
+            // then we toggle its selection
+            this.togglePartSelected(partPk);
+            if (this.lastSelected && e.shiftKey) {
+                // remove text selection highlight
+                document.getSelection().removeAllRanges();
+                // handle multiple selection with shift key
+                const start = order;
+                const end = this.lastSelected;
+                const selected = [...range(Math.min(start,end), Math.max(start,end) + 1)];
+                // only selected images in current filter
+                const filteredSelected = selected.filter(
+                    (p) => (this.filteredParts.find((part) => (part.order + 1 === p)))
+                );
+                this.modifySelectedPartsByOrder({ selected: filteredSelected, checked });
+            }
+            // save the last selected item (for multiple selection with shift key)
+            this.lastSelected = order;
+        },
+        /**
+         * Handle the "select all" checkbox in the list view, which functions as "select none"
+         * if any images are selected
+         */
+        onToggleSelectAll(e) {
+            e.preventDefault();
+            if (this.selectedParts?.length > 0) {
+                this.selectNone();
+            } else {
+                this.selectAll();
+            }
+        },
+        /**
+         * Set loading state on, run the document module's import code, set loading off
+         */
+        async onSubmitImport() {
+            this.setLoading({ key: "document", loading: true });
+            await this.handleSubmitImport();
+            this.setLoading({ key: "document", loading: false });
+        },
+        /**
+         * Open a context menu for an image by pk.
+         */
+        openContextMenu(pk) {
+            this.contextMenuOpen = pk;
+        },
+        /**
+         * Load all remaining images
+         */
+        async loadAll(callback = () => {}, maxRetries = 5) {
+            let failureCount = 0;
+            this.setLoading({ key: "images", loading: true });
+            // max 5 attempts
+            while (this.nextPage && failureCount < maxRetries) {
+                try {
+                    await this.fetchNextPage();
+                } catch (error) {
+                    this.addError(error);
+                    failureCount += 1;
+                    // wait 1 second between attempts
+                    await new Promise((res) => setTimeout(res, 500));
+                }
+            }
+            if (failureCount < maxRetries) {
+                callback();
+            } else {
+                this.addError({ message: "Failed to fetch additional images" });
+            }
+            this.setLoading({ key: "images", loading: false });
+        },
+        /**
+         * Handler for clicking "select all"
+         */
+        async selectAll() {
+            await this.loadAll(() => this.setSelectedParts(
+                this.filteredParts.map((part) => part.pk)
+            ));
+        },
+        /**
+         * Handler for clicking "select none"
+         */
+        selectNone() {
+            this.setSelectedParts([]);
+        },
+        /**
+         * Validate the passed range string:
+         *   - must be only numbers, dashes, and commas
+         *   - must be a valid range of less than 5000 numbers
+         */
+        validateSelectRange(val) {
+            let validationError = null;
+            const selected = [];
+            if (val.match(this.rangeRegex)) {
+                // maybe valid if matching regex
+                // split out comma separated numbers and ranges (e.g. "3,4-30,31")
+                const commaSeparated = val.split(",");
+                commaSeparated.forEach((str) => {
+                    // find ranges and validate them
+                    const dashSeparated = str.split("-");
+                    if (dashSeparated.length > 2) {
+                        // multiple dashes e.g. 1-100-150 is invalid
+                        validationError = "Invalid range; dashes may only separate two numbers";
+                    } else if (dashSeparated.length === 2) {
+                        // validate for actual range
+                        const leftVal = parseInt(dashSeparated[0]);
+                        const rightVal = parseInt(dashSeparated[1]);
+                        if (leftVal >= rightVal) {
+                            validationError = "Invalid range; first number must be smaller than " +
+                                "second";
+                        } else if (rightVal - leftVal >= 5000) {
+                            // validate for limit (memory constraint on the range() function)
+                            validationError = "Range exceeded maximum number of selections (5000)";
+                        } else {
+                            // select all numbers in the range
+                            selected.push(...range(leftVal, rightVal + 1));
+                        }
+                    } else {
+                        // not a range, just one number, so it's valid
+                        selected.push(parseInt(dashSeparated[0]));
+                    }
+                });
+            } else if (val) {
+                // invalid if not matching regex (unless empty)
+                validationError = "Must be a list of numbers separated by commas, and/or numeric " +
+                    "ranges separated by dashes";
+            }
+            // get unique selected indices and unique errors
+            return {
+                selected: [...new Set(selected)],
+                error: validationError,
+            };
+        },
+        async websocketTaskListener(e) {
+            const data = JSON.parse(e.data);
+            // handle task-related events
+            const taskEvents = [
+                "export:", "import:", "part:mask", "part:workflow", "training:"
+            ];
+            if (
+                data.type === "event" && taskEvents.some((task) => data.name.startsWith(task))
+            ) {
+                this.updatePartTaskStatus(data.data);
+            }
+            // update images on import progress
+            if (data.name === "import:progress" || data.name === "import:done") {
+                try {
+                    await this.fetchParts();
+                    if (data.data?.progress && data.data.total) {
+                        this.importProgress = `${data.data.progress}/${data.data.total} imported`;
+                    } else {
+                        this.importProgress = "";
+                    }
+                    this.setPartsCount(this.parts.length);
+                    this.setLoading({ key: "images", loading: false });
+                } catch (error) {
+                    this.setLoading({ key: "images", loading: false });
+                    this.addError(error);
+                }
+            }
+        },
+        /**
+         * Callback for clicking the "load more" button, which fetches the next page
+         */
+        async onLoadMore() {
+            this.setLoading({ key: "images", loading: true });
+            await this.fetchNextPage();
+            this.setLoading({ key: "images", loading: false });
+        },
+
+        /**
+         * On drag, set dragged part's pk on the event data so that it can be retrieved on drop.
+         */
+        handleDragStart(e, part) {
+            e.dataTransfer.setData("draggingPk", part.pk);
+            e.dataTransfer.setData("draggingOrder", part.order);
+        },
+        /**
+         * check if every item in an array is consecutive
+         * from https://stackoverflow.com/a/63009660/394067
+         */
+        isConsecutive(array) {
+            return array.every((value, i) => i === 0 || +value === +array[i-1] + 1)
+        },
+        /**
+         * On drop, perform the reordering operation, then turn off all drag-related
+         * component and store states.
+         */
+        async handleDrop(e, part, idx) {
+            const draggingPk = parseInt(e.dataTransfer.getData("draggingPk"));
+            const oldIndex = parseInt(e.dataTransfer.getData("draggingOrder"));
+            // determine the index to move to
+            let newIndex = idx;
+            if (this.selectedParts.length <= 1 && oldIndex < newIndex) {
+                newIndex--;
+            }
+            if (this.selectedParts.length > 1 && this.selectedParts.includes(draggingPk)) {
+                // multiple selected:
+                // if all selected images are consecutive, and the new index is between
+                // the first and last index of the selected images, don't bother making
+                // the API request since they will not move
+                const selectedIndices = this.parts.filter(
+                    (p) => this.selectedParts.includes(p.pk)
+                ).map((p) => p.order).toSorted((a, b) => a - b);
+                const shouldMove = !(
+                    this.isConsecutive(selectedIndices) &&
+                    newIndex >= selectedIndices[0] &&
+                    (newIndex - 1) <= selectedIndices[selectedIndices.length - 1]
+                );
+                if (shouldMove) {
+                    await this.moveSelectedParts({ index: newIndex });
+                }
+            } else if (draggingPk !== part.pk && oldIndex !== newIndex) {
+                // single selected:
+                // make the API request if the old index is not the same as the new index
+                await this.movePart({ partPk: draggingPk, index: newIndex });
+            }
+        },
+        /**
+         * Get user preference for display mode from local storage
+         */
+        getDisplayMode() {
+            return localStorage.getItem("images-display-mode");
+        },
+        /**
+         * Set user preference for display mode in local storage and on component
+         */
+        setDisplayMode(mode) {
+            localStorage.setItem("images-display-mode", mode);
+            this.displayMode = mode;
+        },
+        /**
+         * Open the redraw masks confirmation modal
+         */
+        openRedrawModal() {
+            this.redrawModalOpen = true;
+        },
+        /**
+         * Close the redraw masks confirmation modal
+         */
+        closeRedrawModal() {
+            this.redrawModalOpen = false;
+        },
+        /**
+         * Submit the redraw masks task
+         */
+        async onRedrawMasks() {
+            this.setLoading({ key: "images", loading: true });
+            await this.handleSubmitRedrawMasks();
+            this.closeRedrawModal();
+            this.setLoading({ key: "images", loading: false });
+        },
+        /**
+         * Stage selected images in the browser's temporary session storage,
+         * then redirect to the model training view
+         */
+        async goToTraining() {
+            this.setLoading({ key: "images", loading: true });
+
+            try {
+                // object with everything the training view needs
+                const trainingData = {
+                    project: {
+                        id: this.projectId,
+                        name: this.projectName
+                    },
+                    document: {
+                        pk: this.id,
+                        name: this.documentName,
+                        parts_count: this.partsCount,
+                        transcriptions: this.transcriptions,
+                    },
+                    parts: this.parts,
+                    selectedParts: this.selectedParts,
+                };
+                sessionStorage.setItem("escr-training-data", JSON.stringify(trainingData));
+                window.location.href = "/training/";
+            } catch (error) {
+                this.addError(error);
+                this.setLoading({ key: "images", loading: false });
+            }
+        },
+    },
+}
+</script>

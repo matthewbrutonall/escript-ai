@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% load i18n %}
+{% block bodyclass %}models{% endblock %}
+
+{% block body %}
+{% if MODELS_VERSION_RETENTION %}
+<div class="jumbotron text-center">
+  <p class="lead">
+    {% blocktrans %}Please be aware that the epoch versions of the models will only be available for {{ MODELS_VERSION_RETENTION }} days.{% endblocktrans %}
+  </p>
+</div>
+{% endif %}
+
+<div class="float-sm-right">
+  <a href="{% url 'model-upload' %}" class="btn btn-success">{% trans "Upload a model" %}</a>
+  <a href="https://htrmopo.inria.fr/catalog" target="_blank" rel="noopener" class="btn btn-secondary">{% trans "Find a model" %}</a>
+  <a href="https://htrmopo.inria.fr/upload" target="_blank" rel="noopener" class="btn btn-secondary">{% trans "Publish a model" %}</a>
+</div>
+<h1>{% trans "Models" %}</h1>
+{% include 'core/models_list/table.html' %}
+{% endblock %}
+{% block scripts %}
+    {{ block.super }}
+    {% include 'core/models_list/scripts.html' %}
+{% endblock %}

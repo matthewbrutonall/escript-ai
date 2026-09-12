@@ -1,0 +1,18 @@
+{% load i18n %}
+{% get_current_language as LANGUAGE_CODE %}
+{% get_available_languages as LANGUAGES %}
+{% get_language_info_list for LANGUAGES as langs %}
+{% if langs|length > 1 %}
+<form class="esai-langs" action="{% url 'set_language' %}" method="post">
+  {% csrf_token %}
+  <input type="hidden" name="next" value="{{ request.get_full_path }}">
+  <p class="esai-langs-label">{% trans "Language" %}</p>
+  {% for lang in langs %}
+  <button type="submit" name="language" value="{{ lang.code }}"
+          lang="{{ lang.code }}"
+          {% if lang.code == LANGUAGE_CODE %}aria-current="true"{% endif %}>
+    {{ lang.name_local }}
+  </button>
+  {% endfor %}
+</form>
+{% endif %}

@@ -1,0 +1,506 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: Escript AI\n"
+"POT-Creation-Date: 2026-09-12 00:05+0000\n"
+"Language: ar\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Home"
+msgstr "الرئيسية"
+
+msgid "Language"
+msgstr "اللغة"
+
+msgid "Sign in"
+msgstr "تسجيل الدخول"
+
+msgid "Login"
+msgstr "تسجيل الدخول"
+
+msgid "Open projects"
+msgstr "فتح المشاريع"
+
+msgid "Acknowledgements"
+msgstr "شكر وتقدير"
+
+msgid "Contact"
+msgstr "اتصل بنا"
+
+msgid "Public pages are translated. After you sign in, most of the app is still in English."
+msgstr "الصفحات العامة مترجمة. بعد تسجيل الدخول، يبقى معظم التطبيق بالإنجليزية."
+
+msgid "Old manuscripts and modern handwriting. Latin, Arabic, Hindi, and whatever else is on the page. The machine types a first pass. You correct it."
+msgstr "مخطوطات قديمة وخط يد حديث. لاتينية، عربية، هندية، وأي شيء آخر على الصفحة. الآلة تكتب مسودة أولى. أنت تصحّحها."
+
+msgid "Project capabilities"
+msgstr "إمكانات المشروع"
+
+msgid "First pass"
+msgstr "مسودة أولى"
+
+msgid "The AI types what it sees onto a separate layer. Your original page stays put."
+msgstr "الذكاء الاصطناعي يكتب ما يراه في طبقة منفصلة. صفحتك الأصلية تبقى كما هي."
+
+msgid "You decide"
+msgstr "أنت تقرر"
+
+msgid "Nothing is finished text until you have looked at it."
+msgstr "لا يُعدّ النص نهائيًا قبل أن تراجعه."
+
+msgid "Any script"
+msgstr "أي أبجدية"
+
+msgid "Latin (the alphabet used for English and other European languages), Arabic, Hindi, and the rest. If you can see the writing, it will try to read it."
+msgstr "اللاتينية (أبجدية الإنجليزية ولغات أوروبية أخرى)، العربية، الهندية، وغيرها. إن رأيت الكتابة، سيحاول قراءتها."
+
+msgid "What you actually get"
+msgstr "ماذا تحصل عليه فعلًا"
+
+msgid "English"
+msgstr "الإنجليزية"
+
+msgid "Arabic"
+msgstr "العربية"
+
+msgid "Hindi"
+msgstr "الهندية"
+
+msgid "<strong>A typed layer on top of the page</strong> — not a replacement for it. You keep the image, correct the text, and export when it is good enough."
+msgstr "<strong>طبقة مطبوعة فوق الصفحة</strong> — وليست بديلًا عنها. تحتفظ بالصورة، تصحّح النص، وتصدّر عندما يكفي."
+
+msgid "Not just old, not just Latin"
+msgstr "ليست قديمة فقط، وليست لاتينية فقط"
+
+msgid "Arabic, Hindi, and other scripts use the same workflow as English. If the lines on the page are clear, it does not care which alphabet they are in — or whether the ink is a century old or last week’s."
+msgstr "العربية والهندية وغيرهما تسلك المسار نفسه كالإنجليزية. إن كانت الأسطر واضحة، لا يهم أي أبجدية — ولا إن كان الحبر عمره قرن أو من الأسبوع الماضي."
+
+msgid "Keys stay under your control"
+msgstr "المفاتيح تبقى تحت سيطرتك"
+
+msgid "Remote AI calls need a key you configure, plus document policy, before anything leaves the instance."
+msgstr "نداءات الذكاء الاصطناعي البعيدة تحتاج مفتاحًا تضبطه، وسياسة للمستند، قبل أن يخرج أي شيء من النسخة."
+
+msgid "You stay in charge"
+msgstr "أنت تبقى المسؤول"
+
+msgid "The useful path is read, tweak, and export. Training a local recognition model is there when a collection needs it."
+msgstr "المسار المفيد: اقرأ، عدّل، صدّر. تدريب نموذج تعرّف محلي موجود عندما تحتاج المجموعة إليه."
+
+msgid "Escript AI is independent open-source work derived from"
+msgstr "إسكربت AI عمل حر مستقل مشتق من"
+
+msgid "and built on the"
+msgstr "ومبني على"
+
+msgid "OCR/HTR engine. It is not an official eScriptorium release and is not endorsed by the upstream project."
+msgstr "لمحرك التعرف البصري/الخطي. ليست إصدارة رسمية من eScriptorium ولا يحظى بتزكية المشروع الأصلي."
+
+msgid "My Projects"
+msgstr "مشاريعي"
+
+msgid "My Models"
+msgstr "نماذجي"
+
+msgid "My Documents"
+msgstr "وثائقي"
+
+msgid "Hello %(username)s"
+msgstr "مرحبًا %(username)s"
+
+msgid "Change password"
+msgstr "تغيير كلمة المرور"
+
+msgid "Profile"
+msgstr "الملف الشخصي"
+
+msgid "Task reports"
+msgstr "تقارير المهام"
+
+msgid "Tasks monitoring"
+msgstr "مراقبة المهام"
+
+msgid "Downloads"
+msgstr "التنزيلات"
+
+msgid "Site administration"
+msgstr "إدارة الموقع"
+
+msgid "Invite"
+msgstr "دعوة"
+
+msgid "Logout"
+msgstr "تسجيل الخروج"
+
+msgid "Please Sign In"
+msgstr "يرجى تسجيل الدخول"
+
+msgid "Password"
+msgstr "كلمة المرور"
+
+msgid "Lost password?"
+msgstr "نسيت كلمة المرور؟"
+
+msgid "Create new Project"
+msgstr "إنشاء مشروع جديد"
+
+msgid "Create a new Project"
+msgstr "إنشاء مشروع جديد"
+
+msgid "Create new Document"
+msgstr "إنشاء وثيقة جديدة"
+
+msgid "Create a new Document"
+msgstr "إنشاء وثيقة جديدة"
+
+msgid "Documents"
+msgstr "الوثائق"
+
+msgid "Document"
+msgstr "وثيقة"
+
+msgid "Name"
+msgstr "الاسم"
+
+msgid "Owner"
+msgstr "المالك"
+
+msgid "Actions"
+msgstr "إجراءات"
+
+msgid "Tags"
+msgstr "وسوم"
+
+msgid "Manage tags"
+msgstr "إدارة الوسوم"
+
+msgid "Share this Project"
+msgstr "مشاركة هذا المشروع"
+
+msgid "Share this Document"
+msgstr "مشاركة هذه الوثيقة"
+
+msgid "Share"
+msgstr "مشاركة"
+
+msgid "Close"
+msgstr "إغلاق"
+
+msgid "Delete"
+msgstr "حذف"
+
+msgid "Edit"
+msgstr "تحرير"
+
+msgid "Save"
+msgstr "حفظ"
+
+msgid "Cancel"
+msgstr "إلغاء"
+
+msgid "Update"
+msgstr "تحديث"
+
+msgid "Create"
+msgstr "إنشاء"
+
+msgid "Import"
+msgstr "استيراد"
+
+msgid "Export"
+msgstr "تصدير"
+
+msgid "Download"
+msgstr "تنزيل"
+
+msgid "Train"
+msgstr "تدريب"
+
+msgid "Transcribe"
+msgstr "نسخ"
+
+msgid "Segment"
+msgstr "تقسيم"
+
+msgid "Align"
+msgstr "محاذاة"
+
+msgid "Binarize"
+msgstr "تحويل ثنائي"
+
+msgid "Select a model"
+msgstr "اختر نموذجًا"
+
+msgid "Select a transcription"
+msgstr "اختر نسخًا"
+
+msgid "Layer name"
+msgstr "اسم الطبقة"
+
+msgid "-- New --"
+msgstr "-- جديد --"
+
+msgid "Model"
+msgstr "نموذج"
+
+msgid "Description"
+msgstr "الوصف"
+
+msgid "Ontology"
+msgstr "الأنطولوجيا"
+
+msgid "Images"
+msgstr "الصور"
+
+msgid "Models"
+msgstr "النماذج"
+
+msgid "Reports"
+msgstr "التقارير"
+
+msgid "Select all"
+msgstr "تحديد الكل"
+
+msgid "Unselect all"
+msgstr "إلغاء تحديد الكل"
+
+msgid "Selected"
+msgstr "محدد"
+
+msgid "Loading"
+msgstr "جارٍ التحميل"
+
+msgid "Filters"
+msgstr "مرشحات"
+
+msgid "Preview"
+msgstr "معاينة"
+
+msgid "Last modified"
+msgstr "آخر تعديل"
+
+msgid "Image count"
+msgstr "عدد الصور"
+
+msgid "Search"
+msgstr "بحث"
+
+msgid "Find"
+msgstr "إيجاد"
+
+msgid "Results"
+msgstr "النتائج"
+
+msgid "Content"
+msgstr "المحتوى"
+
+msgid "Settings"
+msgstr "الإعدادات"
+
+msgid "Details"
+msgstr "التفاصيل"
+
+msgid "Status"
+msgstr "الحالة"
+
+msgid "Queued"
+msgstr "في الانتظار"
+
+msgid "Running"
+msgstr "قيد التشغيل"
+
+msgid "Finished"
+msgstr "انتهى"
+
+msgid "Error"
+msgstr "خطأ"
+
+msgid "Canceled"
+msgstr "ملغى"
+
+msgid "Crashed"
+msgstr "تعطل"
+
+msgid "image(s) selected."
+msgstr "صورة/صور محددة."
+
+msgid "Beware that re-segmenting will delete any existing transcriptions!"
+msgstr "انتبه: إعادة التقسيم تحذف أي نسخ موجود!"
+
+msgid "Drop images here or click to upload."
+msgstr "أسقط الصور هنا أو انقر للرفع."
+
+msgid "Your username and password didn't match. Please try again."
+msgstr "اسم المستخدم وكلمة المرور لا يتطابقان. حاول مرة أخرى."
+
+msgid "Please login to see this page."
+msgstr "يرجى تسجيل الدخول لرؤية هذه الصفحة."
+
+msgid "Search in all your projects"
+msgstr "البحث في كل مشاريعك"
+
+msgid "1 document."
+msgstr "وثيقة واحدة."
+
+msgid "1 image."
+msgstr "صورة واحدة."
+
+msgid "Metadata"
+msgstr "البيانات الوصفية"
+
+msgid "Back to document list"
+msgstr "العودة إلى قائمة الوثائق"
+
+msgid "Back to profile"
+msgstr "العودة إلى الملف"
+
+msgid "Files"
+msgstr "الملفات"
+
+msgid "Invitations"
+msgstr "الدعوات"
+
+msgid "Teams"
+msgstr "الفرق"
+
+msgid "Users"
+msgstr "المستخدمون"
+
+msgid "Username"
+msgstr "اسم المستخدم"
+
+msgid "Email address"
+msgstr "البريد الإلكتروني"
+
+msgid "email address"
+msgstr "البريد الإلكتروني"
+
+msgid "Send"
+msgstr "إرسال"
+
+msgid "Accept"
+msgstr "قبول"
+
+msgid "Remove"
+msgstr "إزالة"
+
+msgid "Remove filter"
+msgstr "إزالة التصفية"
+
+msgid "Leave"
+msgstr "مغادرة"
+
+msgid "Information"
+msgstr "معلومات"
+
+msgid "API key"
+msgstr "مفتاح واجهة البرمجة"
+
+msgid "Transcription done!"
+msgstr "اكتمل النسخ!"
+
+msgid "Segmentation done!"
+msgstr "اكتمل التقسيم!"
+
+msgid "Something went wrong during the transcription!"
+msgstr "حدث خطأ أثناء النسخ!"
+
+msgid "Something went wrong during the segmentation!"
+msgstr "حدث خطأ أثناء التقسيم!"
+
+msgid "Document created successfully!"
+msgstr "أُنشئت الوثيقة بنجاح!"
+
+msgid "Project created successfully!"
+msgstr "أُنشئ المشروع بنجاح!"
+
+msgid "New model"
+msgstr "نموذج جديد"
+
+msgid "Or select an existing one"
+msgstr "أو اختر موجودًا"
+
+msgid "Start transcribing selected images."
+msgstr "ابدأ نسخ الصور المحددة."
+
+msgid "Segment selected images."
+msgstr "قسّم الصور المحددة."
+
+msgid "Make sure that the segmentation is good before going forward because resegmenting will delete all bound transcriptions."
+msgstr "تأكد أن التقسيم جيد قبل المتابعة؛ إعادة التقسيم تحذف النسخ المرتبطة."
+
+msgid "Please be aware that the epoch versions of the models will only be available for %(MODELS_VERSION_RETENTION)s days."
+msgstr "اعلم أن إصدارات حقب النماذج ستبقى متاحة لمدة %(MODELS_VERSION_RETENTION)s يومًا فقط."
+
+msgid "Upload a model"
+msgstr "رفع نموذج"
+
+msgid "Find a model"
+msgstr "إيجاد نموذج"
+
+msgid "Publish a model"
+msgstr "نشر نموذج"
+
+msgid "Role"
+msgstr "الدور"
+
+msgid "Script"
+msgstr "الخط"
+
+msgid "Size"
+msgstr "الحجم"
+
+msgid "Trained from"
+msgstr "دُرّب من"
+
+msgid "Training Status"
+msgstr "حالة التدريب"
+
+msgid "Accuracy"
+msgstr "الدقة"
+
+msgid "Right"
+msgstr "الحق"
+
+msgid "Public"
+msgstr "عام"
+
+msgid "User"
+msgstr "مستخدم"
+
+msgid "Upload"
+msgstr "رفع"
+
+msgid "Model name"
+msgstr "اسم النموذج"
+
+msgid "Model role"
+msgstr "دور النموذج"
+
+msgid "Model script"
+msgstr "خط النموذج"
+
+msgid "Filter by script"
+msgstr "تصفية حسب الخط"
+
+msgid "Share model"
+msgstr "مشاركة النموذج"
+
+msgid "Delete model"
+msgstr "حذف النموذج"
+
+msgid "Cancel training"
+msgstr "إلغاء التدريب"
+
+msgid "Is currently training"
+msgstr "قيد التدريب"
+
+msgid "Is done training"
+msgstr "اكتمل التدريب"
+
+msgid "Toggle versions"
+msgstr "إظهار الإصدارات"
+
+msgid "Parent from which the model was trained"
+msgstr "الأصل الذي دُرّب منه النموذج"

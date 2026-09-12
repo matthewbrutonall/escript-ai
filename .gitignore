@@ -1,0 +1,40 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+*.key
+variables.env
+docker-compose.secrets.yml
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.kraken-venv/
+*.egg-info/
+
+# Node / frontend build
+node_modules/
+escriptorium/front/node_modules/
+escriptorium/front/dist/
+escriptorium/front/dist-lxd/
+
+# Django / media
+*.sqlite3
+app/media/
+app/static/
+*.log
+
+# Local spike outputs and unpublished page crops (not for GitHub)
+phase0-spike/_*.png
+phase0-spike/_results.json
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+.claude/
+.codex/
+.agents/
+*~

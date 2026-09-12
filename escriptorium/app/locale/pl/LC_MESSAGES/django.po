@@ -1,0 +1,506 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: Escript AI\n"
+"POT-Creation-Date: 2026-09-12 00:05+0000\n"
+"Language: pl\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Home"
+msgstr "Strona główna"
+
+msgid "Language"
+msgstr "Język"
+
+msgid "Sign in"
+msgstr "Zaloguj się"
+
+msgid "Login"
+msgstr "Logowanie"
+
+msgid "Open projects"
+msgstr "Otwórz projekty"
+
+msgid "Acknowledgements"
+msgstr "Podziękowania"
+
+msgid "Contact"
+msgstr "Kontakt"
+
+msgid "Public pages are translated. After you sign in, most of the app is still in English."
+msgstr "Strony publiczne są przetłumaczone. Po zalogowaniu większość aplikacji jest nadal po angielsku."
+
+msgid "Old manuscripts and modern handwriting. Latin, Arabic, Hindi, and whatever else is on the page. The machine types a first pass. You correct it."
+msgstr "Stare rękopisy i współczesne pismo ręczne. Łaciński, arabski, hindi i cokolwiek jest na stronie. Maszyna pisze pierwszą wersję. Ty ją poprawiasz."
+
+msgid "Project capabilities"
+msgstr "Możliwości"
+
+msgid "First pass"
+msgstr "Pierwsza wersja"
+
+msgid "The AI types what it sees onto a separate layer. Your original page stays put."
+msgstr "SI przepisuje to, co widzi, na osobną warstwę. Oryginalna strona zostaje na miejscu."
+
+msgid "You decide"
+msgstr "Ty decydujesz"
+
+msgid "Nothing is finished text until you have looked at it."
+msgstr "Żaden tekst nie jest gotowy, dopóki go nie przejrzysz."
+
+msgid "Any script"
+msgstr "Dowolne pismo"
+
+msgid "Latin (the alphabet used for English and other European languages), Arabic, Hindi, and the rest. If you can see the writing, it will try to read it."
+msgstr "Łaciński (alfabet angielskiego i innych języków europejskich), arabski, hindi i reszta. Jeśli widać pismo, spróbuje je odczytać."
+
+msgid "What you actually get"
+msgstr "Co naprawdę dostajesz"
+
+msgid "English"
+msgstr "Angielski"
+
+msgid "Arabic"
+msgstr "Arabski"
+
+msgid "Hindi"
+msgstr "Hindi"
+
+msgid "<strong>A typed layer on top of the page</strong> — not a replacement for it. You keep the image, correct the text, and export when it is good enough."
+msgstr "<strong>Osobna, przepisana warstwa na stronie</strong> — nie zamiast niej. Zostaje obraz, poprawiasz tekst i eksportujesz, gdy wystarczy."
+
+msgid "Not just old, not just Latin"
+msgstr "Nie tylko stare, nie tylko łacińskie"
+
+msgid "Arabic, Hindi, and other scripts use the same workflow as English. If the lines on the page are clear, it does not care which alphabet they are in — or whether the ink is a century old or last week’s."
+msgstr "Arabski, hindi i inne pisma idą tą samą ścieżką co angielski. Jeśli widać wiersze, obojętne w jakim alfabecie — i czy atrament ma sto lat, czy tydzień."
+
+msgid "Keys stay under your control"
+msgstr "Klucze zostają pod Twoją kontrolą"
+
+msgid "Remote AI calls need a key you configure, plus document policy, before anything leaves the instance."
+msgstr "Zdalne wywołania SI wymagają klucza, który ustawiasz, oraz polityki dokumentu, zanim cokolwiek opuści instancję."
+
+msgid "You stay in charge"
+msgstr "Ty zostajesz przy sterach"
+
+msgid "The useful path is read, tweak, and export. Training a local recognition model is there when a collection needs it."
+msgstr "Sensowna droga: czytaj, popraw, eksportuj. Trening lokalnego modelu rozpoznawania jest, gdy zbiór go potrzebuje."
+
+msgid "Escript AI is independent open-source work derived from"
+msgstr "Escript AI to niezależny projekt open source wywodzący się z"
+
+msgid "and built on the"
+msgstr "i oparty na"
+
+msgid "OCR/HTR engine. It is not an official eScriptorium release and is not endorsed by the upstream project."
+msgstr "silniku OCR/HTR. To nie jest oficjalne wydanie eScriptorium i nie ma endorsamentu projektu nadrzędnego."
+
+msgid "My Projects"
+msgstr "Moje projekty"
+
+msgid "My Models"
+msgstr "Moje modele"
+
+msgid "My Documents"
+msgstr "Moje dokumenty"
+
+msgid "Hello %(username)s"
+msgstr "Cześć %(username)s"
+
+msgid "Change password"
+msgstr "Zmień hasło"
+
+msgid "Profile"
+msgstr "Profil"
+
+msgid "Task reports"
+msgstr "Raporty zadań"
+
+msgid "Tasks monitoring"
+msgstr "Monitorowanie zadań"
+
+msgid "Downloads"
+msgstr "Pobrane"
+
+msgid "Site administration"
+msgstr "Administracja witryny"
+
+msgid "Invite"
+msgstr "Zaproś"
+
+msgid "Logout"
+msgstr "Wyloguj"
+
+msgid "Please Sign In"
+msgstr "Zaloguj się"
+
+msgid "Password"
+msgstr "Hasło"
+
+msgid "Lost password?"
+msgstr "Nie pamiętasz hasła?"
+
+msgid "Create new Project"
+msgstr "Utwórz nowy projekt"
+
+msgid "Create a new Project"
+msgstr "Utwórz nowy projekt"
+
+msgid "Create new Document"
+msgstr "Utwórz nowy dokument"
+
+msgid "Create a new Document"
+msgstr "Utwórz nowy dokument"
+
+msgid "Documents"
+msgstr "Dokumenty"
+
+msgid "Document"
+msgstr "Dokument"
+
+msgid "Name"
+msgstr "Nazwa"
+
+msgid "Owner"
+msgstr "Właściciel"
+
+msgid "Actions"
+msgstr "Akcje"
+
+msgid "Tags"
+msgstr "Tagi"
+
+msgid "Manage tags"
+msgstr "Zarządzaj tagami"
+
+msgid "Share this Project"
+msgstr "Udostępnij ten projekt"
+
+msgid "Share this Document"
+msgstr "Udostępnij ten dokument"
+
+msgid "Share"
+msgstr "Udostępnij"
+
+msgid "Close"
+msgstr "Zamknij"
+
+msgid "Delete"
+msgstr "Usuń"
+
+msgid "Edit"
+msgstr "Edytuj"
+
+msgid "Save"
+msgstr "Zapisz"
+
+msgid "Cancel"
+msgstr "Anuluj"
+
+msgid "Update"
+msgstr "Aktualizuj"
+
+msgid "Create"
+msgstr "Utwórz"
+
+msgid "Import"
+msgstr "Importuj"
+
+msgid "Export"
+msgstr "Eksportuj"
+
+msgid "Download"
+msgstr "Pobierz"
+
+msgid "Train"
+msgstr "Trenuj"
+
+msgid "Transcribe"
+msgstr "Transkrybuj"
+
+msgid "Segment"
+msgstr "Segmentuj"
+
+msgid "Align"
+msgstr "Wyrównaj"
+
+msgid "Binarize"
+msgstr "Binaryzuj"
+
+msgid "Select a model"
+msgstr "Wybierz model"
+
+msgid "Select a transcription"
+msgstr "Wybierz transkrypcję"
+
+msgid "Layer name"
+msgstr "Nazwa warstwy"
+
+msgid "-- New --"
+msgstr "-- Nowy --"
+
+msgid "Model"
+msgstr "Model"
+
+msgid "Description"
+msgstr "Opis"
+
+msgid "Ontology"
+msgstr "Ontologia"
+
+msgid "Images"
+msgstr "Obrazy"
+
+msgid "Models"
+msgstr "Modele"
+
+msgid "Reports"
+msgstr "Raporty"
+
+msgid "Select all"
+msgstr "Zaznacz wszystko"
+
+msgid "Unselect all"
+msgstr "Odznacz wszystko"
+
+msgid "Selected"
+msgstr "Zaznaczone"
+
+msgid "Loading"
+msgstr "Ładowanie"
+
+msgid "Filters"
+msgstr "Filtry"
+
+msgid "Preview"
+msgstr "Podgląd"
+
+msgid "Last modified"
+msgstr "Ostatnia zmiana"
+
+msgid "Image count"
+msgstr "Liczba obrazów"
+
+msgid "Search"
+msgstr "Szukaj"
+
+msgid "Find"
+msgstr "Znajdź"
+
+msgid "Results"
+msgstr "Wyniki"
+
+msgid "Content"
+msgstr "Treść"
+
+msgid "Settings"
+msgstr "Ustawienia"
+
+msgid "Details"
+msgstr "Szczegóły"
+
+msgid "Status"
+msgstr "Status"
+
+msgid "Queued"
+msgstr "W kolejce"
+
+msgid "Running"
+msgstr "W toku"
+
+msgid "Finished"
+msgstr "Zakończone"
+
+msgid "Error"
+msgstr "Błąd"
+
+msgid "Canceled"
+msgstr "Anulowano"
+
+msgid "Crashed"
+msgstr "Awaria"
+
+msgid "image(s) selected."
+msgstr "zaznaczono obraz(y)."
+
+msgid "Beware that re-segmenting will delete any existing transcriptions!"
+msgstr "Uwaga: ponowne segmentowanie usunie istniejące transkrypcje!"
+
+msgid "Drop images here or click to upload."
+msgstr "Upuść obrazy tutaj albo kliknij, by wgrać."
+
+msgid "Your username and password didn't match. Please try again."
+msgstr "Nazwa użytkownika i hasło nie pasują. Spróbuj ponownie."
+
+msgid "Please login to see this page."
+msgstr "Zaloguj się, aby zobaczyć tę stronę."
+
+msgid "Search in all your projects"
+msgstr "Szukaj we wszystkich projektach"
+
+msgid "1 document."
+msgstr "1 dokument."
+
+msgid "1 image."
+msgstr "1 obraz."
+
+msgid "Metadata"
+msgstr "Metadane"
+
+msgid "Back to document list"
+msgstr "Wróć do listy dokumentów"
+
+msgid "Back to profile"
+msgstr "Wróć do profilu"
+
+msgid "Files"
+msgstr "Pliki"
+
+msgid "Invitations"
+msgstr "Zaproszenia"
+
+msgid "Teams"
+msgstr "Zespoły"
+
+msgid "Users"
+msgstr "Użytkownicy"
+
+msgid "Username"
+msgstr "Nazwa użytkownika"
+
+msgid "Email address"
+msgstr "Adres e-mail"
+
+msgid "email address"
+msgstr "adres e-mail"
+
+msgid "Send"
+msgstr "Wyślij"
+
+msgid "Accept"
+msgstr "Akceptuj"
+
+msgid "Remove"
+msgstr "Usuń"
+
+msgid "Remove filter"
+msgstr "Usuń filtr"
+
+msgid "Leave"
+msgstr "Opuść"
+
+msgid "Information"
+msgstr "Informacje"
+
+msgid "API key"
+msgstr "Klucz API"
+
+msgid "Transcription done!"
+msgstr "Transkrypcja skończona!"
+
+msgid "Segmentation done!"
+msgstr "Segmentacja skończona!"
+
+msgid "Something went wrong during the transcription!"
+msgstr "Coś poszło nie tak przy transkrypcji!"
+
+msgid "Something went wrong during the segmentation!"
+msgstr "Coś poszło nie tak przy segmentacji!"
+
+msgid "Document created successfully!"
+msgstr "Dokument utworzony!"
+
+msgid "Project created successfully!"
+msgstr "Projekt utworzony!"
+
+msgid "New model"
+msgstr "Nowy model"
+
+msgid "Or select an existing one"
+msgstr "Albo wybierz istniejący"
+
+msgid "Start transcribing selected images."
+msgstr "Zacznij transkrypcję zaznaczonych obrazów."
+
+msgid "Segment selected images."
+msgstr "Segmentuj zaznaczone obrazy."
+
+msgid "Make sure that the segmentation is good before going forward because resegmenting will delete all bound transcriptions."
+msgstr "Upewnij się, że segmentacja jest dobra — ponowne segmentowanie usunie powiązane transkrypcje."
+
+msgid "Please be aware that the epoch versions of the models will only be available for %(MODELS_VERSION_RETENTION)s days."
+msgstr "Wersje epok modeli będą dostępne tylko przez %(MODELS_VERSION_RETENTION)s dni."
+
+msgid "Upload a model"
+msgstr "Wgraj model"
+
+msgid "Find a model"
+msgstr "Znajdź model"
+
+msgid "Publish a model"
+msgstr "Opublikuj model"
+
+msgid "Role"
+msgstr "Rola"
+
+msgid "Script"
+msgstr "Pismo"
+
+msgid "Size"
+msgstr "Rozmiar"
+
+msgid "Trained from"
+msgstr "Trenowany z"
+
+msgid "Training Status"
+msgstr "Status treningu"
+
+msgid "Accuracy"
+msgstr "Dokładność"
+
+msgid "Right"
+msgstr "Prawo"
+
+msgid "Public"
+msgstr "Publiczny"
+
+msgid "User"
+msgstr "Użytkownik"
+
+msgid "Upload"
+msgstr "Wgraj"
+
+msgid "Model name"
+msgstr "Nazwa modelu"
+
+msgid "Model role"
+msgstr "Rola modelu"
+
+msgid "Model script"
+msgstr "Pismo modelu"
+
+msgid "Filter by script"
+msgstr "Filtruj według pisma"
+
+msgid "Share model"
+msgstr "Udostępnij model"
+
+msgid "Delete model"
+msgstr "Usuń model"
+
+msgid "Cancel training"
+msgstr "Anuluj trening"
+
+msgid "Is currently training"
+msgstr "Trening w toku"
+
+msgid "Is done training"
+msgstr "Trening zakończony"
+
+msgid "Toggle versions"
+msgstr "Pokaż wersje"
+
+msgid "Parent from which the model was trained"
+msgstr "Model źródłowy treningu"

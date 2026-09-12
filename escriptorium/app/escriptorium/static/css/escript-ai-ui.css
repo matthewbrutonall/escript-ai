@@ -1,0 +1,105 @@
+/* Escript AI chrome — smoother buttons, a bit of colour variety */
+.btn {
+    border-radius: 999px;
+    border-width: 0;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    padding: 0.45rem 1.15rem;
+    box-shadow: none;
+    transition: background-color 0.16s ease, color 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
+}
+.btn:hover,
+.btn:focus {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(36, 49, 47, 0.12);
+}
+.btn-success,
+.btn-success:not(:disabled):not(.disabled):active {
+    background-color: #29423c;
+    border-color: #29423c;
+    color: #f9f6ef;
+}
+.btn-success:hover,
+.btn-success:focus {
+    background-color: #1d332e;
+    border-color: #1d332e;
+    color: #fff;
+}
+.btn-primary,
+.btn-primary:not(:disabled):not(.disabled):active {
+    background-color: #9b4f3a;
+    border-color: #9b4f3a;
+    color: #f9f6ef;
+}
+.btn-primary:hover,
+.btn-primary:focus {
+    background-color: #7e3d2d;
+    border-color: #7e3d2d;
+    color: #fff;
+}
+.btn-info,
+.btn-info:not(:disabled):not(.disabled):active {
+    background-color: #3d6e78;
+    border-color: #3d6e78;
+    color: #f9f6ef;
+}
+.navbar-dark .navbar-brand img {
+    height: 30px;
+    width: auto;
+}
+
+.esai-langs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem;
+    margin: 0;
+}
+.esai-langs-label {
+    width: 100%;
+    margin: 0 0 0.25rem;
+    color: inherit;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    opacity: 0.72;
+}
+.esai-langs button {
+    border: 0;
+    background: transparent;
+    border-radius: 999px;
+    padding: 0.32rem 0.7rem;
+    font: inherit;
+    font-size: 0.92rem;
+    cursor: pointer;
+    color: inherit;
+    opacity: 0.78;
+}
+.esai-langs button[aria-current="true"] {
+    background: #29423c;
+    color: #f9f6ef;
+    opacity: 1;
+}
+.navbar-dark .esai-langs button {
+    color: #f4efe6;
+}
+.navbar-dark .esai-langs button[aria-current="true"] {
+    background: #f4efe6;
+    color: #24312f;
+}
+.esai-langs-nav {
+    max-width: 28rem;
+    padding: 0.4rem 0.6rem;
+}
+html[dir="rtl"] body {
+    text-align: start;
+}
+html[dir="rtl"] .esai-hero,
+html[dir="rtl"] .esai-grid,
+html[dir="rtl"] .esai-ack {
+    direction: rtl;
+}
+html[dir="rtl"] .esai-script {
+    flex-direction: row;
+}

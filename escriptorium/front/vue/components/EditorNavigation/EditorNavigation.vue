@@ -1,0 +1,261 @@
+<template>
+    <nav class="escr-editor-nav">
+        <div class="escr-editor-nav-meta">
+            <EscrBreadcrumbs
+                :items="breadcrumbs"
+            />
+            <h1
+                class="escr-element-title"
+                :title="elementHeadingFull"
+            >
+                {{ elementHeading }}
+            </h1>
+        </div>
+        <div class="escr-editor-nav-actions">
+            <VDropdown
+                theme="escr-tooltip-small"
+                placement="bottom"
+                :distance="8"
+                :triggers="['hover']"
+            >
+                <EscrButton
+                    color="text"
+                    :aria-label="getPrevOrNextPageLabel('left')"
+                    :on-click="() => loadPart(getPrevOrNextString('left'))"
+                    :disabled="disabled || !hasPrevOrNextElement('left')"
+                >
+                    <template #button-icon>
+                        <ArrowCircleLeftIcon />
+                    </template>
+                </EscrButton>
+                <template #popper>
+                    {{ getPrevOrNextTooltip('left') }}
+                </template>
+            </VDropdown>
+            <VDropdown
+                theme="escr-tooltip-small"
+                placement="bottom"
+                :distance="8"
+                :triggers="['hover']"
+            >
+                <EscrButton
+                    color="text"
+                    :aria-label="getPrevOrNextPageLabel('right')"
+                    :on-click="() => loadPart(getPrevOrNextString('right'))"
+                    :disabled="disabled || !hasPrevOrNextElement('right')"
+                >
+                    <template #button-icon>
+                        <ArrowCircleRightIcon />
+                    </template>
+                </EscrButton>
+                <template #popper>
+                    {{ getPrevOrNextTooltip('right') }}
+                </template>
+            </VDropdown>
+            <div
+                v-if="partsCount"
+                class="element-switcher"
+            >
+                <input
+                    v-if="(elementNumber || elementNumber === 0) && elementNumber !== -1"
+                    type="number"
+                    :min="1"
+                    :max="partsCount"
+                    :value="elementNumber + 1"
+                    @focus="() => setBlockShortcuts(true)"
+                    @blur="() => setBlockShortcuts(false)"
+                    @keydown="submitNavigation"
+                >
+                <span v-else>-</span> / {{ partsCount }}
+            </div>
+            <VDropdown
+                class="new-section with-separator"
+                theme="escr-tooltip-small"
+                placement="bottom"
+                :distance="8"
+                :triggers="['hover']"
+            >
+                <EscrButton
+                    color="text"
+                    :aria-label="$t('editor.elementDetails')"
+                    :disabled="disabled"
+                    :on-click="() => openModal('elementDetails')"
+                >
+                    <template #button-icon>
+                        <InfoOutlineIcon />
+                    </template>
+                </EscrButton>
+                <template #popper>
+                    {{ $t("editor.elementDetails") }}
+                </template>
+            </VDropdown>
+            <VDropdown
+                theme="escr-tooltip-small"
+                placement="bottom"
+                :distance="8"
+                :triggers="['hover']"
+            >
+                <EscrButton
+                    color="text"
+                    :aria-label="$t('editor.ontology')"
+                    :disabled="disabled"
+                    :on-click="() => openModal('ontology')"
+                >
+                    <template #button-icon>
+                        <OntologyIcon />
+                    </template>
+                </EscrButton>
+                <template #popper>
+                    {{ $t("editor.ontology") }}
+                </template>
+            </VDropdown>
+            <VDropdown
+                theme="escr-tooltip-small"
+                placement="bottom"
+                :distance="8"
+                :triggers="['hover']"
+            >
+                <EscrButton
+                    color="text"
+                    :aria-label="$t('editor.transcriptions')"
+                    :disabled="disabled"
+                    :on-click="() => openModal('transcriptions')"
+                >
+                    <template #button-icon>
+                        <TranscribeIcon />
+                    </template>
+                </EscrButton>
+                <template #popper>
+                    {{ $t("editor.transcriptions") }}
+                </template>
+            </VDropdown>
+        </div>
+    </nav>
+</template>
+<script>
+import { Dropdown as VDropdown } from "floating-vue";
+import { mapActions, mapMutations, mapState } from "vuex";
+import ArrowCircleLeftIcon from "../Icons/ArrowCircleLeftIcon/ArrowCircleLeftIcon.vue";
+import ArrowCircleRightIcon from "../Icons/ArrowCircleRightIcon/ArrowCircleRightIcon.vue";
+import EscrBreadcrumbs from "../Breadcrumbs/Breadcrumbs.vue";
+import EscrButton from "../Button/Button.vue";
+import InfoOutlineIcon from "../Icons/InfoOutlineIcon/InfoOutlineIcon.vue";
+import OntologyIcon from "../Icons/OntologyIcon/OntologyIcon.vue";
+import TranscribeIcon from "../Icons/TranscribeIcon/TranscribeIcon.vue";
+import "./EditorNavigation.css";
+
+export default {
+    name: "EscrEditorNavigation",
+    components: {
+        ArrowCircleLeftIcon,
+        ArrowCircleRightIcon,
+        EscrBreadcrumbs,
+        EscrButton,
+        InfoOutlineIcon,
+        OntologyIcon,
+        TranscribeIcon,
+        VDropdown,
+    },
+    props: {
+        /**
+         * True if all buttons and tools should be disabled
+         */
+        disabled: {
+            type: Boolean,
+            required: true,
+        },
+    },
+    computed: {
+        ...mapState({
+            documentId: (state) => state.document.id,
+            documentName: (state) => state.document.name,
+            elementFilename: (state) => state.parts.filename,
+            elementNumber: (state) => state.parts.order,
+            elementPk: (state) => state.parts.pk,
+            elementTitle: (state) => state.parts.title,
+            nextPart: (state) => state.parts.next,
+            partsCount: (state) => state.document.partsCount,
+            prevPart: (state) => state.parts.previous,
+            projectName: (state) => state.document.projectName,
+            projectSlug: (state) => state.document.projectSlug,
+            readDirection: (state) => state.document.readDirection,
+        }),
+        breadcrumbs() {
+            let breadcrumbs = [{ title: this.$t("common.loading") }];
+            if (this.projectName && this.projectSlug && this.documentName && this.documentId) {
+                breadcrumbs = [
+                    { title: this.$t("common.myProjects"), href: "/projects" },
+                    {
+                        title: this.projectName,
+                        href: `/project/${this.projectSlug}`
+                    },
+                    {
+                        title: this.documentName,
+                        href: `/document/${this.documentId}`
+                    },
+                    {
+                        title: this.$t("images.title"),
+                        // include select=pk to select the image being edited in the list
+                        href: `/document/${this.documentId}/images${
+                            this.elementPk ? "?select=" + this.elementPk : ""
+                        }`,
+                    },
+                    {
+                        title: this.elementTitle
+                            ? (this.elementTitle.length > 60 ? this.elementTitle.slice(0, 60) + "…" : this.elementTitle)
+                            : this.$t("common.loading"),
+                    },
+                ];
+            }
+            return breadcrumbs;
+        },
+        elementHeadingFull() {
+            return (this.elementTitle && this.elementFilename)
+                ? `${this.elementTitle} – ${this.elementFilename}`
+                : this.$t("common.loading");
+        },
+        elementHeading() {
+            if (!this.elementTitle || !this.elementFilename) return this.$t("common.loading");
+            const full = `${this.elementTitle} – ${this.elementFilename}`;
+            return full.length > 60 ? full.slice(0, 60) + "…" : full;
+        },
+    },
+    methods: {
+        ...mapActions("parts", ["loadPart", "loadPartByOrder"]),
+        ...mapActions("globalTools", ["openModal"]),
+        ...mapMutations("document", ["setBlockShortcuts"]),
+        hasPrevOrNextElement(direction) {
+            if (direction === "left") {
+                // left = next in RTL, previous in LTR
+                return this.readDirection === "rtl" ? this.nextPart : this.prevPart;
+            }else {
+                // right = previous in RTL, next in LTR
+                return this.readDirection === "rtl" ? this.prevPart : this.nextPart;
+            }
+        },
+        getPrevOrNextString(direction) {
+            if (direction === "left") {
+                // left = next in RTL, previous in LTR
+                return this.readDirection === "rtl" ? "next" : "previous";
+            } else {
+                // right = previous in RTL, next in LTR
+                return this.readDirection === "rtl" ? "previous" : "next";
+            }
+        },
+        getPrevOrNextPageLabel(direction) {
+            const goingNext = this.getPrevOrNextString(direction) === "next";
+            return goingNext ? this.$t("editor.nextPage") : this.$t("editor.previousPage");
+        },
+        getPrevOrNextTooltip(direction) {
+            const goingNext = this.getPrevOrNextString(direction) === "next";
+            return goingNext ? this.$t("editor.nextElement") : this.$t("editor.prevElement");
+        },
+        submitNavigation(e) {
+            const num = parseInt(e.target.value);
+            if (e.key === "Enter" && num && num > 0 && num <= this.partsCount) {
+                this.loadPartByOrder(num - 1);
+            }
+        }
+    }
+}
+</script>

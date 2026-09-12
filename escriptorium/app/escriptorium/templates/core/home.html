@@ -1,0 +1,346 @@
+{% extends 'base.html' %}
+{% load i18n static %}
+{% block head_title %}{% trans "Home" %}{% endblock %}
+
+{% block nav-home-class %}active{% endblock %}
+{% block bodyclass %}homepage escript-ai-home{% endblock %}
+
+{% block body %}
+<style>
+body.escript-ai-home {
+    background: #f6f2ea;
+    color: #24312f;
+}
+body.escript-ai-home main {
+    overflow-y: auto;
+}
+body.escript-ai-home main > section,
+body.escript-ai-home #main.escr-vue-enabled {
+    width: 100%;
+}
+body.escript-ai-home #main {
+    padding: 0;
+}
+.esai-home {
+    min-height: 100vh;
+    background:
+        linear-gradient(90deg, rgba(63, 106, 94, 0.09) 1px, transparent 1px) 0 0 / 72px 72px,
+        linear-gradient(180deg, rgba(155, 79, 58, 0.07) 1px, transparent 1px) 0 0 / 100% 34px,
+        #f6f2ea;
+    font-family: "Inter", "Helvetica Neue", Arial, sans-serif;
+}
+.esai-shell {
+    width: min(1180px, calc(100% - 40px));
+    margin: 0 auto;
+}
+.esai-hero {
+    min-height: min(760px, calc(100vh - 24px));
+    display: grid;
+    grid-template-columns: minmax(0, 1.02fr) minmax(340px, 0.78fr);
+    gap: clamp(2rem, 6vw, 5rem);
+    align-items: center;
+    padding: clamp(2rem, 6vw, 5.5rem) 0 3rem;
+}
+.esai-wordmark {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.32em;
+    color: #20312e;
+    line-height: 1;
+}
+.esai-wordmark-main {
+    font-size: clamp(3.5rem, 9vw, 8rem);
+    font-weight: 750;
+    letter-spacing: 0;
+}
+.esai-wordmark-ai {
+    color: #9b4f3a;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: clamp(4rem, 10.5vw, 9rem);
+    font-style: italic;
+    font-weight: 600;
+    letter-spacing: 0;
+}
+.esai-lead {
+    max-width: 720px;
+    margin: 1.5rem 0 0;
+    color: #4e5d58;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: clamp(1.35rem, 2vw, 2rem);
+    line-height: 1.42;
+}
+.esai-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.8rem;
+    margin-top: 2.1rem;
+}
+.esai-button {
+    display: inline-flex;
+    align-items: center;
+    min-height: 46px;
+    padding: 0.7rem 1.25rem;
+    border-radius: 999px;
+    border: 0;
+    color: #f9f6ef;
+    background: #29423c;
+    font-weight: 650;
+    text-decoration: none;
+    box-shadow: none;
+    transition: background-color 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
+}
+.esai-button:hover,
+.esai-button:focus {
+    color: #ffffff;
+    background: #1d332e;
+    text-decoration: none;
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px rgba(36, 49, 47, 0.14);
+}
+.esai-button-secondary {
+    color: #9b4f3a;
+    background: #f3e4dc;
+}
+.esai-button-secondary:hover,
+.esai-button-secondary:focus {
+    color: #7e3d2d;
+    background: #ead4c8;
+}
+.esai-proof {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1rem;
+    margin-top: 3rem;
+    max-width: 760px;
+}
+.esai-proof div {
+    border-top: 1px solid rgba(41, 66, 60, 0.28);
+    padding-top: 0.75rem;
+    color: #4e5d58;
+    font-size: 0.98rem;
+    line-height: 1.45;
+}
+.esai-proof strong {
+    display: block;
+    color: #24312f;
+    font-size: 1.05rem;
+}
+.esai-page {
+    position: relative;
+    padding: 1.6rem 1.6rem 1.4rem;
+    border: 1px solid rgba(41, 66, 60, 0.16);
+    background: #fffdf8;
+    box-shadow: 0 24px 70px rgba(39, 50, 46, 0.12);
+    border-radius: 18px;
+}
+.esai-page-kicker {
+    margin: 0 0 1.1rem;
+    color: #6a5a52;
+    font-size: 0.82rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+.esai-script {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    margin: 0.7rem 0;
+    padding: 0.7rem 0.85rem;
+    border-radius: 12px;
+    background: var(--wash, rgba(41, 66, 60, 0.08));
+}
+.esai-script-swatch {
+    flex: 0 0 10px;
+    align-self: stretch;
+    border-radius: 99px;
+    background: var(--ink, #29423c);
+}
+.esai-script-label {
+    display: block;
+    color: #6a5a52;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+.esai-script-text {
+    color: #24312f;
+    font-size: 1.12rem;
+    line-height: 1.45;
+}
+.esai-script-text[dir="rtl"] {
+    font-size: 1.2rem;
+}
+.esai-page-note {
+    margin: 1.15rem 0 0;
+    color: #4e5d58;
+    font-size: 0.95rem;
+    line-height: 1.45;
+}
+.esai-page-note strong {
+    color: #24312f;
+}
+.esai-band {
+    background: #ffffff;
+    border-top: 1px solid rgba(41, 66, 60, 0.12);
+    border-bottom: 1px solid rgba(41, 66, 60, 0.12);
+}
+.esai-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 2rem;
+    padding: 3.5rem 0;
+}
+.esai-grid h2,
+.esai-ack h2 {
+    margin: 0 0 0.75rem;
+    color: #24312f;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 1.5rem;
+    font-weight: 600;
+}
+.esai-grid p,
+.esai-ack p {
+    color: #596762;
+    line-height: 1.62;
+    margin: 0;
+}
+.esai-ack {
+    display: grid;
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+    gap: 2.5rem;
+    padding: 3.5rem 0 4.5rem;
+}
+.esai-ack a {
+    color: #6f4639;
+    font-weight: 700;
+}
+.esai-home > .esai-shell.esai-top {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    padding-top: 1.25rem;
+}
+.esai-home .esai-langs {
+    justify-content: flex-end;
+    color: #24312f;
+}
+.esai-home .esai-langs-label {
+    text-align: end;
+}
+@media (max-width: 920px) {
+    .esai-hero,
+    .esai-grid,
+    .esai-ack {
+        grid-template-columns: 1fr;
+    }
+    .esai-hero {
+        min-height: auto;
+    }
+}
+@media (max-width: 620px) {
+    .esai-shell {
+        width: min(100% - 24px, 1180px);
+    }
+    .esai-wordmark {
+        display: flex;
+        flex-wrap: wrap;
+    }
+    .esai-proof {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+
+<div class="esai-home">
+    <div class="esai-shell esai-top">
+        {% include "includes/language_switcher.html" %}
+    </div>
+    <section class="esai-shell esai-hero" aria-labelledby="esai-title">
+        <div>
+            <h1 id="esai-title" class="esai-wordmark">
+                <span class="esai-wordmark-main">Escript</span>
+                <span class="esai-wordmark-ai">AI</span>
+            </h1>
+            <p class="esai-lead">
+                {% trans "Old manuscripts and modern handwriting. Latin, Arabic, Hindi, and whatever else is on the page. The machine types a first pass. You correct it." %}
+            </p>
+            <div class="esai-actions">
+                {% if user.is_authenticated %}
+                <a class="esai-button" href="{% url 'projects-list' %}">{% trans "Open projects" %}</a>
+                {% else %}
+                <a class="esai-button" href="{% url 'login' %}">{% trans "Sign in" %}</a>
+                {% endif %}
+                <a class="esai-button esai-button-secondary" href="#acknowledgements">{% trans "Acknowledgements" %}</a>
+            </div>
+            <div class="esai-proof" aria-label="{% trans 'Project capabilities' %}">
+                <div><strong>{% trans "First pass" %}</strong> {% trans "The AI types what it sees onto a separate layer. Your original page stays put." %}</div>
+                <div><strong>{% trans "You decide" %}</strong> {% trans "Nothing is finished text until you have looked at it." %}</div>
+                <div><strong>{% trans "Any script" %}</strong> {% trans "Latin (the alphabet used for English and other European languages), Arabic, Hindi, and the rest. If you can see the writing, it will try to read it." %}</div>
+            </div>
+        </div>
+
+        <div class="esai-page">
+            <p class="esai-page-kicker">{% trans "What you actually get" %}</p>
+            <div class="esai-script" style="--wash: rgba(180, 70, 70, 0.14); --ink: #b44646;">
+                <span class="esai-script-swatch" aria-hidden="true"></span>
+                <div>
+                    <span class="esai-script-label">{% trans "English" %}</span>
+                    <div class="esai-script-text">The morning the letter was written</div>
+                </div>
+            </div>
+            <div class="esai-script" style="--wash: rgba(45, 110, 120, 0.14); --ink: #2d6e78;">
+                <span class="esai-script-swatch" aria-hidden="true"></span>
+                <div>
+                    <span class="esai-script-label">{% trans "Arabic" %}</span>
+                    <div class="esai-script-text" dir="rtl" lang="ar">كان يا ما كان في قديم الزمان</div>
+                </div>
+            </div>
+            <div class="esai-script" style="--wash: rgba(155, 79, 58, 0.16); --ink: #9b4f3a;">
+                <span class="esai-script-swatch" aria-hidden="true"></span>
+                <div>
+                    <span class="esai-script-label">{% trans "Hindi" %}</span>
+                    <div class="esai-script-text" lang="hi">एक छोटे से गाँव में एक लड़का रहता था</div>
+                </div>
+            </div>
+            <p class="esai-page-note">
+                {% blocktrans trimmed %}
+                <strong>A typed layer on top of the page</strong> — not a replacement for it.
+                You keep the image, correct the text, and export when it is good enough.
+                {% endblocktrans %}
+            </p>
+        </div>
+    </section>
+
+    <section class="esai-band">
+        <div class="esai-shell esai-grid">
+            <div>
+                <h2>{% trans "Not just old, not just Latin" %}</h2>
+                <p>{% trans "Arabic, Hindi, and other scripts use the same workflow as English. If the lines on the page are clear, it does not care which alphabet they are in — or whether the ink is a century old or last week’s." %}</p>
+            </div>
+            <div>
+                <h2>{% trans "Keys stay under your control" %}</h2>
+                <p>{% trans "Remote AI calls need a key you configure, plus document policy, before anything leaves the instance." %}</p>
+            </div>
+            <div>
+                <h2>{% trans "You stay in charge" %}</h2>
+                <p>{% trans "The useful path is read, tweak, and export. Training a local recognition model is there when a collection needs it." %}</p>
+            </div>
+        </div>
+    </section>
+
+    <section id="acknowledgements" class="esai-shell esai-ack">
+        <h2>{% trans "Acknowledgements" %}</h2>
+        <p>
+            {% trans "Escript AI is independent open-source work derived from" %}
+            <a href="https://gitlab.com/scripta/escriptorium" target="_blank" rel="noopener">eScriptorium</a>
+            {% trans "and built on the" %}
+            <a href="https://kraken.re/" target="_blank" rel="noopener">kraken</a>
+            {% trans "OCR/HTR engine. It is not an official eScriptorium release and is not endorsed by the upstream project." %}
+        </p>
+    </section>
+</div>
+{% endblock %}

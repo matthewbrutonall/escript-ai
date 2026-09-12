@@ -1,0 +1,181 @@
+.escr-help-icon {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 4px;
+    vertical-align: middle;
+}
+
+.escr-help-icon svg {
+    fill: var(--text2);
+    width: 13px;
+    height: 13px;
+}
+
+.escr-field-label.escr-has-help {
+    position: relative;
+    cursor: default;
+}
+
+.escr-field-label.escr-has-help::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 0;
+    max-width: 220px;
+    width: max-content;
+    background-color: var(--text1);
+    color: var(--background);
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 1.4;
+    white-space: normal;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    z-index: 1100;
+}
+
+.escr-field-label.escr-has-help:hover::after {
+    opacity: 1;
+}
+
+.escr-autocomplete-dropdown {
+    position: relative;
+    max-width: 100%;
+}
+
+.escr-autocomplete-dropdown input {
+    padding: 6px 36px 6px 15px;
+    border: none;
+    border-radius: 4px;
+    min-height: 32px;
+    background-color: var(--background);
+    font-family: "Noto Sans";
+    font-style: normal;
+    font-weight: 400;
+    font-size: 14px;
+    cursor: text;
+    color: var(--text1);
+    position: relative;
+    width: 100%;
+    max-width: 100%;
+}
+
+.escr-autocomplete-dropdown input:focus {
+    outline: 2px solid var(--primary);
+    outline-offset: -2px;
+}
+
+.escr-autocomplete-dropdown input:disabled {
+    cursor: default;
+    color: var(--text2);
+}
+
+.escr-autocomplete-dropdown svg {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    fill: var(--text1);
+    pointer-events: none;
+}
+
+.escr-autocomplete-clear {
+    position: absolute;
+    top: 50%;
+    right: 14px;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text2);
+    font-size: 16px;
+    line-height: 1;
+    padding: 0 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.escr-autocomplete-clear:hover {
+    color: var(--text1);
+}
+
+.escr-autocomplete-options {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    max-height: 300px;
+    overflow-y: auto;
+    background-color: var(--background);
+    border-radius: 4px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    z-index: 1000;
+}
+
+.escr-autocomplete-group-label {
+    padding: 8px 15px;
+    font-family: "Noto Sans";
+    font-weight: 600;
+    font-size: 12px;
+    color: var(--text2);
+    background-color: var(--background);
+}
+
+.escr-autocomplete-option {
+    padding: 6px 15px 6px 30px;
+    font-family: "Noto Sans";
+    font-size: 14px;
+    color: var(--text1);
+    cursor: pointer;
+    background-color: var(--background);
+}
+
+.escr-autocomplete-option:hover,
+.escr-autocomplete-option--highlighted {
+    background-color: var(--primary);
+    color: var(--background);
+}
+
+.escr-autocomplete-option--selected {
+    font-weight: 500;
+}
+
+.escr-autocomplete-no-results {
+    padding: 12px 15px;
+    text-align: center;
+    color: var(--text2);
+    font-family: "Noto Sans";
+    font-size: 14px;
+    font-style: italic;
+    background-color: var(--background);
+}
+
+.escr-autocomplete-new-option {
+    padding: 10px 15px;
+    font-family: "Noto Sans";
+    font-size: 14px;
+    color: var(--primary);
+    background-color: rgba(var(--primary-rgb, 59, 130, 246), 0.05);
+    border-left: 3px solid var(--primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.escr-autocomplete-new-option--clickable {
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.escr-autocomplete-new-option--clickable:hover,
+.escr-autocomplete-new-option--highlighted {
+    background-color: rgba(var(--primary-rgb, 59, 130, 246), 0.1);
+}
+
+.escr-new-option-icon {
+    font-size: 16px;
+    line-height: 1;
+}
