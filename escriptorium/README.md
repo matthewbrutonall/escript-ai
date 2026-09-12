@@ -1,34 +1,51 @@
-This directory is the Escript AI application tree (derived from eScriptorium).
-**Build with `docker compose build` from here** — see the root `README.md`.
-Do not run the official `registry.gitlab.com/scripta/escriptorium` image as
-the app: it is older than this tree.
+This directory is the Escript AI Docker application stack.
 
-eScriptorium is part of the [Scripta](https://www.psl.eu/en/scripta), [RESILIENCE](https://www.resilience-ri.eu) and [Biblissima+](https://projet.biblissima.fr/) projects, and has received funding from Université PSL and from The European Union's [Horizon 2020 Research and Innovation Programme](https://ec.europa.eu/programmes/horizon2020/en/what-horizon-2020) under Grant Agreement no. 871127, from the Programme d'investissements d'avenir of the [Agence Nationale de Recheche](https://anr.fr/fr/france-2030/france-2030/) under Grant Reference no. ANR-21-ESRE-0005, as well as from other contributors listed below. Its goal is provide researchers in the humanities with an integrated set of tools to transcribe, annotate, translate and publish historical documents.
-The eScriptorium app itself is at the 'center'. It is a work in progress but will implement at least automatic transcriptions through kraken, indexation for complex search and filtering, annotation and some simple forms of collaborative working such as sharing and versioning.
+Build and run Escript AI from this tree:
+
+```bash
+cp variables.env_example variables.env
+# edit variables.env
+docker compose build
+docker compose up -d
+```
+
+Do not run the official `registry.gitlab.com/scripta/escriptorium` image as
+the app. Escript AI now builds its own local images:
+
+- `escript-ai:local` for Django, Celery, kraken, the Vue frontend, and the AI app
+- `escript-ai-nginx:local` for nginx/static/media serving
+
+The upstream eScriptorium image is older than this tree and does not include
+the current kraken, API, localisation, or Phase 2 AI-layer review code.
 
 ## The stack
 - nginx
-- uwsgi
+- uWSGI
 - [django](https://www.djangoproject.com/)
 - [daphne](https://github.com/django/daphne) (channel server for websockets)
 - [celery](http://www.celeryproject.org/)
 - postgres
-- [elasticsearch](https://www.elastic.co/)
 - redis (cache, celery broker, other disposable data)
 - [kraken](http://kraken.re)
-- [docker](https://www.docker.com/) (deployment)
+- [docker compose](https://docs.docker.com/compose/) (deployment)
+
+Elasticsearch is optional and disabled by default.
+
+## Runtime notes
+
+- `entrypoint.sh` runs migrations and `collectstatic`.
+- API keys belong in `variables.env` or another Docker env source, not in git.
+- Remote AI providers are used only when a configured AI transcription job runs.
+- Local OpenAI-compatible servers can be used without paid API calls.
 
 
-## Install
-Two options,
-- [install with Docker](https://gitlab.com/scripta/escriptorium/-/wikis/docker-install), or a
-- [full local install](https://gitlab.com/scripta/escriptorium/-/wikis/full-install).
+## Upstream acknowledgement
 
-eScriptorium needs either Linux, macOS or Windows (with WSL).
+Escript AI is independent work derived from eScriptorium. The material below is
+kept as upstream acknowledgement and licence context, not as Escript AI install
+instructions.
 
-
-## Contributing
-See [Contributing to eScriptorium](https://gitlab.com/scripta/escriptorium/-/wikis/contributing).
+eScriptorium is part of the [Scripta](https://www.psl.eu/en/scripta), [RESILIENCE](https://www.resilience-ri.eu) and [Biblissima+](https://projet.biblissima.fr/) projects, and has received funding from Université PSL and from The European Union's [Horizon 2020 Research and Innovation Programme](https://ec.europa.eu/programmes/horizon2020/en/what-horizon-2020) under Grant Agreement no. 871127, from the Programme d'investissements d'avenir of the [Agence Nationale de Recheche](https://anr.fr/fr/france-2030/france-2030/) under Grant Reference no. ANR-21-ESRE-0005, as well as from other contributors listed below. Its goal is provide researchers in the humanities with an integrated set of tools to transcribe, annotate, translate and publish historical documents.
 
 ## Steering Committee
 

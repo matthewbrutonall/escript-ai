@@ -8,7 +8,7 @@
 FROM docker.io/library/node:20-bookworm-slim AS frontend
 WORKDIR /build
 COPY front/package.json front/package-lock.json ./
-RUN npm ci
+RUN npm install --legacy-peer-deps
 COPY front/ ./
 RUN npm run production
 
