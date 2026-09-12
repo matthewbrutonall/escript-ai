@@ -27,6 +27,8 @@ def update_client_state(task_kwargs, task_name, status, task_id=None, data=None)
         process = task_name.split('.')[-1]
         if process in ("ai_transcribe", "ai-transcribe"):
             process = "transcribe"
+        if process in ("ai_seg_review", "ai-seg-review"):
+            process = "segment"
         send_event('document', part.document.pk, "part:workflow", {
             "id": part.pk,
             "process": process,

@@ -20,7 +20,9 @@ from .conventions import conventions_prompt
 from .fewshot import fewshot_prompt_block
 from .fixthis import LINE_KEY, extract_line_text, fix_prompt
 from .gate import comparison_text_for_line
-from .overlay import crop_line, render_crop
+from .overlay import crop_line, render_crop, render_numbered_lines
+from .seg_review import PROMPT as SEG_PROMPT
+from .seg_review import REVIEW_KEY, parse_review_json, suggestions_from_review
 from .passim_fallback import align_witness_to_lines
 from .preflight import evaluate_crop
 from .triage import normalised_cer
@@ -107,6 +109,53 @@ def transcribe_one_line(backend, image, mask, prompt):
     return backend.transcribe_region(crop, [LINE_KEY], prompt)
 
 
+def _per_line_group(im, lines, masks, backend, config, transcription,
+                    version_source, author, comparison, disagreements,
+                    written_line_pks, written, flagged, tok_in, tok_out, cost,
+                    witness_raw=""):
+    """Tight single-line crops when colour-key is unsafe or incomplete."""
+    line_prompt = fix_prompt(
+        "", conventions_prompt(getattr(config, "conventions", None)))
+    still_empty = []
+    for line, mask in zip(lines, masks):
+        try:
+            line_result = transcribe_one_line(backend, im, mask, line_prompt)
+        except Exception:
+            logger.exception("ai: per-line fallback failed on line %s", line.pk)
+            still_empty.append(line)
+            continue
+        tok_in += line_result.tokens_in
+        tok_out += line_result.tokens_out
+        cost += backend.cost(line_result.tokens_in, line_result.tokens_out)
+        text = extract_line_text(line_result)
+        if text:
+            _record_write(
+                line, transcription, text, version_source, author,
+                comparison, disagreements, written_line_pks)
+            written += 1
+        else:
+            still_empty.append(line)
+    if still_empty and comparison is not None:
+        ocr_pairs = [
+            (ln.pk, comparison_text_for_line(ln, comparison) or "")
+            for ln in still_empty
+        ]
+        aligned = align_witness_to_lines(witness_raw, ocr_pairs)
+        leftover = []
+        for ln in still_empty:
+            text = (aligned.get(ln.pk) or "").strip()
+            if text:
+                _record_write(
+                    ln, transcription, text, version_source, author,
+                    comparison, disagreements, written_line_pks)
+                written += 1
+            else:
+                leftover.append(ln)
+        still_empty = leftover
+    flagged += len(still_empty)
+    return written, flagged, tok_in, tok_out, cost
+
+
 def transcribe_part(part, config, transcription, backend, *, user=None,
                     per_crop=6, job=None, comparison=None, examples=None):
     """Transcribe one DocumentPart into `transcription` via colour-keyed crops.
@@ -132,16 +181,28 @@ def transcribe_part(part, config, transcription, backend, *, user=None,
                 if not group:
                     continue
 
-            # PRE-FLIGHT (§5.A): overlap → skip whole crop; fragments → drop
-            # that line and still send the rest.
+            # PRE-FLIGHT (§5.A): fragments drop; overlap blocks colour-key
+            # and falls back to per-line crops.
             decision = evaluate_crop(group_masks)
             for i, why in decision.drop:
+                if why == "overlap":
+                    continue
                 logger.warning("ai: dropping line %s (%s) on part %s",
                                group[i].pk, why, part.pk)
                 flagged += 1
             if not decision.send:
-                logger.warning("ai: skipping crop (%s) on part %s",
-                               decision.reason, part.pk)
+                overlap_idxs = [i for i, why in decision.drop if why == "overlap"]
+                logger.warning("ai: colour-key skipped (%s) on part %s; "
+                               "per-line fallback for %s lines",
+                               decision.reason, part.pk, len(overlap_idxs))
+                if not overlap_idxs:
+                    continue
+                written, flagged, tok_in, tok_out, cost = _per_line_group(
+                    im, [group[i] for i in overlap_idxs],
+                    [group_masks[i] for i in overlap_idxs],
+                    backend, config, transcription, version_source, author,
+                    comparison, disagreements, written_line_pks,
+                    written, flagged, tok_in, tok_out, cost)
                 continue
             group = [group[i] for i in decision.keep]
             group_masks = [group_masks[i] for i in decision.keep]
@@ -170,55 +231,14 @@ def transcribe_part(part, config, transcription, backend, *, user=None,
                 else:
                     fallback_idxs.append(local_idx)
 
-            still_empty = []
-            line_prompt = fix_prompt(
-                "", conventions_prompt(getattr(config, 'conventions', None)))
-            for local_idx in fallback_idxs:
-                line = group[local_idx]
-                mask = group_masks[local_idx]
-                try:
-                    line_result = transcribe_one_line(
-                        backend, im, mask, line_prompt)
-                except Exception:
-                    logger.exception("ai: per-line fallback failed on line %s",
-                                     line.pk)
-                    still_empty.append(local_idx)
-                    continue
-                tok_in += line_result.tokens_in
-                tok_out += line_result.tokens_out
-                cost += backend.cost(line_result.tokens_in, line_result.tokens_out)
-                text = extract_line_text(line_result)
-                if text:
-                    _record_write(
-                        line, transcription, text, version_source, author,
-                        comparison, disagreements, written_line_pks)
-                    written += 1
-                else:
-                    still_empty.append(local_idx)
-
-            if still_empty and comparison is not None:
-                ocr_pairs = []
-                for local_idx in still_empty:
-                    line = group[local_idx]
-                    ocr_pairs.append((
-                        line.pk,
-                        comparison_text_for_line(line, comparison) or "",
-                    ))
-                aligned = align_witness_to_lines(result.raw, ocr_pairs)
-                leftover = []
-                for local_idx in still_empty:
-                    line = group[local_idx]
-                    text = (aligned.get(line.pk) or "").strip()
-                    if text:
-                        _record_write(
-                            line, transcription, text, version_source, author,
-                            comparison, disagreements, written_line_pks)
-                        written += 1
-                    else:
-                        leftover.append(local_idx)
-                still_empty = leftover
-
-            flagged += len(still_empty)
+            if fallback_idxs:
+                written, flagged, tok_in, tok_out, cost = _per_line_group(
+                    im, [group[i] for i in fallback_idxs],
+                    [group_masks[i] for i in fallback_idxs],
+                    backend, config, transcription, version_source, author,
+                    comparison, disagreements, written_line_pks,
+                    written, flagged, tok_in, tok_out, cost,
+                    witness_raw=result.raw)
 
     if job:
         job.lines_written += written
@@ -232,3 +252,28 @@ def transcribe_part(part, config, transcription, backend, *, user=None,
                 tokens_in=tok_in, tokens_out=tok_out, cost=cost,
                 disagreements=disagreements,
                 written_line_pks=written_line_pks)
+
+
+def review_part_segmentation(part, backend):
+    """One VLM call: numbered boxes → structured suggestions. No mask writes."""
+    lines = list(part.lines.all().order_by('order'))
+    masks = _line_masks(lines)
+    usable = [(ln, m) for ln, m in zip(lines, masks) if m]
+    if not usable:
+        return dict(suggestions=[], tokens_in=0, tokens_out=0, cost=0.0, raw="")
+    lines, masks = zip(*usable)
+    lines, masks = list(lines), list(masks)
+    with Image.open(part.image.path) as im:
+        overlay = render_numbered_lines(im, masks)
+        result = backend.transcribe_region(overlay, [REVIEW_KEY], SEG_PROMPT)
+    raw = result.raw or result.text_by_key.get(REVIEW_KEY) or ""
+    parsed = parse_review_json(raw, len(lines))
+    suggestions = suggestions_from_review(lines, parsed)
+    return dict(
+        suggestions=suggestions,
+        tokens_in=result.tokens_in,
+        tokens_out=result.tokens_out,
+        cost=backend.cost(result.tokens_in, result.tokens_out),
+        raw=raw,
+        parsed=parsed,
+    )

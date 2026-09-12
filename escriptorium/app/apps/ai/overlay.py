@@ -62,6 +62,32 @@ def render_crop(image: Image.Image, masks: list[list], margin: int = 110,
     return Image.alpha_composite(canvas, ov).convert("RGB"), key_to_idx
 
 
+def render_numbered_lines(image: Image.Image, masks: list, pad: int = 8):
+    """Full-page overlay: outline each mask and paint its 1-based index.
+
+    Used for segmentation review (§6). Numbers are the only ids the VLM sees.
+    """
+    canvas = image.convert("RGBA")
+    ov = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    d = ImageDraw.Draw(ov)
+    try:
+        font = ImageFont.truetype("DejaVuSans-Bold.ttf", 22)
+    except OSError:
+        font = ImageFont.load_default()
+    for i, m in enumerate(masks):
+        if not m:
+            continue
+        pts = [(int(x), int(y)) for x, y in m]
+        d.line(pts + [pts[0]], fill=(220, 30, 30, 220), width=3)
+        n = str(i + 1)
+        x0 = min(p[0] for p in pts)
+        y0 = min(p[1] for p in pts)
+        tw, th = 18 * len(n), 22
+        d.rectangle([x0, y0, x0 + tw + 8, y0 + th + 4], fill=(220, 30, 30, 230))
+        d.text((x0 + 4, y0 + 2), n, fill=(255, 255, 255, 255), font=font)
+    return Image.alpha_composite(canvas, ov).convert("RGB")
+
+
 def crop_line(image: Image.Image, mask, pad: int = 8) -> Image.Image:
     """Tight crop of one line mask — per-line fallback and 'fix this'."""
     xs = [x for x, _ in mask]

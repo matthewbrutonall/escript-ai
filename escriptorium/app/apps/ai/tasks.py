@@ -191,3 +191,91 @@ def _disagreement_rows(ai_transcription, comparison, line_pks):
     }
     return disagreement_rows_from_layers(
         line_pks, ai_map, kr_map, normalised_cer)
+
+
+@app.task(bind=True, autoretry_for=(MemoryError,), default_retry_delay=600)
+def ai_seg_review(self, instance_pks, ai_config_pk=None, user_pk=None,
+                  job_pk=None, **kwargs):
+    """Flag segmentation problems. Does not write Line.mask."""
+    DocumentPart = apps.get_model('core', 'DocumentPart')
+    AIBackendConfig = apps.get_model('ai', 'AIBackendConfig')
+    AIJob = apps.get_model('ai', 'AIJob')
+    AIUsageLedger = apps.get_model('ai', 'AIUsageLedger')
+    AISegSuggestion = apps.get_model('ai', 'AISegSuggestion')
+
+    parts = list(DocumentPart.objects.filter(pk__in=instance_pks).order_by('order'))
+    if not parts:
+        return {"cost": 0}
+    document = parts[0].document
+    config = AIBackendConfig.objects.get(pk=ai_config_pk)
+    user = User.objects.filter(pk=user_pk).first() if user_pk else None
+    job = AIJob.objects.filter(pk=job_pk).first() if job_pk else None
+    try:
+        assert_dispatch_allowed(document, config, user=user)
+    except (RemoteAIForbidden, RuntimeError) as e:
+        if job:
+            job.status = job.STATUS_ERROR
+            job.error = str(e)[:2000]
+            job.save()
+        raise
+
+    api_key = resolve_api_key(config)
+    backend = get_backend(config, api_key=api_key)
+    if job:
+        job.status = job.STATUS_RUNNING
+        job.task_id = self.request.id
+        job.backend = config
+        job.document = document
+        job.parts_count = len(parts)
+        job.save()
+
+    from .pipeline import review_part_segmentation
+    process = client_process("ai.tasks.ai_seg_review")
+    total_cost = 0.0
+    n_sugg = 0
+    for part in parts:
+        send_event("document", document.pk, "part:workflow", {
+            "id": part.pk, "process": process, "status": "ongoing",
+            "task_id": self.request.id})
+        try:
+            res = review_part_segmentation(part, backend)
+        except Exception as e:
+            logger.exception(e)
+            if job:
+                job.status = job.STATUS_ERROR
+                job.error = str(e)[:2000]
+                job.save()
+            notify_user(user, _("Something went wrong during AI segmentation review!"),
+                        id="ai-seg-review-error", level='danger')
+            send_event("document", document.pk, "part:workflow", {
+                "id": part.pk, "process": process, "status": "canceled",
+                "task_id": self.request.id})
+            raise
+        total_cost += res['cost']
+        AIUsageLedger.objects.create(
+            job=job, provider=config.provider, model_id=config.model_id,
+            tokens_in=res['tokens_in'], tokens_out=res['tokens_out'],
+            actual_cost=res['cost'], user=user, document=document)
+        AISegSuggestion.objects.filter(
+            part=part, status=AISegSuggestion.STATUS_PENDING).delete()
+        for item in res['suggestions']:
+            AISegSuggestion.objects.create(
+                document=document, part=part, line=item.get('line'),
+                job=job, kind=item['kind'], payload=item.get('payload') or {})
+            n_sugg += 1
+        send_event("document", document.pk, "part:workflow", {
+            "id": part.pk, "process": process, "status": "done",
+            "task_id": self.request.id})
+        if job:
+            job.actual_cost = total_cost
+            job.tokens_in = (job.tokens_in or 0) + res['tokens_in']
+            job.tokens_out = (job.tokens_out or 0) + res['tokens_out']
+            job.lines_flagged = n_sugg
+            job.save()
+
+    if job:
+        job.status = job.STATUS_DONE
+        job.save()
+    notify_user(user, _("AI segmentation review done!"),
+                id="ai-seg-review-success", level='success')
+    return {"cost": total_cost, "suggestions": n_sugg}

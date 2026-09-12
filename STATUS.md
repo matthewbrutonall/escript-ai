@@ -73,6 +73,8 @@ Claude payload without `temperature`, OpenAI `input_image` body).
   dump onto a kraken comparison layer. Unmatched lines stay empty.
 - “Fix this” re-reads one line from the sample-review table (optional
   guide text). Same spend/policy guards as a full job.
+- AI segmentation review flags overlapping/missing/wrong-order lines as
+  suggestions. Accept/dismiss only — masks are never overwritten.
 
 ## Internationalisation (UI)
 
@@ -99,7 +101,7 @@ language names, not flags.
 1. Remaining Vue strings (modals, ontology cards, editor panels) and RTL CSS
    beyond `html dir`.
 2. Table / ledger path, or an honest “skip this page” policy in the UI.
-3. Dual-engine disagreement sort + training-eligible flag.
+3. Multi-tenant key store + extra providers (rest of Phase 4).
 4. Indic manuscript-capable local models; conventions object (dandas, no
    Sanskritizing).
 5. Encrypted secret store; real monthly AI budget.

@@ -23,7 +23,9 @@ from .dispatch import (
     assert_parts_belong,
 )
 from .gate import ACK_PHRASE, assemble_sample_lines
-from .models import AIBackendConfig, AIJob, AILayerGate, AIUsageLedger
+from .models import (
+    AIBackendConfig, AIJob, AILayerGate, AISegSuggestion, AIUsageLedger,
+)
 
 
 class AILayerGateSerializer(serializers.ModelSerializer):
@@ -249,3 +251,75 @@ class AIFixSerializer(serializers.Serializer):
             'cost': cost,
             'version_source': config.version_source,
         }
+
+
+class AISegReviewSerializer(ProcessSerializerMixin, serializers.Serializer):
+    """POST .../documents/{id}/ai_seg_review/ — suggestions only, no mask writes."""
+    PROCESS_NAME = 'AI segmentation review'
+    backend = serializers.PrimaryKeyRelatedField(
+        queryset=AIBackendConfig.objects.all())
+    parts = serializers.PrimaryKeyRelatedField(
+        queryset=DocumentPart.objects.all(), many=True, required=False)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.document is None:
+            return
+        self.fields['backend'].queryset = AIBackendConfig.objects.filter(
+            Q(public=True) | Q(owner=self.user) | Q(owner__isnull=True))
+        narrow_related(self.fields['parts'],
+                       DocumentPart.objects.filter(document=self.document))
+
+    def validate(self, data):
+        data = super().validate(data)
+        parts = data.get('parts') or list(
+            self.document.parts.filter(lines__isnull=False).distinct())
+        try:
+            assert_parts_belong(self.document, parts)
+        except CrossDocumentError as e:
+            raise serializers.ValidationError({'parts': str(e)})
+        try:
+            assert_dispatch_allowed(self.document, data['backend'], user=self.user)
+        except (RemoteAIForbidden, RuntimeError) as e:
+            raise serializers.ValidationError(str(e))
+        data['parts'] = parts
+        return data
+
+    def process(self):
+        super().process()
+        from .tasks import ai_seg_review
+        config = self.validated_data['backend']
+        parts = self.validated_data['parts']
+        job = AIJob.objects.create(
+            backend=config,
+            document=self.document,
+            transcription=None,
+            mode=AIJob.MODE_SEG_REVIEW,
+            status=AIJob.STATUS_PENDING,
+            parts_count=len(parts),
+            created_by=self.user,
+            task_group=self.task_group,
+        )
+        ai_seg_review.delay(
+            instance_pks=[p.pk for p in parts],
+            ai_config_pk=config.pk,
+            user_pk=self.user.pk,
+            job_pk=job.pk,
+        )
+
+
+class AISegSuggestionSerializer(serializers.ModelSerializer):
+    part_filename = serializers.CharField(
+        source='part.original_filename', read_only=True)
+    line_order = serializers.IntegerField(source='line.order', read_only=True)
+
+    class Meta:
+        model = AISegSuggestion
+        fields = (
+            'pk', 'part', 'part_filename', 'line', 'line_order', 'kind',
+            'payload', 'status', 'created_at',
+        )
+        read_only_fields = (
+            'pk', 'part', 'part_filename', 'line', 'line_order', 'kind',
+            'payload', 'created_at',
+        )

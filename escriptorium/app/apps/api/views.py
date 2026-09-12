@@ -683,6 +683,42 @@ class DocumentViewSet(ModelViewSet):
         return Response(ser.save())
 
     @action(detail=True, methods=['post'])
+    def ai_seg_review(self, request, pk=None):
+        from ai.serializers import AISegReviewSerializer
+        return self.get_process_response(request, AISegReviewSerializer)
+
+    @action(detail=True, methods=['get'])
+    def ai_seg_suggestions(self, request, pk=None):
+        from ai.models import AISegSuggestion
+        from ai.serializers import AISegSuggestionSerializer
+        qs = AISegSuggestion.objects.filter(document=self.get_object())
+        st = request.query_params.get('status')
+        if st:
+            qs = qs.filter(status=st)
+        return Response(AISegSuggestionSerializer(qs, many=True).data)
+
+    @action(detail=True, methods=['post'],
+            url_path='ai_seg_suggestions/(?P<sid>[0-9]+)')
+    def ai_seg_suggestion_update(self, request, pk=None, sid=None):
+        from ai.models import AISegSuggestion
+        from ai.serializers import AISegSuggestionSerializer
+        try:
+            sugg = AISegSuggestion.objects.get(
+                pk=sid, document=self.get_object())
+        except AISegSuggestion.DoesNotExist:
+            return Response({'detail': 'Not found.'}, status=404)
+        status_val = request.data.get('status')
+        allowed = {AISegSuggestion.STATUS_ACCEPTED,
+                   AISegSuggestion.STATUS_DISMISSED,
+                   AISegSuggestion.STATUS_PENDING}
+        if status_val not in allowed:
+            return Response({'status': 'accepted, dismissed, or pending.'},
+                            status=400)
+        sugg.status = status_val
+        sugg.save(update_fields=['status', 'updated_at'])
+        return Response(AISegSuggestionSerializer(sugg).data)
+
+    @action(detail=True, methods=['post'])
     def align(self, request, pk=None):
         return self.get_process_response(request, AlignSerializer)
 

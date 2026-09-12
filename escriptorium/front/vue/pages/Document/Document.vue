@@ -197,6 +197,7 @@
                         </dl>
                     </div>
                     <AISampleReview :document-id="id" />
+                    <AISegReview :document-id="id" />
                     <!-- Characters section -->
                     <CharactersCard
                         class="escr-document-characters"
@@ -335,6 +336,7 @@
 import ReconnectingWebSocket from "reconnectingwebsocket";
 import { mapActions, mapState } from "vuex";
 import AISampleReview from "../../components/AISampleReview/AISampleReview.vue";
+import AISegReview from "../../components/AISegReview/AISegReview.vue";
 import AlignModal from "../../components/AlignModal/AlignModal.vue";
 import DownloadArchiveModal from "../../components/DownloadArchiveModal/DownloadArchiveModal.vue";
 import ExportModal from "../../components/ExportModal/ExportModal.vue";
@@ -372,6 +374,7 @@ export default {
     name: "EscrDocumentDashboard",
     components: {
         AISampleReview,
+        AISegReview,
         AlignModal,
         ArrowRightIcon,
         CharactersCard,

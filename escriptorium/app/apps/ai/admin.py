@@ -7,7 +7,7 @@ from .gate import (
 )
 from .models import (
     AIBackendConfig, AIDocumentPolicy, AIExample, AIJob, AILayerGate,
-    AILineDisagreement, AIUsageLedger,
+    AILineDisagreement, AISegSuggestion, AIUsageLedger,
 )
 
 
@@ -82,6 +82,13 @@ class AILineDisagreementAdmin(admin.ModelAdmin):
 class AIExampleAdmin(admin.ModelAdmin):
     list_display = ('document', 'line', 'pinned', 'updated_at')
     list_filter = ('pinned',)
+
+
+@admin.register(AISegSuggestion)
+class AISegSuggestionAdmin(admin.ModelAdmin):
+    list_display = ('pk', 'document', 'part', 'kind', 'status', 'line', 'updated_at')
+    list_filter = ('kind', 'status')
+    raw_id_fields = ('document', 'part', 'line', 'job')
 
 
 @admin.register(AIUsageLedger)

@@ -75,7 +75,12 @@ class AIJob(models.Model):
     """One transcription run: provenance + status + accounting."""
     MODE_REGION = 'region'   # colour-keyed region JSON (§5.A) — default
     MODE_LINE = 'line'       # per-line crops (§5.B) — GT-harvest / fallback
-    MODE_CHOICES = ((MODE_REGION, 'Keyed region'), (MODE_LINE, 'Per-line'))
+    MODE_SEG_REVIEW = 'seg_review'  # AI segmentation suggestions (§6)
+    MODE_CHOICES = (
+        (MODE_REGION, 'Keyed region'),
+        (MODE_LINE, 'Per-line'),
+        (MODE_SEG_REVIEW, 'Segmentation review'),
+    )
 
     STATUS_PENDING = 'pending'
     STATUS_RUNNING = 'running'
@@ -234,3 +239,48 @@ class AIExample(models.Model):
 
     def __str__(self):
         return f"AIExample line={self.line_id} pinned={self.pinned}"
+
+
+class AISegSuggestion(models.Model):
+    """Segmentation judgement on existing lines/blocks — never overwrites masks (§6)."""
+    KIND_SPURIOUS = 'spurious'
+    KIND_MISSED = 'missed'
+    KIND_ORDER = 'order'
+    KIND_TYPOLOGY = 'typology'
+    KIND_CHOICES = (
+        (KIND_SPURIOUS, 'Spurious line'),
+        (KIND_MISSED, 'Missed line'),
+        (KIND_ORDER, 'Reading order'),
+        (KIND_TYPOLOGY, 'Line type'),
+    )
+    STATUS_PENDING = 'pending'
+    STATUS_ACCEPTED = 'accepted'
+    STATUS_DISMISSED = 'dismissed'
+    STATUS_CHOICES = (
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_ACCEPTED, 'Accepted'),
+        (STATUS_DISMISSED, 'Dismissed'),
+    )
+
+    document = models.ForeignKey(
+        'core.Document', on_delete=models.CASCADE, related_name='ai_seg_suggestions')
+    part = models.ForeignKey(
+        'core.DocumentPart', on_delete=models.CASCADE, related_name='ai_seg_suggestions')
+    line = models.ForeignKey(
+        'core.Line', null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='ai_seg_suggestions')
+    job = models.ForeignKey(
+        AIJob, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='seg_suggestions')
+    kind = models.CharField(max_length=16, choices=KIND_CHOICES)
+    payload = models.JSONField(default=dict, blank=True)
+    status = models.CharField(
+        max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['part_id', 'kind', 'pk']
+
+    def __str__(self):
+        return f"AISegSuggestion {self.kind} part={self.part_id} {self.status}"
