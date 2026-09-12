@@ -1,25 +1,5 @@
 svg.escr-logo {
-    width: 46px;
-    height: 46px;
-}
-
-.escr-logo-mark {
-    fill: #29423c;
-}
-
-.escr-logo-letter {
-    fill: #f9f6ef;
-}
-
-.escr-logo-flourish {
-    stroke: #c2775f;
-}
-
-.escr-logo-ai {
-    fill: #c2775f;
-    font-family: Georgia, "Times New Roman", serif;
-    font-size: 15px;
-    font-style: italic;
-    font-weight: 700;
-    letter-spacing: 0;
+    width: 42px;
+    height: auto;
+    fill: var(--text1);
 }
