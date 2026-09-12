@@ -674,6 +674,15 @@ class DocumentViewSet(ModelViewSet):
         return self.get_process_response(request, AITranscribeSerializer)
 
     @action(detail=True, methods=['post'])
+    def ai_fix(self, request, pk=None):
+        from ai.serializers import AIFixSerializer
+        document = self.get_object()
+        ser = AIFixSerializer(
+            data=request.data, document=document, user=request.user)
+        ser.is_valid(raise_exception=True)
+        return Response(ser.save())
+
+    @action(detail=True, methods=['post'])
     def align(self, request, pk=None):
         return self.get_process_response(request, AlignSerializer)
 

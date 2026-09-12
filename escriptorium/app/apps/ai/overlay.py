@@ -60,3 +60,16 @@ def render_crop(image: Image.Image, masks: list[list], margin: int = 110,
         d.text((8, ty + 2), key, fill=(255, 255, 255, 255), font=font)
         key_to_idx[key] = i
     return Image.alpha_composite(canvas, ov).convert("RGB"), key_to_idx
+
+
+def crop_line(image: Image.Image, mask, pad: int = 8) -> Image.Image:
+    """Tight crop of one line mask — per-line fallback and 'fix this'."""
+    xs = [x for x, _ in mask]
+    ys = [y for _, y in mask]
+    x0 = max(0, min(xs) - pad)
+    y0 = max(0, min(ys) - pad)
+    x1 = min(image.width, max(xs) + pad)
+    y1 = min(image.height, max(ys) + pad)
+    if x1 <= x0 or y1 <= y0:
+        return image.convert("RGB")
+    return image.crop((x0, y0, x1, y1)).convert("RGB")

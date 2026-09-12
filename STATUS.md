@@ -66,10 +66,13 @@ Claude payload without `temperature`, OpenAI `input_image` body).
 - Quality gate (dual-engine disagreement, training-eligible state) is designed,
   not productized.
 - Budget method `has_free_ai_budget` is a stub; env keys are the secret store.
-- Websocket “done” toast can fail (`gettext` lazy proxy vs msgpack) even when
-  the job succeeded — check the layer.
 - Frontend AI group is wired; some eScriptorium builds still use the older
   transcribe wizard.
+- Colour-key assignment that misses half the keys (or invents extra keys)
+  now falls back to per-line crops, then a Passim-style snap of the VLM
+  dump onto a kraken comparison layer. Unmatched lines stay empty.
+- “Fix this” re-reads one line from the sample-review table (optional
+  guide text). Same spend/policy guards as a full job.
 
 ## Internationalisation (UI)
 
@@ -100,7 +103,7 @@ language names, not flags.
 4. Indic manuscript-capable local models; conventions object (dandas, no
    Sanskritizing).
 5. Encrypted secret store; real monthly AI budget.
-6. Fix the websocket notification on job complete.
+6. Image few-shot / embedding retrieval for style priming.
 
 ## See also
 

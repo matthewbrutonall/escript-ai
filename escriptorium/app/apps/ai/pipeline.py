@@ -15,10 +15,13 @@ import logging
 
 from PIL import Image
 
+from .assignment import keys_to_stamp
 from .conventions import conventions_prompt
 from .fewshot import fewshot_prompt_block
+from .fixthis import LINE_KEY, extract_line_text, fix_prompt
 from .gate import comparison_text_for_line
-from .overlay import render_crop, key_for_index
+from .overlay import crop_line, render_crop
+from .passim_fallback import align_witness_to_lines
 from .preflight import evaluate_crop
 from .triage import normalised_cer
 
@@ -85,6 +88,25 @@ def stamp_line_transcription(line, transcription, text, version_source, author,
     return lt
 
 
+def _record_write(line, transcription, text, version_source, author, comparison,
+                  disagreements, written_line_pks):
+    stamp_line_transcription(line, transcription, text, version_source, author)
+    written_line_pks.append(line.pk)
+    if comparison is not None:
+        other = comparison_text_for_line(line, comparison)
+        disagreements.append({
+            'line_pk': line.pk,
+            'cer': normalised_cer(text, other),
+            'ai_text': text,
+            'comparison_text': other,
+        })
+
+
+def transcribe_one_line(backend, image, mask, prompt):
+    crop = crop_line(image, mask)
+    return backend.transcribe_region(crop, [LINE_KEY], prompt)
+
+
 def transcribe_part(part, config, transcription, backend, *, user=None,
                     per_crop=6, job=None, comparison=None, examples=None):
     """Transcribe one DocumentPart into `transcription` via colour-keyed crops.
@@ -135,24 +157,68 @@ def transcribe_part(part, config, transcription, backend, *, user=None,
                 logger.warning("ai: unexpected keys %s on part %s (parser, not "
                                "dropped lines)", result.unknown_keys, part.pk)
 
+            stamped = keys_to_stamp(keys, result.text_by_key, result.unknown_keys)
+            fallback_idxs = []
             for key, local_idx in key_to_idx.items():
-                text = result.text_by_key.get(key, "").strip()
+                text = stamped.get(key, "")
                 line = group[local_idx]
-                if not text:
-                    flagged += 1
+                if text:
+                    _record_write(
+                        line, transcription, text, version_source, author,
+                        comparison, disagreements, written_line_pks)
+                    written += 1
+                else:
+                    fallback_idxs.append(local_idx)
+
+            still_empty = []
+            line_prompt = fix_prompt(
+                "", conventions_prompt(getattr(config, 'conventions', None)))
+            for local_idx in fallback_idxs:
+                line = group[local_idx]
+                mask = group_masks[local_idx]
+                try:
+                    line_result = transcribe_one_line(
+                        backend, im, mask, line_prompt)
+                except Exception:
+                    logger.exception("ai: per-line fallback failed on line %s",
+                                     line.pk)
+                    still_empty.append(local_idx)
                     continue
-                stamp_line_transcription(
-                    line, transcription, text, version_source, author)
-                written += 1
-                written_line_pks.append(line.pk)
-                if comparison is not None:
-                    other = comparison_text_for_line(line, comparison)
-                    disagreements.append({
-                        'line_pk': line.pk,
-                        'cer': normalised_cer(text, other),
-                        'ai_text': text,
-                        'comparison_text': other,
-                    })
+                tok_in += line_result.tokens_in
+                tok_out += line_result.tokens_out
+                cost += backend.cost(line_result.tokens_in, line_result.tokens_out)
+                text = extract_line_text(line_result)
+                if text:
+                    _record_write(
+                        line, transcription, text, version_source, author,
+                        comparison, disagreements, written_line_pks)
+                    written += 1
+                else:
+                    still_empty.append(local_idx)
+
+            if still_empty and comparison is not None:
+                ocr_pairs = []
+                for local_idx in still_empty:
+                    line = group[local_idx]
+                    ocr_pairs.append((
+                        line.pk,
+                        comparison_text_for_line(line, comparison) or "",
+                    ))
+                aligned = align_witness_to_lines(result.raw, ocr_pairs)
+                leftover = []
+                for local_idx in still_empty:
+                    line = group[local_idx]
+                    text = (aligned.get(line.pk) or "").strip()
+                    if text:
+                        _record_write(
+                            line, transcription, text, version_source, author,
+                            comparison, disagreements, written_line_pks)
+                        written += 1
+                    else:
+                        leftover.append(local_idx)
+                still_empty = leftover
+
+            flagged += len(still_empty)
 
     if job:
         job.lines_written += written

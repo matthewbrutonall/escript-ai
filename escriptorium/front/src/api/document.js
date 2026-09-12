@@ -369,6 +369,20 @@ export const markAiGateEligible = async (documentId, gateId) =>
         `/documents/${documentId}/ai-gates/${gateId}/mark_eligible/`,
     );
 
+export const fixAiLine = async ({
+    documentId,
+    line,
+    transcription,
+    partial,
+    backend,
+}) =>
+    await axios.post(`/documents/${documentId}/ai_fix/`, {
+        line,
+        transcription,
+        partial,
+        backend,
+    });
+
 export const transcribeDocumentAI = async ({
     documentId,
     backend,

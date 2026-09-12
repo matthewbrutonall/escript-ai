@@ -21,6 +21,9 @@ Design: `../../../../ARCHITECTURE.md`. Tests and contribution rules:
 | `conventions.py` | Diplomatic toggles appended to the prompt |
 | `triage.py` | AI vs kraken CER + disagreement sample |
 | `gate.py` | Layer state `raw → sampled → training-eligible` |
+| `assignment.py` | Colour-key JSON health; scrambled crops do not stamp |
+| `passim_fallback.py` | Witness→OCR align; unmatched lines stay empty |
+| `fixthis.py` | One-line re-read prompt + parse |
 | `pipeline.py` | Crops → backend → ORM write with real `version_source` |
 | `dispatch.py` | Off-site policy, keys, budget, cross-document part pks |
 | `tasks.py` | Celery `ai_transcribe` |

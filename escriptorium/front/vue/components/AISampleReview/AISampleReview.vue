@@ -29,6 +29,7 @@
                         <th>{{ $t("gate.aiText") }}</th>
                         <th>{{ $t("gate.comparisonText") }}</th>
                         <th>{{ $t("gate.cer") }}</th>
+                        <th></th>
                     </tr>
                 </thead>
                 <tbody>
@@ -40,6 +41,16 @@
                         <td>{{ row.ai_text }}</td>
                         <td>{{ row.comparison_text }}</td>
                         <td>{{ row.cer == null ? "—" : (row.cer * 100).toFixed(1) + "%" }}</td>
+                        <td>
+                            <button
+                                type="button"
+                                class="btn btn-secondary btn-sm"
+                                :disabled="busy"
+                                @click="fixLine(gate, row)"
+                            >
+                                {{ $t("gate.fixThis") }}
+                            </button>
+                        </td>
                     </tr>
                 </tbody>
             </table>
@@ -88,6 +99,7 @@
 <script>
 import {
     acknowledgeAiGate,
+    fixAiLine,
     markAiGateEligible,
     retrieveAiGate,
     retrieveAiGates,
@@ -130,6 +142,32 @@ export default {
                 this.gates = detailed;
             } catch (e) {
                 this.gates = [];
+            }
+        },
+        async fixLine(gate, row) {
+            const partial = window.prompt(
+                this.$t("gate.fixPartial"),
+                row.ai_text || "",
+            );
+            if (partial === null) return;
+            this.busy = true;
+            this.$set(this.errors, gate.pk, "");
+            try {
+                const { data } = await fixAiLine({
+                    documentId: this.documentId,
+                    line: row.line_pk,
+                    transcription: gate.transcription,
+                    partial,
+                });
+                this.$set(row, "ai_text", data.text);
+            } catch (e) {
+                const msg = (e.response && e.response.data && (
+                    e.response.data.detail || e.response.data.line
+                    || JSON.stringify(e.response.data)
+                )) || this.$t("gate.error");
+                this.$set(this.errors, gate.pk, msg);
+            } finally {
+                this.busy = false;
             }
         },
         async acknowledge(gate) {

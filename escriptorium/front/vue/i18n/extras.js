@@ -29,6 +29,8 @@ const en = {
         markEligible: "Mark training-eligible",
         eligible: "This layer may be used for training.",
         error: "Could not update the gate.",
+        fixThis: "Fix this",
+        fixPartial: "Optional guide text for this line (leave as-is to re-read):",
     },
     editor: {
         segmentation: "Segmentation",
@@ -225,7 +227,7 @@ const en = {
 
 const ar = {
     common: { submit: "إرسال", clear: "مسح", upload: "رفع", yes: "نعم", no: "لا", continue: "متابعة", tags: "وسوم", document: "وثيقة", project: "مشروع", default: "افتراضي" },
-    gate: { title: "مراجعة طبقة الذكاء الاصطناعي", help: "راجع العينة قبل استخدام هذه الطبقة لتدريب kraken.", state: "الحالة", states: { raw: "خام", sampled: "مُراجَعة", training_eligible: "صالحة للتدريب" }, meanCer: "متوسط CER {cer}٪", line: "سطر", aiText: "نص الذكاء الاصطناعي", comparisonText: "المقارنة", cer: "CER", typePhrase: "اكتب حرفيًا: {phrase}", acknowledge: "تأكيد العينة", markEligible: "تعليم كصالحة للتدريب", eligible: "يمكن استخدام هذه الطبقة للتدريب.", error: "تعذر تحديث البوابة." },
+    gate: { title: "مراجعة طبقة الذكاء الاصطناعي", help: "راجع العينة قبل استخدام هذه الطبقة لتدريب kraken.", state: "الحالة", states: { raw: "خام", sampled: "مُراجَعة", training_eligible: "صالحة للتدريب" }, meanCer: "متوسط CER {cer}٪", line: "سطر", aiText: "نص الذكاء الاصطناعي", comparisonText: "المقارنة", cer: "CER", typePhrase: "اكتب حرفيًا: {phrase}", acknowledge: "تأكيد العينة", markEligible: "تعليم كصالحة للتدريب", eligible: "يمكن استخدام هذه الطبقة للتدريب.", error: "تعذر تحديث البوابة.", fixThis: "أصلح هذا", fixPartial: "نص إرشادي اختياري لهذا السطر:" },
     editor: { segmentation: "التقسيم", transcription: "النسخ", lineOrdering: "النص / ترتيب الأسطر", imageAnnotation: "تعليق الصورة", overview: "نظرة عامة", changePanel: "تغيير اللوحة", alignment: "المحاذاة", notInitiated: "لم يبدأ", smallerFont: "أ−", largerFont: "أ+" },
     scope: { document: "الوثيقة", project: "المشروع", image: "صورة", images: "{n} صور" },
     share: { groups: "المجموعات", users: "المستخدمون", addGroupOrUser: "إضافة مجموعة أو مستخدم", addGroup: "إضافة مجموعة", addUser: "إضافة مستخدم", addGroupLabel: "أضف مجموعة", userPlaceholder: "اسم مستخدم مسجّل" },
@@ -248,7 +250,7 @@ const ar = {
 
 const hi = {
     common: { submit: "जमा करें", clear: "साफ़", upload: "अपलोड", yes: "हाँ", no: "नहीं", continue: "जारी", tags: "टैग", document: "दस्तावेज़", project: "परियोजना", default: "डिफ़ॉल्ट" },
-    gate: { title: "एआई परत समीक्षा", help: "kraken प्रशिक्षण से पहले नमूना समीक्षा करें।", state: "स्थिति", states: { raw: "कच्चा", sampled: "समीक्षित", training_eligible: "प्रशिक्षण योग्य" }, meanCer: "औसत CER {cer}%", line: "पंक्ति", aiText: "एआई पाठ", comparisonText: "तुलना", cer: "CER", typePhrase: "ठीक यही लिखें: {phrase}", acknowledge: "नमूना स्वीकार करें", markEligible: "प्रशिक्षण योग्य चिह्नित करें", eligible: "इस परत का प्रशिक्षण में उपयोग हो सकता है।", error: "गेट अपडेट नहीं हो सका।" },
+    gate: { title: "एआई परत समीक्षा", help: "kraken प्रशिक्षण से पहले नमूना समीक्षा करें।", state: "स्थिति", states: { raw: "कच्चा", sampled: "समीक्षित", training_eligible: "प्रशिक्षण योग्य" }, meanCer: "औसत CER {cer}%", line: "पंक्ति", aiText: "एआई पाठ", comparisonText: "तुलना", cer: "CER", typePhrase: "ठीक यही लिखें: {phrase}", acknowledge: "नमूना स्वीकार करें", markEligible: "प्रशिक्षण योग्य चिह्नित करें", eligible: "इस परत का प्रशिक्षण में उपयोग हो सकता है।", error: "गेट अपडेट नहीं हो सका।", fixThis: "इसे सुधारें", fixPartial: "इस पंक्ति के लिए वैकल्पिक मार्गदर्शक पाठ:" },
     editor: { segmentation: "खंडन", transcription: "लिप्यंतरण", lineOrdering: "पाठ / पंक्ति क्रम", imageAnnotation: "छवि एनोटेशन", overview: "अवलोकन", changePanel: "पैनल बदलें", alignment: "संरेखण", notInitiated: "शुरू नहीं", smallerFont: "अ−", largerFont: "अ+" },
     scope: { document: "दस्तावेज़", project: "परियोजना", image: "छवि", images: "{n} छवियाँ" },
     share: { groups: "समूह", users: "उपयोगकर्ता", addGroupOrUser: "समूह या उपयोगकर्ता जोड़ें", addGroup: "समूह जोड़ें", addUser: "उपयोगकर्ता जोड़ें", addGroupLabel: "समूह जोड़ें", userPlaceholder: "पंजीकृत उपयोगकर्ता नाम" },
@@ -271,7 +273,7 @@ const hi = {
 
 const pl = {
     common: { submit: "Wyślij", clear: "Wyczyść", upload: "Wyślij plik", yes: "Tak", no: "Nie", continue: "Kontynuuj", tags: "Tagi", document: "Dokument", project: "Projekt", default: "Domyślna" },
-    gate: { title: "Przegląd warstwy SI", help: "Przejrzyj próbkę zanim warstwa trafi do treningu kraken.", state: "Stan", states: { raw: "Surowa", sampled: "Przejrzana", training_eligible: "Do treningu" }, meanCer: "Średni CER {cer}%", line: "Wiersz", aiText: "Tekst SI", comparisonText: "Porównanie", cer: "CER", typePhrase: "Wpisz dokładnie: {phrase}", acknowledge: "Potwierdź próbkę", markEligible: "Oznacz jako do treningu", eligible: "Ta warstwa może iść do treningu.", error: "Nie udało się zaktualizować bramki." },
+    gate: { title: "Przegląd warstwy SI", help: "Przejrzyj próbkę zanim warstwa trafi do treningu kraken.", state: "Stan", states: { raw: "Surowa", sampled: "Przejrzana", training_eligible: "Do treningu" }, meanCer: "Średni CER {cer}%", line: "Wiersz", aiText: "Tekst SI", comparisonText: "Porównanie", cer: "CER", typePhrase: "Wpisz dokładnie: {phrase}", acknowledge: "Potwierdź próbkę", markEligible: "Oznacz jako do treningu", eligible: "Ta warstwa może iść do treningu.", error: "Nie udało się zaktualizować bramki.", fixThis: "Popraw to", fixPartial: "Opcjonalny tekst pomocniczy dla tego wiersza:" },
     editor: { segmentation: "Segmentacja", transcription: "Transkrypcja", lineOrdering: "Tekst / kolejność wierszy", imageAnnotation: "Adnotacja obrazu", overview: "Przegląd", changePanel: "Zmień panel", alignment: "Wyrównanie", notInitiated: "Nie rozpoczęto", smallerFont: "A−", largerFont: "A+" },
     scope: { document: "dokument", project: "projekt", image: "obraz", images: "{n} obrazów" },
     share: { groups: "Grupy", users: "Użytkownicy", addGroupOrUser: "Dodaj grupę lub użytkownika", addGroup: "Dodaj grupę", addUser: "Dodaj użytkownika", addGroupLabel: "Dodaj grupę", userPlaceholder: "Nazwa zarejestrowanego użytkownika" },
@@ -294,7 +296,7 @@ const pl = {
 
 const it = {
     common: { submit: "Invia", clear: "Cancella", upload: "Carica", yes: "Sì", no: "No", continue: "Continua", tags: "Etichette", document: "Documento", project: "Progetto", default: "Predefinito" },
-    gate: { title: "Revisione livello IA", help: "Rivedi il campione prima di usare il livello per addestrare kraken.", state: "Stato", states: { raw: "Grezzo", sampled: "Revisionato", training_eligible: "Idoneo all’addestramento" }, meanCer: "CER medio {cer}%", line: "Riga", aiText: "Testo IA", comparisonText: "Confronto", cer: "CER", typePhrase: "Scrivi esattamente: {phrase}", acknowledge: "Conferma campione", markEligible: "Segna come idoneo", eligible: "Questo livello può essere usato per l’addestramento.", error: "Impossibile aggiornare il gate." },
+    gate: { title: "Revisione livello IA", help: "Rivedi il campione prima di usare il livello per addestrare kraken.", state: "Stato", states: { raw: "Grezzo", sampled: "Revisionato", training_eligible: "Idoneo all’addestramento" }, meanCer: "CER medio {cer}%", line: "Riga", aiText: "Testo IA", comparisonText: "Confronto", cer: "CER", typePhrase: "Scrivi esattamente: {phrase}", acknowledge: "Conferma campione", markEligible: "Segna come idoneo", eligible: "Questo livello può essere usato per l’addestramento.", error: "Impossibile aggiornare il gate.", fixThis: "Correggi", fixPartial: "Testo guida opzionale per questa riga:" },
     editor: { segmentation: "Segmentazione", transcription: "Trascrizione", lineOrdering: "Testo / ordine righe", imageAnnotation: "Annotazione immagine", overview: "Panoramica", changePanel: "Cambia pannello", alignment: "Allineamento", notInitiated: "Non avviato", smallerFont: "A−", largerFont: "A+" },
     scope: { document: "documento", project: "progetto", image: "immagine", images: "{n} immagini" },
     share: { groups: "Gruppi", users: "Utenti", addGroupOrUser: "Aggiungi gruppo o utente", addGroup: "Aggiungi gruppo", addUser: "Aggiungi utente", addGroupLabel: "Aggiungi gruppo", userPlaceholder: "Nome utente registrato" },
@@ -317,7 +319,7 @@ const it = {
 
 const es = {
     common: { submit: "Enviar", clear: "Borrar", upload: "Subir", yes: "Sí", no: "No", continue: "Continuar", tags: "Etiquetas", document: "Documento", project: "Proyecto", default: "Predeterminado" },
-    gate: { title: "Revisión de capa de IA", help: "Revise la muestra antes de usar esta capa para entrenar kraken.", state: "Estado", states: { raw: "Sin revisar", sampled: "Revisada", training_eligible: "Apta para entrenamiento" }, meanCer: "CER medio {cer}%", line: "Línea", aiText: "Texto de IA", comparisonText: "Comparación", cer: "CER", typePhrase: "Escriba exactamente: {phrase}", acknowledge: "Confirmar muestra", markEligible: "Marcar como apta", eligible: "Esta capa puede usarse para entrenar.", error: "No se pudo actualizar la puerta." },
+    gate: { title: "Revisión de capa de IA", help: "Revise la muestra antes de usar esta capa para entrenar kraken.", state: "Estado", states: { raw: "Sin revisar", sampled: "Revisada", training_eligible: "Apta para entrenamiento" }, meanCer: "CER medio {cer}%", line: "Línea", aiText: "Texto de IA", comparisonText: "Comparación", cer: "CER", typePhrase: "Escriba exactamente: {phrase}", acknowledge: "Confirmar muestra", markEligible: "Marcar como apta", eligible: "Esta capa puede usarse para entrenar.", error: "No se pudo actualizar la puerta.", fixThis: "Corregir esto", fixPartial: "Texto guía opcional para esta línea:" },
     editor: { segmentation: "Segmentación", transcription: "Transcripción", lineOrdering: "Texto / orden de líneas", imageAnnotation: "Anotación de imagen", overview: "Resumen", changePanel: "Cambiar panel", alignment: "Alineación", notInitiated: "No iniciado", smallerFont: "A−", largerFont: "A+" },
     scope: { document: "documento", project: "proyecto", image: "imagen", images: "{n} imágenes" },
     share: { groups: "Grupos", users: "Usuarios", addGroupOrUser: "Añadir grupo o usuario", addGroup: "Añadir grupo", addUser: "Añadir usuario", addGroupLabel: "Añadir grupo", userPlaceholder: "Nombre de usuario registrado" },
@@ -340,7 +342,7 @@ const es = {
 
 const pt = {
     common: { submit: "Enviar", clear: "Limpar", upload: "Carregar", yes: "Sim", no: "Não", continue: "Continuar", tags: "Etiquetas", document: "Documento", project: "Projeto", default: "Predefinido" },
-    gate: { title: "Revisão da camada de IA", help: "Reveja a amostra antes de usar esta camada para treinar o kraken.", state: "Estado", states: { raw: "Por rever", sampled: "Revista", training_eligible: "Apta para treino" }, meanCer: "CER médio {cer}%", line: "Linha", aiText: "Texto de IA", comparisonText: "Comparação", cer: "CER", typePhrase: "Escreva exatamente: {phrase}", acknowledge: "Confirmar amostra", markEligible: "Marcar como apta", eligible: "Esta camada pode ser usada para treino.", error: "Não foi possível atualizar o gate." },
+    gate: { title: "Revisão da camada de IA", help: "Reveja a amostra antes de usar esta camada para treinar o kraken.", state: "Estado", states: { raw: "Por rever", sampled: "Revista", training_eligible: "Apta para treino" }, meanCer: "CER médio {cer}%", line: "Linha", aiText: "Texto de IA", comparisonText: "Comparação", cer: "CER", typePhrase: "Escreva exatamente: {phrase}", acknowledge: "Confirmar amostra", markEligible: "Marcar como apta", eligible: "Esta camada pode ser usada para treino.", error: "Não foi possível atualizar o gate.", fixThis: "Corrigir isto", fixPartial: "Texto-guia opcional para esta linha:" },
     editor: { segmentation: "Segmentação", transcription: "Transcrição", lineOrdering: "Texto / ordem das linhas", imageAnnotation: "Anotação de imagem", overview: "Visão geral", changePanel: "Mudar painel", alignment: "Alinhamento", notInitiated: "Não iniciado", smallerFont: "A−", largerFont: "A+" },
     scope: { document: "documento", project: "projeto", image: "imagem", images: "{n} imagens" },
     share: { groups: "Grupos", users: "Utilizadores", addGroupOrUser: "Adicionar grupo ou utilizador", addGroup: "Adicionar grupo", addUser: "Adicionar utilizador", addGroupLabel: "Adicionar grupo", userPlaceholder: "Nome de utilizador registado" },
