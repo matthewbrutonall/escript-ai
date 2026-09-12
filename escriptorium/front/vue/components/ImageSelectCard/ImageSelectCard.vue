@@ -47,7 +47,7 @@
             </VDropdown>
 
             <div
-                v-if="availableTranscriptions && availableTranscriptions.length"
+                v-if="trainingTranscriptions && trainingTranscriptions.length"
                 class="escr-card-transcription-select"
                 @click.stop
             >
@@ -62,7 +62,7 @@
                     "
                 >
                     <option
-                        v-for="t in availableTranscriptions"
+                        v-for="t in trainingTranscriptions"
                         :key="t.id || t.pk"
                         :value="t.id || t.pk"
                     >
@@ -109,11 +109,17 @@ export default {
         /**
          * choose manual by default
          */
+        trainingTranscriptions() {
+            return (this.availableTranscriptions || []).filter((t) => {
+                const gate = t.ai_gate;
+                return !gate || gate.state === "training-eligible";
+            });
+        },
         currentDefaultTranscriptionId() {
             if (this.defaultTranscriptionId) {
                 return this.defaultTranscriptionId;
             }
-            const avail = this.availableTranscriptions;
+            const avail = this.trainingTranscriptions;
             if (!avail?.length) {
                 return "";
             }

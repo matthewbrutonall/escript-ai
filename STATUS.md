@@ -19,8 +19,10 @@ must be acknowledged (admin action, exact phrase) before the layer can be
 marked `training-eligible`. Disagreement sample when a comparison layer
 exists; otherwise a random AI-line sample must be reviewed.
 `TrainSerializer` and `core.tasks.train` refuse a gated layer that is still
-`raw` or `sampled`. Manual/kraken layers (no gate) are unchanged. Few-shot
-VLM priming is not in this release.
+`raw` or `sampled`. The document dashboard lists the sample and accepts the
+acknowledgement phrase. Training collection picks omit AI layers that are
+not training-eligible. Manual/kraken layers (no gate) are unchanged.
+Few-shot VLM priming is not in this release.
 
 ## Providers wired
 

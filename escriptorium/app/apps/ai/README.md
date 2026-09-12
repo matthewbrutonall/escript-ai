@@ -24,7 +24,7 @@ Design: `../../../../ARCHITECTURE.md`. Tests and contribution rules:
 | `pipeline.py` | Crops → backend → ORM write with real `version_source` |
 | `dispatch.py` | Off-site policy, keys, budget, cross-document part pks |
 | `tasks.py` | Celery `ai_transcribe` |
-| `serializers.py` / `views.py` | DRF: transcribe action + `GET /api/ai-backends/` |
+| `serializers.py` / `views.py` | DRF: transcribe, `GET /api/ai-backends/`, document `ai-gates` |
 
 ## Tests (no Django, no network, no API)
 

@@ -100,6 +100,30 @@ def acknowledge_sample(gate, user=None, phrase="", now=None):
     return gate
 
 
+def assemble_sample_lines(sample_pks, disagreements_by_line=None, ai_text_by_line=None):
+    """Build the review table. Disagreement rows win; else AI text only."""
+    disagreements_by_line = disagreements_by_line or {}
+    ai_text_by_line = ai_text_by_line or {}
+    out = []
+    for pk in sample_pks or []:
+        d = disagreements_by_line.get(pk)
+        if d:
+            out.append({
+                'line_pk': pk,
+                'ai_text': d.get('ai_text') or '',
+                'comparison_text': d.get('comparison_text') or '',
+                'cer': d.get('cer'),
+            })
+        else:
+            out.append({
+                'line_pk': pk,
+                'ai_text': ai_text_by_line.get(pk) or '',
+                'comparison_text': '',
+                'cer': None,
+            })
+    return out
+
+
 def mark_training_eligible(gate):
     if gate.state != 'sampled':
         raise LayerNotEligible(

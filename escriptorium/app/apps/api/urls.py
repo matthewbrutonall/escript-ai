@@ -6,6 +6,7 @@ from drf_spectacular.views import (
 )
 from rest_framework_nested import routers
 
+from ai.views import AIBackendConfigViewSet, AILayerGateViewSet
 from api.views import (
     AnnotationComponentViewSet,
     AnnotationTaxonomyViewSet,
@@ -57,6 +58,7 @@ router.register(r'types/annotations', AnnotationTypeViewSet)
 router.register(r'types/part', DocumentPartTypeViewSet)
 router.register(r'collections', VirtualCollectionViewSet, basename='virtualcollection')
 router.register(r'downloads', DownloadViewSet, basename='download')
+router.register(r'ai-backends', AIBackendConfigViewSet, basename='ai-backend')
 
 projects_router = routers.NestedSimpleRouter(router, r'projects', lookup='project')
 projects_router.register(r'tags', DocumentTagViewSet, basename='document-tag')
@@ -69,6 +71,7 @@ documents_router.register(r'taxonomies/annotations', AnnotationTaxonomyViewSet)
 documents_router.register(r'taxonomies/components', AnnotationComponentViewSet)
 documents_router.register(r'import', ImportViewSet, basename='import')
 documents_router.register(r'task_groups', TaskGroupViewSet, basename='task-group')
+documents_router.register(r'ai-gates', AILayerGateViewSet, basename='ai-gate')
 
 parts_router = routers.NestedSimpleRouter(documents_router, r'parts', lookup='part')
 parts_router.register(r'blocks', BlockViewSet)

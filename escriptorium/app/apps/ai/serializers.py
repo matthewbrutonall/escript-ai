@@ -22,7 +22,50 @@ from .dispatch import (
     assert_dispatch_allowed,
     assert_parts_belong,
 )
-from .models import AIBackendConfig, AIJob
+from .gate import ACK_PHRASE, assemble_sample_lines
+from .models import AIBackendConfig, AIJob, AILayerGate
+
+
+class AILayerGateSerializer(serializers.ModelSerializer):
+    transcription_name = serializers.CharField(
+        source='transcription.name', read_only=True)
+    sample_size = serializers.SerializerMethodField()
+    sample_lines = serializers.SerializerMethodField()
+    ack_phrase = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AILayerGate
+        fields = (
+            'pk', 'transcription', 'transcription_name', 'state', 'mean_cer',
+            'sample_size', 'sample_lines', 'ack_phrase', 'comparison',
+            'acknowledged_at',
+        )
+
+    def get_sample_size(self, obj):
+        return len(obj.sample_line_pks or [])
+
+    def get_ack_phrase(self, obj):
+        return ACK_PHRASE
+
+    def get_sample_lines(self, obj):
+        if self.context.get('include_sample_lines') is False:
+            return []
+        pks = obj.sample_line_pks or []
+        disagreements = {
+            d.line_id: {
+                'ai_text': d.ai_text,
+                'comparison_text': d.comparison_text,
+                'cer': d.cer,
+            }
+            for d in obj.disagreements.filter(line_id__in=pks)
+        }
+        ai_text = {}
+        if pks and len(disagreements) < len(pks):
+            from core.models import LineTranscription
+            for lt in LineTranscription.objects.filter(
+                    transcription=obj.transcription, line_id__in=pks):
+                ai_text[lt.line_id] = lt.content or ''
+        return assemble_sample_lines(pks, disagreements, ai_text)
 
 
 class AIBackendConfigSerializer(serializers.ModelSerializer):

@@ -352,6 +352,23 @@ export const transcribeDocument = async ({
 export const retrieveAiBackends = async () =>
     await axios.get("/ai-backends/");
 
+export const retrieveAiGates = async (documentId) =>
+    await axios.get(`/documents/${documentId}/ai-gates/`);
+
+export const retrieveAiGate = async (documentId, gateId) =>
+    await axios.get(`/documents/${documentId}/ai-gates/${gateId}/`);
+
+export const acknowledgeAiGate = async (documentId, gateId, phrase) =>
+    await axios.post(
+        `/documents/${documentId}/ai-gates/${gateId}/acknowledge/`,
+        { phrase },
+    );
+
+export const markAiGateEligible = async (documentId, gateId) =>
+    await axios.post(
+        `/documents/${documentId}/ai-gates/${gateId}/mark_eligible/`,
+    );
+
 export const transcribeDocumentAI = async ({
     documentId,
     backend,

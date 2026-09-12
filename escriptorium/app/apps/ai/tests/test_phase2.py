@@ -4,8 +4,9 @@ from types import SimpleNamespace
 
 from ai.conventions import conventions_prompt, merge_conventions
 from ai.gate import (
-    ACK_PHRASE, LayerNotEligible, acknowledge_sample, assert_training_eligible,
-    build_gate_sample, finalise_gate, mark_training_eligible,
+    ACK_PHRASE, LayerNotEligible, acknowledge_sample, assemble_sample_lines,
+    assert_training_eligible, build_gate_sample, finalise_gate,
+    mark_training_eligible,
 )
 from ai.pipeline import DEFAULT_PROMPT, build_prompt
 from ai.triage import (
@@ -130,6 +131,16 @@ class NoComparisonGateTests(unittest.TestCase):
         mark_training_eligible(gate)
         self.assertEqual(gate.state, "training-eligible")
         assert_training_eligible(SimpleNamespace(), gate=gate)
+
+    def test_assemble_sample_prefers_disagreement_rows(self):
+        lines = assemble_sample_lines(
+            [1, 2],
+            disagreements_by_line={1: {"ai_text": "a", "comparison_text": "b", "cer": 0.5}},
+            ai_text_by_line={2: "only-ai"},
+        )
+        self.assertEqual(lines[0]["cer"], 0.5)
+        self.assertEqual(lines[1]["ai_text"], "only-ai")
+        self.assertIsNone(lines[1]["cer"])
 
     def test_comparison_path_still_writes_disagreements(self):
         rows = [{"line_pk": i, "cer": 0.1 * i} for i in range(5)]

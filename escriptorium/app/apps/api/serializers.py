@@ -237,9 +237,25 @@ class PartBulkMoveSerializer(serializers.ModelSerializer):
 
 
 class TranscriptionSerializer(serializers.ModelSerializer):
+    ai_gate = serializers.SerializerMethodField()
+
     class Meta:
         model = Transcription
-        fields = ('pk', 'name', 'archived', 'avg_confidence', 'created_at', 'comments')
+        fields = ('pk', 'name', 'archived', 'avg_confidence', 'created_at',
+                  'comments', 'ai_gate')
+
+    def get_ai_gate(self, obj):
+        from ai.models import AILayerGate
+        try:
+            gate = obj.ai_gate
+        except AILayerGate.DoesNotExist:
+            return None
+        return {
+            'pk': gate.pk,
+            'state': gate.state,
+            'mean_cer': gate.mean_cer,
+            'sample_size': len(gate.sample_line_pks or []),
+        }
 
     def create(self, data):
         document = Document.objects.get(pk=self.context["view"].kwargs["document_pk"])

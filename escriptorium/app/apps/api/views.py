@@ -439,7 +439,10 @@ class DocumentViewSet(ModelViewSet):
         if self.action in ['retrieve', 'list']:
             qs = qs.prefetch_related(
                 Prefetch('tags', queryset=DocumentTag.objects.all()),
-                Prefetch('transcriptions', queryset=Transcription.objects.filter(archived=False))
+                Prefetch(
+                    'transcriptions',
+                    queryset=Transcription.objects.filter(archived=False).select_related('ai_gate'),
+                )
             )
 
         return qs
