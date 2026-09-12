@@ -103,3 +103,24 @@ html[dir="rtl"] .esai-ack {
 html[dir="rtl"] .esai-script {
     flex-direction: row;
 }
+.esai-maintained-bar {
+    width: 100%;
+    flex: 0 0 auto;
+    padding: 0.65rem 1.25rem 0.9rem;
+    text-align: center;
+    font-size: 0.8125rem;
+    line-height: 1.45;
+    opacity: 0.88;
+}
+.esai-maintained {
+    margin: 0;
+}
+.esai-maintained a {
+    font-weight: 600;
+    color: inherit;
+    text-underline-offset: 2px;
+}
+body.homepage .esai-maintained-bar {
+    color: #24312f;
+    opacity: 1;
+}

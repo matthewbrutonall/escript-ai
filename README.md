@@ -111,3 +111,5 @@ A fuller list of upstream and library credits is in
 Escript AI original code is MIT (see `LICENSE`). eScriptorium remains MIT
 (`escriptorium/LICENSE`, Copyright (C) 2018 Robin Tissot, PSL). kraken remains
 Apache 2.0 (`kraken/LICENSE`).
+
+Maintained by [Boyne Archives](https://boynearchives.ie) and [Archiveshosting.com](https://archiveshosting.com).

@@ -154,4 +154,12 @@ CHROME = {
     "Is done training": T(ar="اكتمل التدريب", hi="प्रशिक्षण पूरा", pl="Trening zakończony", it="Addestramento completato", es="Entrenamiento terminado", pt="Treino concluído"),
     "Toggle versions": T(ar="إظهار الإصدارات", hi="संस्करण दिखाएँ/छिपाएँ", pl="Pokaż wersje", it="Mostra versioni", es="Mostrar versiones", pt="Mostrar versões"),
     "Parent from which the model was trained": T(ar="الأصل الذي دُرّب منه النموذج", hi="मूल मॉडल जिससे प्रशिक्षित", pl="Model źródłowy treningu", it="Modello da cui è stato addestrato", es="Modelo del que se entrenó", pt="Modelo a partir do qual foi treinado"),
+    "Maintained by <a href=\"https://boynearchives.ie\" rel=\"noopener noreferrer\">Boyne Archives</a> and <a href=\"https://archiveshosting.com\" rel=\"noopener noreferrer\">Archiveshosting.com</a>": T(
+        ar="تُدار بواسطة <a href=\"https://boynearchives.ie\" rel=\"noopener noreferrer\">Boyne Archives</a> و<a href=\"https://archiveshosting.com\" rel=\"noopener noreferrer\">Archiveshosting.com</a>",
+        hi="<a href=\"https://boynearchives.ie\" rel=\"noopener noreferrer\">Boyne Archives</a> और <a href=\"https://archiveshosting.com\" rel=\"noopener noreferrer\">Archiveshosting.com</a> द्वारा संचालित",
+        pl="Utrzymywane przez <a href=\"https://boynearchives.ie\" rel=\"noopener noreferrer\">Boyne Archives</a> i <a href=\"https://archiveshosting.com\" rel=\"noopener noreferrer\">Archiveshosting.com</a>",
+        it="A cura di <a href=\"https://boynearchives.ie\" rel=\"noopener noreferrer\">Boyne Archives</a> e <a href=\"https://archiveshosting.com\" rel=\"noopener noreferrer\">Archiveshosting.com</a>",
+        es="Mantenido por <a href=\"https://boynearchives.ie\" rel=\"noopener noreferrer\">Boyne Archives</a> y <a href=\"https://archiveshosting.com\" rel=\"noopener noreferrer\">Archiveshosting.com</a>",
+        pt="Mantido por <a href=\"https://boynearchives.ie\" rel=\"noopener noreferrer\">Boyne Archives</a> e <a href=\"https://archiveshosting.com\" rel=\"noopener noreferrer\">Archiveshosting.com</a>",
+    ),
 }

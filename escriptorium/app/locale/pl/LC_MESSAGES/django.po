@@ -1,7 +1,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: Escript AI\n"
-"POT-Creation-Date: 2026-09-12 00:05+0000\n"
+"POT-Creation-Date: 2026-09-12 09:16+0000\n"
 "Language: pl\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
@@ -504,3 +504,6 @@ msgstr "Pokaż wersje"
 
 msgid "Parent from which the model was trained"
 msgstr "Model źródłowy treningu"
+
+msgid "Maintained by <a href=\"https://boynearchives.ie\" rel=\"noopener noreferrer\">Boyne Archives</a> and <a href=\"https://archiveshosting.com\" rel=\"noopener noreferrer\">Archiveshosting.com</a>"
+msgstr "Utrzymywane przez <a href=\"https://boynearchives.ie\" rel=\"noopener noreferrer\">Boyne Archives</a> i <a href=\"https://archiveshosting.com\" rel=\"noopener noreferrer\">Archiveshosting.com</a>"
