@@ -231,6 +231,10 @@ body.escript-ai-home #main {
 .esai-home .esai-langs-label {
     text-align: end;
 }
+.esai-home-footer {
+    border-top: 1px solid rgba(41, 66, 60, 0.12);
+    background: rgba(255, 253, 248, 0.74);
+}
 @media (max-width: 920px) {
     .esai-hero,
     .esai-grid,
@@ -342,5 +346,11 @@ body.escript-ai-home #main {
             {% trans "OCR/HTR engine. It is not an official eScriptorium release and is not endorsed by the upstream project." %}
         </p>
     </section>
+
+    <footer class="esai-maintained-bar esai-home-footer">
+        {% include "includes/maintainer_credit.html" %}
+    </footer>
 </div>
 {% endblock %}
+
+{% block footer %}{% endblock footer %}

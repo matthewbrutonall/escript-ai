@@ -177,9 +177,11 @@
     </div>
     </section></main>
 
-    <footer class="esai-maintained-bar">
-      {% include "includes/maintainer_credit.html" %}
-    </footer>
+    {% block footer %}
+      <footer class="esai-maintained-bar">
+        {% include "includes/maintainer_credit.html" %}
+      </footer>
+    {% endblock footer %}
 
     <script src="{% static 'vendor.js' %}"></script>
 
