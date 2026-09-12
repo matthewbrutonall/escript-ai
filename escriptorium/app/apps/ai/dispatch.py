@@ -113,7 +113,11 @@ def assert_dispatch_allowed(document, config, user=None, est_cost=0.0, *,
                 f"Document {getattr(document, 'pk', document)} forbids remote AI; "
                 f"backend {config.provider}:{config.model_id} is not local.")
         key_fn = get_api_key or resolve_api_key
-        if not key_fn(config):
+        try:
+            api_key = key_fn(config, user=user)
+        except TypeError:
+            api_key = key_fn(config)
+        if not api_key:
             raise RuntimeError(
                 f"No API key resolved for {config.provider}:{config.model_id} "
                 f"(key_ref={getattr(config, 'key_ref', None)!r}).")

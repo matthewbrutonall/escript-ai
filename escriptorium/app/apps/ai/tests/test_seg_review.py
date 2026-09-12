@@ -2,6 +2,7 @@
 import unittest
 from types import SimpleNamespace
 
+from ai.dispatch import CrossDocumentError, assert_parts_belong
 from ai.seg_review import (
     merge_geom_spurious, overlap_spurious_items, parse_review_json,
     suggestions_from_review,
@@ -107,3 +108,14 @@ class ApplyPlanTests(unittest.TestCase):
 class WorkflowMapTests(unittest.TestCase):
     def test_seg_review_flashes_segment_icon(self):
         self.assertEqual(client_process("ai.tasks.ai_seg_review"), "segment")
+
+
+class SegReviewDocumentGuardTests(unittest.TestCase):
+    def test_mixed_parts_are_rejected(self):
+        doc = SimpleNamespace(pk=10)
+        parts = [
+            SimpleNamespace(pk=1, document_id=10),
+            SimpleNamespace(pk=2, document_id=99),
+        ]
+        with self.assertRaises(CrossDocumentError):
+            assert_parts_belong(doc, parts)

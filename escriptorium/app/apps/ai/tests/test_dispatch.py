@@ -103,6 +103,39 @@ class EgressTests(unittest.TestCase):
             get_policy=lambda doc: None,
             get_api_key=lambda c: "secret")
 
+    def test_remote_uses_per_user_key(self):
+        cfg = SimpleNamespace(provider="gemini", is_local=False,
+                              model_id="gemini-2.5-flash", key_ref="K")
+        seen = {}
+
+        def key_fn(config, user=None):
+            seen['user'] = user
+            return "user-secret" if user is not None else None
+
+        user = SimpleNamespace(pk=3)
+        assert_dispatch_allowed(
+            SimpleNamespace(pk=7), cfg, user=user,
+            get_policy=lambda doc: None,
+            get_api_key=key_fn,
+            budget_ok=True)
+        self.assertIs(seen['user'], user)
+
+    def test_remote_blocked_when_user_key_also_missing(self):
+        cfg = SimpleNamespace(provider="gemini", is_local=False,
+                              model_id="gemini-2.5-flash", key_ref="K")
+
+        def key_fn(config, user=None):
+            return None
+
+        with self.assertRaises(RuntimeError) as ctx:
+            assert_dispatch_allowed(
+                SimpleNamespace(pk=7), cfg,
+                user=SimpleNamespace(pk=3),
+                get_policy=lambda doc: None,
+                get_api_key=key_fn,
+                budget_ok=True)
+        self.assertIn("No API key", str(ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

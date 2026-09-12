@@ -714,6 +714,7 @@ class DocumentViewSet(ModelViewSet):
     @action(detail=True, methods=['post'],
             url_path='ai_seg_suggestions/bulk')
     def ai_seg_suggestions_bulk(self, request, pk=None):
+        from ai.models import AISegSuggestion
         from ai.seg_apply import apply_pending
         status_val = request.data.get('status')
         allowed = {AISegSuggestion.STATUS_ACCEPTED,

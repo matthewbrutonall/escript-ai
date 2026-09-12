@@ -18,6 +18,9 @@ class BudgetTests(unittest.TestCase):
 
     def test_zero_cap_blocks(self):
         self.assertFalse(budget_allows(0, 0, 0.01))
+        # Jobs enqueue with est_cost 0; cap 0 must still refuse.
+        self.assertFalse(budget_allows(0, 0, 0))
+        self.assertFalse(budget_allows(0, 0.0, 0.0))
 
 
 class KeyPrecedenceTests(unittest.TestCase):

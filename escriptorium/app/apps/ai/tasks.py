@@ -20,6 +20,7 @@ from .dispatch import (
     CrossDocumentError,
     RemoteAIForbidden,
     assert_dispatch_allowed,
+    assert_parts_belong,
     load_parts_for_transcription,
     resolve_api_key,
 )
@@ -211,8 +212,13 @@ def ai_seg_review(self, instance_pks, ai_config_pk=None, user_pk=None,
     user = User.objects.filter(pk=user_pk).first() if user_pk else None
     job = AIJob.objects.filter(pk=job_pk).first() if job_pk else None
     try:
-        assert_dispatch_allowed(document, config, user=user)
-    except (RemoteAIForbidden, RuntimeError) as e:
+        # Same contract as ai_transcribe: mixed pks must not inherit the
+        # first part's document for policy, budget, events, or suggestions.
+        assert_parts_belong(document, parts)
+        assert_dispatch_allowed(
+            document, config, user=user,
+            est_cost=job.est_cost if job else 0.0)
+    except (CrossDocumentError, RemoteAIForbidden, RuntimeError) as e:
         if job:
             job.status = job.STATUS_ERROR
             job.error = str(e)[:2000]
