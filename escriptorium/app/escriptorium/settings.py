@@ -125,6 +125,7 @@ TEMPLATES = [
                 'escriptorium.context_processors.enable_markdown_export',
                 'escriptorium.context_processors.enable_tei_export',
                 'escriptorium.context_processors.models_version_retention',
+                'escriptorium.context_processors.esc_ui_languages',
             ],
         },
     },
@@ -188,6 +189,8 @@ USE_L10N = True
 USE_TZ = True
 # Interface languages. Default is Escript AI's public set; add fr,de via env
 # if you want upstream catalogs too. Document *scripts* are unrelated.
+# Vue reads settings.LANGUAGES from json_script in base.html — do not
+# duplicate the list in front/vue/i18n.
 ESC_LANGUAGE_CATALOG = [
     ('en', _('English')),
     ('ar', _('Arabic')),

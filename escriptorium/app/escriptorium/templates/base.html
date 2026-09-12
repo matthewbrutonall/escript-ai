@@ -6,6 +6,7 @@
 <html lang="{{ LANGUAGE_CODE }}" dir="{% if LANGUAGE_BIDI %}rtl{% else %}ltr{% endif %}" data-bs-theme="dark">
   <head>
     <meta charset="utf-8">
+    {{ esc_ui_languages|json_script:"esc-ui-languages" }}
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
 

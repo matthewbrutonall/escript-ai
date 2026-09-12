@@ -247,7 +247,7 @@ import TrainIcon from "../Icons/TrainIcon/TrainIcon.vue";
 import "../VerticalMenu/VerticalMenu.css";
 import "./GlobalNavigation.css";
 import { mapActions, mapState } from "vuex";
-import { setLanguage } from "../../i18n";
+import { setLanguage, readUiLanguages } from "../../i18n";
 
 export default {
     name: "EscrGlobalNavigation",
@@ -295,15 +295,7 @@ export default {
             return (this.$i18n.locale || "en").toUpperCase();
         },
         languageOptions() {
-            return [
-                { code: "en", label: "English" },
-                { code: "ar", label: "العربية" },
-                { code: "hi", label: "हिन्दी" },
-                { code: "pl", label: "Polski" },
-                { code: "it", label: "Italiano" },
-                { code: "es", label: "Español" },
-                { code: "pt", label: "Português" },
-            ];
+            return readUiLanguages();
         },
     },
     mounted() {
