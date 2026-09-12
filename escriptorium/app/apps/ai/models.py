@@ -184,7 +184,13 @@ class AILayerGate(models.Model):
     state = models.CharField(
         max_length=32, choices=STATE_CHOICES, default=STATE_RAW)
     sample_line_pks = models.JSONField(default=list, blank=True)
+    held_out_part_pks = models.JSONField(
+        default=list, blank=True,
+        help_text=_("Reviewed pages held out of kraken training for ketos test."))
     mean_cer = models.FloatField(null=True, blank=True)
+    held_out_cer = models.FloatField(
+        null=True, blank=True,
+        help_text=_("Optional ketos test CER on held-out reviewed pages."))
     acknowledged_at = models.DateTimeField(null=True, blank=True)
     acknowledged_by = models.ForeignKey(
         User, null=True, blank=True, on_delete=models.SET_NULL)
@@ -210,3 +216,21 @@ class AILineDisagreement(models.Model):
 
     def __str__(self):
         return f"AILineDisagreement line={self.line_id} cer={self.cer:.3f}"
+
+
+class AIExample(models.Model):
+    """Same-document corrected line used as few-shot text (§10.1)."""
+    document = models.ForeignKey(
+        'core.Document', on_delete=models.CASCADE, related_name='ai_examples')
+    line = models.ForeignKey('core.Line', on_delete=models.CASCADE)
+    text = models.CharField(max_length=2048)
+    pinned = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ['document', 'line']
+        ordering = ['-pinned', '-updated_at']
+
+    def __str__(self):
+        return f"AIExample line={self.line_id} pinned={self.pinned}"

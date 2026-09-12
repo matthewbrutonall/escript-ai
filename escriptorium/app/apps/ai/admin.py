@@ -6,7 +6,7 @@ from .gate import (
     ACK_PHRASE, LayerNotEligible, acknowledge_sample, mark_training_eligible,
 )
 from .models import (
-    AIBackendConfig, AIDocumentPolicy, AIJob, AILayerGate,
+    AIBackendConfig, AIDocumentPolicy, AIExample, AIJob, AILayerGate,
     AILineDisagreement, AIUsageLedger,
 )
 
@@ -76,6 +76,12 @@ class AILayerGateAdmin(admin.ModelAdmin):
 class AILineDisagreementAdmin(admin.ModelAdmin):
     list_display = ('line', 'cer', 'in_sample', 'gate')
     list_filter = ('in_sample',)
+
+
+@admin.register(AIExample)
+class AIExampleAdmin(admin.ModelAdmin):
+    list_display = ('document', 'line', 'pinned', 'updated_at')
+    list_filter = ('pinned',)
 
 
 @admin.register(AIUsageLedger)

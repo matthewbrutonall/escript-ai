@@ -23,9 +23,16 @@ from .dispatch import (
     load_parts_for_transcription,
     resolve_api_key,
 )
+from .compare import (
+    disagreement_rows_from_layers, ensure_comparison_layer,
+    find_cheap_recognizer,
+)
+from .fewshot import load_examples_for_document
 from .gate import build_gate_sample, find_comparison_transcription
+from .ketos_hook import reserve_held_out_parts
 from .models import AILayerGate, AILineDisagreement
 from .pipeline import transcribe_part
+from .triage import normalised_cer
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -66,16 +73,13 @@ def ai_transcribe(self, instance_pks, ai_config_pk=None, transcription_pk=None,
         job.save()
 
     total_cost = 0.0
-    disagreement_rows = []
     written_pks = []
-    comparison = find_comparison_transcription(
-        transcription.document, transcription)
+    examples = load_examples_for_document(transcription.document)
     for part in parts:
         try:
             res = transcribe_part(part, config, transcription, backend,
                                   user=user, per_crop=per_crop, job=job,
-                                  comparison=comparison)
-            disagreement_rows.extend(res.get('disagreements') or [])
+                                  examples=examples)
             written_pks.extend(res.get('written_line_pks') or [])
             total_cost += res['cost']
             AIUsageLedger.objects.create(
@@ -102,8 +106,10 @@ def ai_transcribe(self, instance_pks, ai_config_pk=None, transcription_pk=None,
     if job:
         job.status = job.STATUS_DONE
         job.save()
-        _write_layer_gate(job, transcription, comparison, disagreement_rows,
-                          written_pks)
+        comparison = _ensure_kraken_comparison(
+            transcription.document, transcription, parts, user)
+        rows = _disagreement_rows(transcription, comparison, written_pks)
+        _write_layer_gate(job, transcription, comparison, rows, written_pks)
     if user:
         user.notify(_("AI transcription done!"),
                     id="ai-transcription-success", level='success')
@@ -122,9 +128,15 @@ def _write_layer_gate(job, transcription, comparison, rows, written_pks=None):
     gate.mean_cer = summary['mean_cer']
     gate.save()
     AILineDisagreement.objects.filter(gate=gate).delete()
+    Line = apps.get_model('core', 'Line')
+    sample_pks = summary['sample_line_pks']
+    part_ids = list(
+        Line.objects.filter(pk__in=sample_pks).values_list(
+            'document_part_id', flat=True))
+    gate.held_out_part_pks = reserve_held_out_parts(part_ids)
+    gate.save(update_fields=['held_out_part_pks'])
     if not summary.get('write_disagreements'):
         return
-    Line = apps.get_model('core', 'Line')
     sample = summary['in_sample']
     for row in rows:
         if not Line.objects.filter(pk=row['line_pk']).exists():
@@ -137,3 +149,41 @@ def _write_layer_gate(job, transcription, comparison, rows, written_pks=None):
             cer=float(row['cer']),
             in_sample=row['line_pk'] in sample,
         )
+
+
+def _ensure_kraken_comparison(document, ai_transcription, parts, user):
+    comparison = find_comparison_transcription(document, ai_transcription)
+    if comparison is not None:
+        return comparison
+    OcrModel = apps.get_model('core', 'OcrModel')
+    Transcription = apps.get_model('core', 'Transcription')
+    model = find_cheap_recognizer(OcrModel.objects.all())
+    if model is None:
+        logger.info("ai: no kraken recognizer on the instance; skip comparison pass")
+        return None
+    layer = ensure_comparison_layer(document, Transcription)
+    try:
+        for part in parts:
+            part.transcribe(model, layer, user=user)
+    except Exception:
+        logger.exception("ai: kraken comparison pass failed")
+        return None
+    return layer
+
+
+def _disagreement_rows(ai_transcription, comparison, line_pks):
+    if comparison is None or not line_pks:
+        return []
+    LineTranscription = apps.get_model('core', 'LineTranscription')
+    ai_map = {
+        lt.line_id: lt.content or ''
+        for lt in LineTranscription.objects.filter(
+            transcription=ai_transcription, line_id__in=line_pks)
+    }
+    kr_map = {
+        lt.line_id: lt.content or ''
+        for lt in LineTranscription.objects.filter(
+            transcription=comparison, line_id__in=line_pks)
+    }
+    return disagreement_rows_from_layers(
+        line_pks, ai_map, kr_map, normalised_cer)

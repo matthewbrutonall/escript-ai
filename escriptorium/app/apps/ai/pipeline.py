@@ -16,6 +16,7 @@ import logging
 from PIL import Image
 
 from .conventions import conventions_prompt
+from .fewshot import fewshot_prompt_block
 from .gate import comparison_text_for_line
 from .overlay import render_crop, key_for_index
 from .preflight import evaluate_crop
@@ -34,13 +35,15 @@ DEFAULT_PROMPT = (
 )
 
 
-def build_prompt(config, keys) -> str:
+def build_prompt(config, keys, examples=None) -> str:
     base = (config.prompt_template or DEFAULT_PROMPT).strip()
     conv = conventions_prompt(getattr(config, 'conventions', None))
-    return (
-        f'{base}\n{conv}\n'
-        f'The colour keys on this crop are: {", ".join(keys)}.'
-    )
+    shots = fewshot_prompt_block(examples or [])
+    parts = [base, conv]
+    if shots:
+        parts.append(shots)
+    parts.append(f'The colour keys on this crop are: {", ".join(keys)}.')
+    return "\n".join(parts)
 
 
 def _line_masks(lines):
@@ -83,7 +86,7 @@ def stamp_line_transcription(line, transcription, text, version_source, author,
 
 
 def transcribe_part(part, config, transcription, backend, *, user=None,
-                    per_crop=6, job=None, comparison=None):
+                    per_crop=6, job=None, comparison=None, examples=None):
     """Transcribe one DocumentPart into `transcription` via colour-keyed crops.
     Returns dict including optional disagreement rows vs `comparison`."""
     lines = list(part.lines.all().order_by('order'))
@@ -123,7 +126,8 @@ def transcribe_part(part, config, transcription, backend, *, user=None,
 
             crop_img, key_to_idx = render_crop(im, group_masks)
             keys = list(key_to_idx)
-            result = backend.transcribe_region(crop_img, keys, build_prompt(config, keys))
+            result = backend.transcribe_region(
+                crop_img, keys, build_prompt(config, keys, examples=examples))
             tok_in += result.tokens_in
             tok_out += result.tokens_out
             cost += backend.cost(result.tokens_in, result.tokens_out)

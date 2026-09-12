@@ -63,6 +63,34 @@ class DidNotConverge(Exception):
     pass
 
 
+def _ketos_cer_from_qs(model, held_qs):
+    """Build a binary eval set from held-out lines and run ketos test if possible."""
+    from ai.ketos_hook import run_ketos_test
+    ground_truth = list(held_qs.values(
+        'content',
+        baseline=F('line__baseline'),
+        mask=F('line__mask'),
+        image=F('line__document_part__image')))
+    if not ground_truth:
+        return None
+    load_threads = getattr(settings, 'KRAKEN_TRAINING_LOAD_THREADS', 0)
+    try:
+        model_path = model.file.path
+    except ValueError:
+        return None
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        eval_file = Path(tmp_dir) / 'eval.arrow'
+        try:
+            segs = make_recognition_segmentation(ground_truth)
+            build_binary_dataset(
+                segs, output_file=str(eval_file),
+                num_workers=load_threads, format_type=None)
+        except Exception:
+            logger.exception("ai: could not build ketos eval set")
+            return None
+        return run_ketos_test(model_path, [str(eval_file)], format_type='binary')
+
+
 def detect_model_architecture(file_path):
     """Returns the kraken '_model' architecture name from safetensors metadata, or None."""
     import json
@@ -804,15 +832,22 @@ def train(transcription_pk=None, model_pk=None, task_group_pk=None,
     Transcription = apps.get_model('core', 'Transcription')
     LineTranscription = apps.get_model('core', 'LineTranscription')
     OcrModel = apps.get_model('core', 'OcrModel')
+    document = None
+    model = None
 
     try:
         model = OcrModel.objects.get(pk=model_pk)
         transcription = Transcription.objects.get(pk=transcription_pk)
+        document = transcription.document
         from ai.gate import LayerNotEligible, assert_training_eligible
+        from ai.ketos_hook import kept_training_parts
         assert_training_eligible(transcription)
+        from ai.models import AILayerGate
+        gate = AILayerGate.objects.filter(transcription=transcription).first()
+        if gate and gate.held_out_part_pks:
+            part_pks = kept_training_parts(part_pks, gate.held_out_part_pks)
         model.training = True
         model.save()
-        document = transcription.document
         send_event('document', document.pk, "training:start", {
             "id": model.pk,
         })
@@ -821,18 +856,31 @@ def train(transcription_pk=None, model_pk=None, task_group_pk=None,
                       line__document_part__pk__in=part_pks)
               .exclude(Q(content='') | Q(content=None)))
         train_(qs, document, transcription, model=model, user=user)
+        if gate is not None and gate.held_out_part_pks:
+            held_qs = (LineTranscription.objects
+                       .filter(transcription=transcription,
+                               line__document_part__pk__in=gate.held_out_part_pks)
+                       .exclude(Q(content='') | Q(content=None)))
+            cer = _ketos_cer_from_qs(model, held_qs)
+            if cer is not None:
+                gate.held_out_cer = cer
+                gate.save(update_fields=['held_out_cer'])
     except DidNotConverge:
-        send_event('document', document.pk, "training:error", {
-            "id": model.pk,
-        })
-        user.notify(_("The model did not converge, probably because of lack of data."),
-                    id="training-warning", level='warning')
-        model.delete()
+        if document is not None:
+            send_event('document', document.pk, "training:error", {
+                "id": model.pk if model is not None else None,
+            })
+        if user:
+            user.notify(_("The model did not converge, probably because of lack of data."),
+                        id="training-warning", level='warning')
+        if model is not None:
+            model.delete()
 
     except Exception as e:
-        send_event('document', document.pk, "training:error", {
-            "id": model.pk,
-        })
+        if document is not None:
+            send_event('document', document.pk, "training:error", {
+                "id": model.pk if model is not None else None,
+            })
         if user:
             user.notify(_("Something went wrong during the training process!"),
                         id="training-error", level='danger')
@@ -1110,13 +1158,32 @@ def train_from_collection(collection_pk=None, model_pk=None, task_group_pk=None,
         if not collection_items.exists():
             raise ValueError("Cannot train on an empty collection.")
         from ai.gate import assert_training_eligible
+        from ai.models import AILayerGate
         seen = set()
+        held_out = set()
         for item in collection_items:
             tr = item.transcription_layer
             if tr is None or tr.pk in seen:
                 continue
             seen.add(tr.pk)
             assert_training_eligible(tr)
+            gate = AILayerGate.objects.filter(transcription=tr).first()
+            if gate and gate.held_out_part_pks:
+                held_out.update(gate.held_out_part_pks)
+        from ai.ketos_hook import eligible_collection_pairs
+        pairs = eligible_collection_pairs(
+            [
+                {
+                    "transcription_layer_id": item.transcription_layer_id,
+                    "document_part_id": item.document_part_id,
+                }
+                for item in collection_items
+            ],
+            held_out,
+        )
+        if not pairs:
+            raise ValueError(
+                "No eligible collection items remain after holding out reviewed pages.")
         model.training = True
         model.save()
 
@@ -1129,16 +1196,12 @@ def train_from_collection(collection_pk=None, model_pk=None, task_group_pk=None,
                 "id": model.pk,
             },
         )
-
-        # ground truth: only lines from each part + transcription_layer pair in
-        # the collection
         q_objects = Q()
-        for item in collection_items:
-            if item.transcription_layer_id:
-                q_objects |= Q(
-                    transcription_id=item.transcription_layer_id,
-                    line__document_part_id=item.document_part_id,
-                )
+        for tid, pid in pairs:
+            q_objects |= Q(
+                transcription_id=tid,
+                line__document_part_id=pid,
+            )
         qs = LineTranscription.objects.filter(q_objects).exclude(
             Q(content="") | Q(content=None)
         )

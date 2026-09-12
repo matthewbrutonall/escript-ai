@@ -22,7 +22,11 @@ exists; otherwise a random AI-line sample must be reviewed.
 `raw` or `sampled`. The document dashboard lists the sample and accepts the
 acknowledgement phrase. Training collection picks omit AI layers that are
 not training-eligible. Manual/kraken layers (no gate) are unchanged.
-Few-shot VLM priming is not in this release.
+Same-document few-shot text (pinned then recent corrections) is appended
+to the prompt. If no comparison layer exists, a cheap on-instance kraken
+recognizer is tried; failure falls back to a random sample. Reviewed pages can be held out of `core.tasks.train`. After training, held-out
+lines are compiled to a binary eval set and `ketos test -f binary` runs if
+`ketos` is on PATH. Collection training aborts if every item was held out.
 
 ## Providers wired
 

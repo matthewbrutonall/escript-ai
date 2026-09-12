@@ -77,7 +77,7 @@ INSTALLED_APPS = [
     'versioning',
     'users',
     'core',
-    'ai',
+    'ai.apps.AiConfig',
     'imports',
     'language_flags',
     'reporting',
