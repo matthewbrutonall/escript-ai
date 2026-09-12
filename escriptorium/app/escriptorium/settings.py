@@ -187,10 +187,9 @@ TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_L10N = True
 USE_TZ = True
-# Interface languages. Default is Escript AI's public set; add fr,de via env
-# if you want upstream catalogs too. Document *scripts* are unrelated.
-# Vue reads settings.LANGUAGES from json_script in base.html — do not
-# duplicate the list in front/vue/i18n.
+# Interface languages. Vue reads settings.LANGUAGES from json_script in
+# base.html — do not duplicate the list in front/vue/i18n.
+# Document *scripts* are unrelated to UI language. Urdu is RTL.
 ESC_LANGUAGE_CATALOG = [
     ('en', _('English')),
     ('ar', _('Arabic')),
@@ -201,10 +200,13 @@ ESC_LANGUAGE_CATALOG = [
     ('pt', _('Portuguese')),
     ('fr', _('French')),
     ('de', _('German')),
+    ('ur', _('Urdu')),
+    ('tr', _('Turkish')),
+    ('te', _('Telugu')),
 ]
 ESC_LANGUAGES = [
     c.strip() for c in os.getenv(
-        'ESC_LANGUAGES', 'en,ar,hi,pl,it,es,pt'
+        'ESC_LANGUAGES', 'en,ar,hi,pl,it,es,pt,fr,de,ur,tr,te'
     ).split(',') if c.strip()
 ]
 LANGUAGES = [

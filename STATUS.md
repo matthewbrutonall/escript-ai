@@ -96,8 +96,9 @@ filters. Remaining English: some import-form details, metadata key/value
 fields, editor help copy, and the websocket “done” toast. Vue i18n only
 shows in **non-legacy** UI.
 
-Language list: `ESC_LANGUAGES` (default `en,ar,hi,pl,it,es,pt`). Switcher uses
-language names, not flags.
+Language list: `ESC_LANGUAGES` (default
+`en,ar,hi,pl,it,es,pt,fr,de,ur,tr,te`). Switcher uses language names, not
+flags. Arabic and Urdu are RTL (`html dir`); Telugu is LTR.
 
 ## Roadmap (next)
 

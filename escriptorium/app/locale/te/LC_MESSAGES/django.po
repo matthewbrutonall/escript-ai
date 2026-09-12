@@ -1,0 +1,509 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: Escript AI\n"
+"POT-Creation-Date: 2026-09-12 22:00+0000\n"
+"Language: te\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Home"
+msgstr "హోమ్"
+
+msgid "Language"
+msgstr "భాష"
+
+msgid "Sign in"
+msgstr "సైన్ ఇన్"
+
+msgid "Login"
+msgstr "లాగిన్"
+
+msgid "Open projects"
+msgstr "ప్రాజెక్టులు తెరువు"
+
+msgid "Acknowledgements"
+msgstr "కృతజ్ఞతలు"
+
+msgid "Contact"
+msgstr "సంప్రదింపు"
+
+msgid "Public pages are translated. After you sign in, most of the app is still in English."
+msgstr "బహిరంగ పేజీలు అనువదించబడ్డాయి. సైన్ ఇన్ తర్వాత యాప్‌లో ఎక్కువ భాగం ఇంకా ఆంగ్లంలోనే ఉంది."
+
+msgid "Old manuscripts and modern handwriting. Latin, Arabic, Hindi, and whatever else is on the page. The machine types a first pass. You correct it."
+msgstr "పాత వ్రాతప్రతులు మరియు ఆధునిక చేతివ్రాత. లాటిన్, అరబిక్, హిందీ, పేజీపై ఉన్నదంతా. యంత్రం మొదటి డ్రాఫ్ట్ టైప్ చేస్తుంది. మీరు సరిదిద్దుతారు."
+
+msgid "Project capabilities"
+msgstr "ప్రాజెక్టు సామర్థ్యాలు"
+
+msgid "First pass"
+msgstr "మొదటి పాస్"
+
+msgid "The AI types what it sees onto a separate layer. Your original page stays put."
+msgstr "ఏఐ చూసినదాన్ని వేరే పొరపై టైప్ చేస్తుంది. అసలు పేజీ అలాగే ఉంటుంది."
+
+msgid "You decide"
+msgstr "మీరు నిర్ణయిస్తారు"
+
+msgid "Nothing is finished text until you have looked at it."
+msgstr "మీరు చూసే వరకు ఏ వచనం పూర్తి కాదు."
+
+msgid "Any script"
+msgstr "ఏ లిపి అయినా"
+
+msgid "Latin (the alphabet used for English and other European languages), Arabic, Hindi, and the rest. If you can see the writing, it will try to read it."
+msgstr "లాటిన్ (ఆంగ్లం మరియు ఇతర యూరోపియన్ భాషల వర్ణమాల), అరబిక్, హిందీ మరియు మిగతా. రాత కనిపిస్తే చదవడానికి ప్రయత్నిస్తుంది."
+
+msgid "What you actually get"
+msgstr "నిజంగా మీకు ఏమి లభిస్తుంది"
+
+msgid "English"
+msgstr "ఆంగ్లం"
+
+msgid "Arabic"
+msgstr "అరబిక్"
+
+msgid "Hindi"
+msgstr "హిందీ"
+
+msgid "<strong>A typed layer on top of the page</strong> — not a replacement for it. You keep the image, correct the text, and export when it is good enough."
+msgstr "<strong>పేజీపై టైప్ చేసిన పొర</strong> — దాని స్థానంలో కాదు. చిత్రం మీ దగ్గరే, వచనం సరిదిద్ది, సరిపోతే ఎగుమతి చేయండి."
+
+msgid "Not just old, not just Latin"
+msgstr "కేవలం పాతది కాదు, కేవలం లాటిన్ కాదు"
+
+msgid "Arabic, Hindi, and other scripts use the same workflow as English. If the lines on the page are clear, it does not care which alphabet they are in — or whether the ink is a century old or last week’s."
+msgstr "అరబిక్, హిందీ మరియు ఇతర లిపులు ఆంగ్లం లాంటి ప్రవాహాన్నే అనుసరిస్తాయి. పంక్తులు స్పష్టంగా ఉంటే వర్ణమాల పట్టదు — సిరా శతాబ్దం పాతదైనా గత వారం దైనా."
+
+msgid "Keys stay under your control"
+msgstr "కీలు మీ నియంత్రణలోనే ఉంటాయి"
+
+msgid "Remote AI calls need a key you configure, plus document policy, before anything leaves the instance."
+msgstr "రిమోట్ ఏఐ కాల్స్‌కు మీరు సెట్ చేసిన కీ మరియు పత్ర విధానం కావాలి, అప్పుడే ఏదైనా ఇన్‌స్టన్స్ నుండి బయటకు వెళ్తుంది."
+
+msgid "You stay in charge"
+msgstr "నియంత్రణ మీ చేతిలోనే"
+
+msgid "The useful path is read, tweak, and export. Training a local recognition model is there when a collection needs it."
+msgstr "పనికొచ్చే మార్గం: చదవండి, సరిదిద్దండి, ఎగుమతి చేయండి. సేకరణకు అవసరమైతే స్థానిక గుర్తింపు నమూనా శిక్షణ ఉంది."
+
+msgid "Escript AI is independent open-source work derived from"
+msgstr "Escript AI స్వతంత్ర ఓపెన్ సోర్స్ పని, దీని నుండి ఉద్భవించింది"
+
+msgid "and built on the"
+msgstr "మరియు దీనిపై నిర్మించబడింది"
+
+msgid "OCR/HTR engine. It is not an official eScriptorium release and is not endorsed by the upstream project."
+msgstr "OCR/HTR ఇంజిన్. ఇది అధికారిక eScriptorium విడుదల కాదు మరియు అప్‌స్ట్రీమ్ ప్రాజెక్టు ఆమోదించలేదు."
+
+msgid "My Projects"
+msgstr "నా ప్రాజెక్టులు"
+
+msgid "My Models"
+msgstr "నా నమూనాలు"
+
+msgid "My Documents"
+msgstr "నా పత్రాలు"
+
+msgid "Hello %(username)s"
+msgstr "నమస్కారం %(username)s"
+
+msgid "Change password"
+msgstr "పాస్‌వర్డ్ మార్చు"
+
+msgid "Profile"
+msgstr "ప్రొఫైల్"
+
+msgid "Task reports"
+msgstr "పని నివేదికలు"
+
+msgid "Tasks monitoring"
+msgstr "పనుల పర్యవేక్షణ"
+
+msgid "Downloads"
+msgstr "డౌన్‌లోడ్‌లు"
+
+msgid "Site administration"
+msgstr "సైట్ నిర్వహణ"
+
+msgid "Invite"
+msgstr "ఆహ్వానించు"
+
+msgid "Logout"
+msgstr "లాగ్ అవుట్"
+
+msgid "Please Sign In"
+msgstr "దయచేసి సైన్ ఇన్ చేయండి"
+
+msgid "Password"
+msgstr "పాస్‌వర్డ్"
+
+msgid "Lost password?"
+msgstr "పాస్‌వర్డ్ మర్చిపోయారా?"
+
+msgid "Create new Project"
+msgstr "కొత్త ప్రాజెక్టు"
+
+msgid "Create a new Project"
+msgstr "కొత్త ప్రాజెక్టు సృష్టించు"
+
+msgid "Create new Document"
+msgstr "కొత్త పత్రం"
+
+msgid "Create a new Document"
+msgstr "కొత్త పత్రం సృష్టించు"
+
+msgid "Documents"
+msgstr "పత్రాలు"
+
+msgid "Document"
+msgstr "పత్రం"
+
+msgid "Name"
+msgstr "పేరు"
+
+msgid "Owner"
+msgstr "యజమాని"
+
+msgid "Actions"
+msgstr "చర్యలు"
+
+msgid "Tags"
+msgstr "ట్యాగ్‌లు"
+
+msgid "Manage tags"
+msgstr "ట్యాగ్‌లను నిర్వహించు"
+
+msgid "Share this Project"
+msgstr "ఈ ప్రాజెక్టును పంచుకోండి"
+
+msgid "Share this Document"
+msgstr "ఈ పత్రాన్ని పంచుకోండి"
+
+msgid "Share"
+msgstr "పంచుకోండి"
+
+msgid "Close"
+msgstr "మూసివేయి"
+
+msgid "Delete"
+msgstr "తొలగించు"
+
+msgid "Edit"
+msgstr "సవరించు"
+
+msgid "Save"
+msgstr "సేవ్ చేయి"
+
+msgid "Cancel"
+msgstr "రద్దు"
+
+msgid "Update"
+msgstr "నవీకరించు"
+
+msgid "Create"
+msgstr "సృష్టించు"
+
+msgid "Import"
+msgstr "దిగుమతి"
+
+msgid "Export"
+msgstr "ఎగుమతి"
+
+msgid "Download"
+msgstr "డౌన్‌లోడ్"
+
+msgid "Train"
+msgstr "శిక్షణ"
+
+msgid "Transcribe"
+msgstr "లిప్యంతరీకరణ"
+
+msgid "Segment"
+msgstr "విభజన"
+
+msgid "Align"
+msgstr "సమలేఖనం"
+
+msgid "Binarize"
+msgstr "ద్విమితీయం"
+
+msgid "Select a model"
+msgstr "నమూనా ఎంచుకోండి"
+
+msgid "Select a transcription"
+msgstr "లిప్యంతరీకరణ ఎంచుకోండి"
+
+msgid "Layer name"
+msgstr "పొర పేరు"
+
+msgid "-- New --"
+msgstr "-- కొత్త --"
+
+msgid "Model"
+msgstr "నమూనా"
+
+msgid "Description"
+msgstr "వివరణ"
+
+msgid "Ontology"
+msgstr "ఆంటాలజీ"
+
+msgid "Images"
+msgstr "చిత్రాలు"
+
+msgid "Models"
+msgstr "నమూనాలు"
+
+msgid "Reports"
+msgstr "నివేదికలు"
+
+msgid "Select all"
+msgstr "అన్నీ ఎంచుకోండి"
+
+msgid "Unselect all"
+msgstr "ఎంపిక తీసివేయి"
+
+msgid "Selected"
+msgstr "ఎంచుకున్నవి"
+
+msgid "Loading"
+msgstr "లోడవుతోంది"
+
+msgid "Filters"
+msgstr "ఫిల్టర్లు"
+
+msgid "Preview"
+msgstr "ప్రివ్యూ"
+
+msgid "Last modified"
+msgstr "చివరి మార్పు"
+
+msgid "Image count"
+msgstr "చిత్రాల సంఖ్య"
+
+msgid "Search"
+msgstr "వెతుకు"
+
+msgid "Find"
+msgstr "కనుగొను"
+
+msgid "Results"
+msgstr "ఫలితాలు"
+
+msgid "Content"
+msgstr "విషయం"
+
+msgid "Settings"
+msgstr "సెట్టింగ్‌లు"
+
+msgid "Details"
+msgstr "వివరాలు"
+
+msgid "Status"
+msgstr "స్థితి"
+
+msgid "Queued"
+msgstr "క్యూలో"
+
+msgid "Running"
+msgstr "నడుస్తోంది"
+
+msgid "Finished"
+msgstr "పూర్తయింది"
+
+msgid "Error"
+msgstr "లోపం"
+
+msgid "Canceled"
+msgstr "రద్దయింది"
+
+msgid "Crashed"
+msgstr "క్రాష్"
+
+msgid "image(s) selected."
+msgstr "చిత్రం(లు) ఎంచుకోబడ్డాయి."
+
+msgid "Beware that re-segmenting will delete any existing transcriptions!"
+msgstr "జాగ్రత్త: మళ్లీ విభజిస్తే ఉన్న లిప్యంతరీకరణలు తొలగుతాయి!"
+
+msgid "Drop images here or click to upload."
+msgstr "చిత్రాలను ఇక్కడ వదలండి లేదా అప్‌లోడ్ చేయడానికి క్లిక్ చేయండి."
+
+msgid "Your username and password didn't match. Please try again."
+msgstr "వినియోగదారు పేరు మరియు పాస్‌వర్డ్ సరిపోలలేదు. మళ్లీ ప్రయత్నించండి."
+
+msgid "Please login to see this page."
+msgstr "ఈ పేజీని చూడడానికి లాగిన్ అవ్వండి."
+
+msgid "Search in all your projects"
+msgstr "మీ ప్రాజెక్టులన్నింటిలో వెతకండి"
+
+msgid "1 document."
+msgstr "1 పత్రం."
+
+msgid "1 image."
+msgstr "1 చిత్రం."
+
+msgid "Metadata"
+msgstr "మెటాడేటా"
+
+msgid "Back to document list"
+msgstr "పత్రాల జాబితాకు తిరిగి"
+
+msgid "Back to profile"
+msgstr "ప్రొఫైల్‌కు తిరిగి"
+
+msgid "Files"
+msgstr "ఫైళ్లు"
+
+msgid "Invitations"
+msgstr "ఆహ్వానాలు"
+
+msgid "Teams"
+msgstr "బృందాలు"
+
+msgid "Users"
+msgstr "వినియోగదారులు"
+
+msgid "Username"
+msgstr "వినియోగదారు పేరు"
+
+msgid "Email address"
+msgstr "ఇమెయిల్ చిరునామా"
+
+msgid "email address"
+msgstr "ఇమెయిల్ చిరునామా"
+
+msgid "Send"
+msgstr "పంపు"
+
+msgid "Accept"
+msgstr "అంగీకరించు"
+
+msgid "Remove"
+msgstr "తొలగించు"
+
+msgid "Remove filter"
+msgstr "ఫిల్టర్ తీసివేయి"
+
+msgid "Leave"
+msgstr "వదిలి వెళ్ళు"
+
+msgid "Information"
+msgstr "సమాచారం"
+
+msgid "API key"
+msgstr "API కీ"
+
+msgid "Transcription done!"
+msgstr "లిప్యంతరీకరణ పూర్తి!"
+
+msgid "Segmentation done!"
+msgstr "విభజన పూర్తి!"
+
+msgid "Something went wrong during the transcription!"
+msgstr "లిప్యంతరీకరణ సమయంలో ఏదో తప్పు జరిగింది!"
+
+msgid "Something went wrong during the segmentation!"
+msgstr "విభజన సమయంలో ఏదో తప్పు జరిగింది!"
+
+msgid "Document created successfully!"
+msgstr "పత్రం సృష్టించబడింది!"
+
+msgid "Project created successfully!"
+msgstr "ప్రాజెక్టు సృష్టించబడింది!"
+
+msgid "New model"
+msgstr "కొత్త నమూనా"
+
+msgid "Or select an existing one"
+msgstr "లేదా ఉన్నదాన్ని ఎంచుకోండి"
+
+msgid "Start transcribing selected images."
+msgstr "ఎంచుకున్న చిత్రాల లిప్యంతరీకరణ ప్రారంభించండి."
+
+msgid "Segment selected images."
+msgstr "ఎంచుకున్న చిత్రాలను విభజించండి."
+
+msgid "Make sure that the segmentation is good before going forward because resegmenting will delete all bound transcriptions."
+msgstr "ముందుకు వెళ్ళే ముందు విభజన బాగుందని చూడండి: మళ్లీ విభజిస్తే అనుబంధ లిప్యంతరీకరణలు తొలగుతాయి."
+
+msgid "Please be aware that the epoch versions of the models will only be available for %(MODELS_VERSION_RETENTION)s days."
+msgstr "నమూనాల యుగ సంస్కరణలు %(MODELS_VERSION_RETENTION)s రోజులు మాత్రమే అందుబాటులో ఉంటాయి."
+
+msgid "Upload a model"
+msgstr "నమూనా అప్‌లోడ్ చేయి"
+
+msgid "Find a model"
+msgstr "నమూనా కనుగొను"
+
+msgid "Publish a model"
+msgstr "నమూనా ప్రచురించు"
+
+msgid "Role"
+msgstr "పాత్ర"
+
+msgid "Script"
+msgstr "లిపి"
+
+msgid "Size"
+msgstr "పరిమాణం"
+
+msgid "Trained from"
+msgstr "దీని నుండి శిక్షణ"
+
+msgid "Training Status"
+msgstr "శిక్షణ స్థితి"
+
+msgid "Accuracy"
+msgstr "ఖచ్చితత్వం"
+
+msgid "Right"
+msgstr "హక్కు"
+
+msgid "Public"
+msgstr "బహిరంగం"
+
+msgid "User"
+msgstr "వినియోగదారు"
+
+msgid "Upload"
+msgstr "అప్‌లోడ్"
+
+msgid "Model name"
+msgstr "నమూనా పేరు"
+
+msgid "Model role"
+msgstr "నమూనా పాత్ర"
+
+msgid "Model script"
+msgstr "నమూనా లిపి"
+
+msgid "Filter by script"
+msgstr "లిపి ప్రకారం వడపోయి"
+
+msgid "Share model"
+msgstr "నమూనాను పంచుకోండి"
+
+msgid "Delete model"
+msgstr "నమూనాను తొలగించు"
+
+msgid "Cancel training"
+msgstr "శిక్షణ రద్దు చేయి"
+
+msgid "Is currently training"
+msgstr "శిక్షణ జరుగుతోంది"
+
+msgid "Is done training"
+msgstr "శిక్షణ పూర్తయింది"
+
+msgid "Toggle versions"
+msgstr "సంస్కరణలను చూపు"
+
+msgid "Parent from which the model was trained"
+msgstr "దీని నుండి శిక్షణ పొందిన మాతృ నమూనా"
+
+msgid "Maintained by <a href=\"https://boynearchives.ie\" rel=\"noopener noreferrer\">Boyne Archives</a> and <a href=\"https://archiveshosting.com\" rel=\"noopener noreferrer\">Archiveshosting.com</a>"
+msgstr "<a href=\"https://boynearchives.ie\" rel=\"noopener noreferrer\">Boyne Archives</a> మరియు <a href=\"https://archiveshosting.com\" rel=\"noopener noreferrer\">Archiveshosting.com</a> నిర్వహణ"

@@ -1,0 +1,509 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: Escript AI\n"
+"POT-Creation-Date: 2026-09-12 22:00+0000\n"
+"Language: ur\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Home"
+msgstr "ہوم"
+
+msgid "Language"
+msgstr "زبان"
+
+msgid "Sign in"
+msgstr "سائن ان"
+
+msgid "Login"
+msgstr "لاگ ان"
+
+msgid "Open projects"
+msgstr "پروجیکٹ کھولیں"
+
+msgid "Acknowledgements"
+msgstr "اعترافات"
+
+msgid "Contact"
+msgstr "رابطہ"
+
+msgid "Public pages are translated. After you sign in, most of the app is still in English."
+msgstr "عوامی صفحات کا ترجمہ ہو چکا ہے۔ سائن ان کے بعد ایپ کا زیادہ حصہ اب بھی انگریزی میں ہے۔"
+
+msgid "Old manuscripts and modern handwriting. Latin, Arabic, Hindi, and whatever else is on the page. The machine types a first pass. You correct it."
+msgstr "قدیم مخطوطے اور جدید ہاتھ کی تحریر۔ لاطینی، عربی، ہندی، اور صفحے پر جو کچھ بھی ہو۔ مشین پہلا مسودہ ٹائپ کرتی ہے۔ آپ درست کرتے ہیں۔"
+
+msgid "Project capabilities"
+msgstr "منصوبے کی صلاحیتیں"
+
+msgid "First pass"
+msgstr "پہلا مسودہ"
+
+msgid "The AI types what it sees onto a separate layer. Your original page stays put."
+msgstr "اے آئی جو دیکھتی ہے اسے الگ پرت پر ٹائپ کرتی ہے۔ اصل صفحہ ویسا ہی رہتا ہے۔"
+
+msgid "You decide"
+msgstr "آپ فیصلہ کرتے ہیں"
+
+msgid "Nothing is finished text until you have looked at it."
+msgstr "جب تک آپ نہ دیکھ لیں کوئی متن مکمل نہیں۔"
+
+msgid "Any script"
+msgstr "کوئی بھی رسم الخط"
+
+msgid "Latin (the alphabet used for English and other European languages), Arabic, Hindi, and the rest. If you can see the writing, it will try to read it."
+msgstr "لاطینی (انگریزی اور یورپی زبانوں کا حروف تہجی)، عربی، ہندی اور باقی۔ تحریر نظر آئے تو پڑھنے کی کوشش کرے گا۔"
+
+msgid "What you actually get"
+msgstr "آپ کو اصل میں کیا ملتا ہے"
+
+msgid "English"
+msgstr "انگریزی"
+
+msgid "Arabic"
+msgstr "عربی"
+
+msgid "Hindi"
+msgstr "ہندی"
+
+msgid "<strong>A typed layer on top of the page</strong> — not a replacement for it. You keep the image, correct the text, and export when it is good enough."
+msgstr "<strong>صفحے کے اوپر ٹائپ شدہ پرت</strong> — اس کی جگہ نہیں۔ تصویر آپ کے پاس، متن درست کریں، کافی ہو تو برآمد کریں۔"
+
+msgid "Not just old, not just Latin"
+msgstr "صرف پرانا نہیں، صرف لاطینی نہیں"
+
+msgid "Arabic, Hindi, and other scripts use the same workflow as English. If the lines on the page are clear, it does not care which alphabet they are in — or whether the ink is a century old or last week’s."
+msgstr "عربی، ہندی اور دیگر رسم الخط انگریزی جیسا ہی راستہ چلتے ہیں۔ سطریں صاف ہوں تو حروف تہجی سے فرق نہیں — نہ اس سے کہ روشنائی سو سال پرانی ہے یا پچھلے ہفتے کی۔"
+
+msgid "Keys stay under your control"
+msgstr "چابیاں آپ کے اختیار میں رہتی ہیں"
+
+msgid "Remote AI calls need a key you configure, plus document policy, before anything leaves the instance."
+msgstr "ریموٹ اے آئی کال کے لیے آپ کی چابی اور دستاویز کی پالیسی چاہیے، تب ہی کچھ انسٹانس سے باہر جاتا ہے۔"
+
+msgid "You stay in charge"
+msgstr "اختیار آپ کے پاس رہتا ہے"
+
+msgid "The useful path is read, tweak, and export. Training a local recognition model is there when a collection needs it."
+msgstr "کام کا راستہ: پڑھیں، درست کریں، برآمد کریں۔ مقامی شناخت ماڈل کی تربیت تب ہے جب مجموعے کو ضرورت ہو۔"
+
+msgid "Escript AI is independent open-source work derived from"
+msgstr "ایسکرپٹ اے آئی آزاد اوپن سورس کام ہے، ماخوذ از"
+
+msgid "and built on the"
+msgstr "اور اس پر بنایا گیا"
+
+msgid "OCR/HTR engine. It is not an official eScriptorium release and is not endorsed by the upstream project."
+msgstr "او سی آر/ایچ ٹی آر انجن۔ یہ eScriptorium کی سرکاری ریلیز نہیں اور بالائی منصوبہ اس کی توثیق نہیں کرتا۔"
+
+msgid "My Projects"
+msgstr "میرے منصوبے"
+
+msgid "My Models"
+msgstr "میرے ماڈل"
+
+msgid "My Documents"
+msgstr "میرے دستاویزات"
+
+msgid "Hello %(username)s"
+msgstr "سلام %(username)s"
+
+msgid "Change password"
+msgstr "پاس ورڈ تبدیل کریں"
+
+msgid "Profile"
+msgstr "پروفائل"
+
+msgid "Task reports"
+msgstr "ٹاسک رپورٹس"
+
+msgid "Tasks monitoring"
+msgstr "ٹاسک نگرانی"
+
+msgid "Downloads"
+msgstr "ڈاؤن لوڈز"
+
+msgid "Site administration"
+msgstr "سائٹ انتظامیہ"
+
+msgid "Invite"
+msgstr "دعوت"
+
+msgid "Logout"
+msgstr "لاگ آؤٹ"
+
+msgid "Please Sign In"
+msgstr "براہ کرم سائن ان کریں"
+
+msgid "Password"
+msgstr "پاس ورڈ"
+
+msgid "Lost password?"
+msgstr "پاس ورڈ بھول گئے؟"
+
+msgid "Create new Project"
+msgstr "نیا منصوبہ بنائیں"
+
+msgid "Create a new Project"
+msgstr "نیا منصوبہ بنائیں"
+
+msgid "Create new Document"
+msgstr "نیا دستاویز بنائیں"
+
+msgid "Create a new Document"
+msgstr "نیا دستاویز بنائیں"
+
+msgid "Documents"
+msgstr "دستاویزات"
+
+msgid "Document"
+msgstr "دستاویز"
+
+msgid "Name"
+msgstr "نام"
+
+msgid "Owner"
+msgstr "مالک"
+
+msgid "Actions"
+msgstr "اقدامات"
+
+msgid "Tags"
+msgstr "ٹیگز"
+
+msgid "Manage tags"
+msgstr "ٹیگز کا انتظام"
+
+msgid "Share this Project"
+msgstr "یہ منصوبہ شیئر کریں"
+
+msgid "Share this Document"
+msgstr "یہ دستاویز شیئر کریں"
+
+msgid "Share"
+msgstr "شیئر"
+
+msgid "Close"
+msgstr "بند کریں"
+
+msgid "Delete"
+msgstr "حذف کریں"
+
+msgid "Edit"
+msgstr "ترمیم"
+
+msgid "Save"
+msgstr "محفوظ کریں"
+
+msgid "Cancel"
+msgstr "منسوخ"
+
+msgid "Update"
+msgstr "اپ ڈیٹ"
+
+msgid "Create"
+msgstr "بنائیں"
+
+msgid "Import"
+msgstr "درآمد"
+
+msgid "Export"
+msgstr "برآمد"
+
+msgid "Download"
+msgstr "ڈاؤن لوڈ"
+
+msgid "Train"
+msgstr "تربیت"
+
+msgid "Transcribe"
+msgstr "نقل"
+
+msgid "Segment"
+msgstr "قطعہ بندی"
+
+msgid "Align"
+msgstr "محاذات"
+
+msgid "Binarize"
+msgstr "دوئی بنائیں"
+
+msgid "Select a model"
+msgstr "ماڈل منتخب کریں"
+
+msgid "Select a transcription"
+msgstr "نقل منتخب کریں"
+
+msgid "Layer name"
+msgstr "پرت کا نام"
+
+msgid "-- New --"
+msgstr "-- نیا --"
+
+msgid "Model"
+msgstr "ماڈل"
+
+msgid "Description"
+msgstr "تفصیل"
+
+msgid "Ontology"
+msgstr "آنتالوجی"
+
+msgid "Images"
+msgstr "تصاویر"
+
+msgid "Models"
+msgstr "ماڈلز"
+
+msgid "Reports"
+msgstr "رپورٹس"
+
+msgid "Select all"
+msgstr "سب منتخب کریں"
+
+msgid "Unselect all"
+msgstr "سب غیر منتخب"
+
+msgid "Selected"
+msgstr "منتخب"
+
+msgid "Loading"
+msgstr "لوڈ ہو رہا ہے"
+
+msgid "Filters"
+msgstr "فلٹرز"
+
+msgid "Preview"
+msgstr "پیش منظر"
+
+msgid "Last modified"
+msgstr "آخری ترمیم"
+
+msgid "Image count"
+msgstr "تصویروں کی تعداد"
+
+msgid "Search"
+msgstr "تلاش"
+
+msgid "Find"
+msgstr "ڈھونڈیں"
+
+msgid "Results"
+msgstr "نتائج"
+
+msgid "Content"
+msgstr "مواد"
+
+msgid "Settings"
+msgstr "ترتیبات"
+
+msgid "Details"
+msgstr "تفصیلات"
+
+msgid "Status"
+msgstr "حالت"
+
+msgid "Queued"
+msgstr "قطار میں"
+
+msgid "Running"
+msgstr "چل رہا ہے"
+
+msgid "Finished"
+msgstr "مکمل"
+
+msgid "Error"
+msgstr "خرابی"
+
+msgid "Canceled"
+msgstr "منسوخ"
+
+msgid "Crashed"
+msgstr "کریش"
+
+msgid "image(s) selected."
+msgstr "تصویر(یں) منتخب۔"
+
+msgid "Beware that re-segmenting will delete any existing transcriptions!"
+msgstr "خبردار: دوبارہ قطعہ بندی موجودہ نقول مٹا دے گی!"
+
+msgid "Drop images here or click to upload."
+msgstr "تصاویر یہاں چھوڑیں یا اپ لوڈ کے لیے کلک کریں۔"
+
+msgid "Your username and password didn't match. Please try again."
+msgstr "صارف نام اور پاس ورڈ نہیں ملے۔ دوبارہ کوشش کریں۔"
+
+msgid "Please login to see this page."
+msgstr "یہ صفحہ دیکھنے کے لیے لاگ ان کریں۔"
+
+msgid "Search in all your projects"
+msgstr "تمام منصوبوں میں تلاش"
+
+msgid "1 document."
+msgstr "1 دستاویز۔"
+
+msgid "1 image."
+msgstr "1 تصویر۔"
+
+msgid "Metadata"
+msgstr "میٹا ڈیٹا"
+
+msgid "Back to document list"
+msgstr "دستاویز فہرست پر واپس"
+
+msgid "Back to profile"
+msgstr "پروفائل پر واپس"
+
+msgid "Files"
+msgstr "فائلیں"
+
+msgid "Invitations"
+msgstr "دعوتیں"
+
+msgid "Teams"
+msgstr "ٹیمیں"
+
+msgid "Users"
+msgstr "صارفین"
+
+msgid "Username"
+msgstr "صارف نام"
+
+msgid "Email address"
+msgstr "ای میل پتہ"
+
+msgid "email address"
+msgstr "ای میل پتہ"
+
+msgid "Send"
+msgstr "بھیجیں"
+
+msgid "Accept"
+msgstr "قبول کریں"
+
+msgid "Remove"
+msgstr "ہٹائیں"
+
+msgid "Remove filter"
+msgstr "فلٹر ہٹائیں"
+
+msgid "Leave"
+msgstr "چھوڑیں"
+
+msgid "Information"
+msgstr "معلومات"
+
+msgid "API key"
+msgstr "اے پی آئی کلید"
+
+msgid "Transcription done!"
+msgstr "نقل مکمل!"
+
+msgid "Segmentation done!"
+msgstr "قطعہ بندی مکمل!"
+
+msgid "Something went wrong during the transcription!"
+msgstr "نقل کے دوران کچھ غلط ہوا!"
+
+msgid "Something went wrong during the segmentation!"
+msgstr "قطعہ بندی کے دوران کچھ غلط ہوا!"
+
+msgid "Document created successfully!"
+msgstr "دستاویز بن گیا!"
+
+msgid "Project created successfully!"
+msgstr "منصوبہ بن گیا!"
+
+msgid "New model"
+msgstr "نیا ماڈل"
+
+msgid "Or select an existing one"
+msgstr "یا موجودہ منتخب کریں"
+
+msgid "Start transcribing selected images."
+msgstr "منتخب تصاویر کی نقل شروع کریں۔"
+
+msgid "Segment selected images."
+msgstr "منتخب تصاویر کی قطعہ بندی کریں۔"
+
+msgid "Make sure that the segmentation is good before going forward because resegmenting will delete all bound transcriptions."
+msgstr "آگے بڑھنے سے پہلے قطعہ بندی ٹھیک ہو — دوبارہ قطعہ بندی جڑی ہوئی نقول مٹا دے گی۔"
+
+msgid "Please be aware that the epoch versions of the models will only be available for %(MODELS_VERSION_RETENTION)s days."
+msgstr "ماڈلز کے epoch ورژن صرف %(MODELS_VERSION_RETENTION)s دن دستیاب رہیں گے۔"
+
+msgid "Upload a model"
+msgstr "ماڈل اپ لوڈ کریں"
+
+msgid "Find a model"
+msgstr "ماڈل ڈھونڈیں"
+
+msgid "Publish a model"
+msgstr "ماڈل شائع کریں"
+
+msgid "Role"
+msgstr "کردار"
+
+msgid "Script"
+msgstr "رسم الخط"
+
+msgid "Size"
+msgstr "سائز"
+
+msgid "Trained from"
+msgstr "تربیت یافتہ از"
+
+msgid "Training Status"
+msgstr "تربیت کی حالت"
+
+msgid "Accuracy"
+msgstr "درستگی"
+
+msgid "Right"
+msgstr "حق"
+
+msgid "Public"
+msgstr "عوامی"
+
+msgid "User"
+msgstr "صارف"
+
+msgid "Upload"
+msgstr "اپ لوڈ"
+
+msgid "Model name"
+msgstr "ماڈل کا نام"
+
+msgid "Model role"
+msgstr "ماڈل کا کردار"
+
+msgid "Model script"
+msgstr "ماڈل کا رسم الخط"
+
+msgid "Filter by script"
+msgstr "رسم الخط سے چھانٹیں"
+
+msgid "Share model"
+msgstr "ماڈل شیئر کریں"
+
+msgid "Delete model"
+msgstr "ماڈل حذف کریں"
+
+msgid "Cancel training"
+msgstr "تربیت منسوخ کریں"
+
+msgid "Is currently training"
+msgstr "تربیت جاری ہے"
+
+msgid "Is done training"
+msgstr "تربیت مکمل"
+
+msgid "Toggle versions"
+msgstr "ورژن دکھائیں"
+
+msgid "Parent from which the model was trained"
+msgstr "اصل ماڈل جس سے تربیت ہوئی"
+
+msgid "Maintained by <a href=\"https://boynearchives.ie\" rel=\"noopener noreferrer\">Boyne Archives</a> and <a href=\"https://archiveshosting.com\" rel=\"noopener noreferrer\">Archiveshosting.com</a>"
+msgstr "<a href=\"https://boynearchives.ie\" rel=\"noopener noreferrer\">Boyne Archives</a> اور <a href=\"https://archiveshosting.com\" rel=\"noopener noreferrer\">Archiveshosting.com</a> کی دیکھ بھال"

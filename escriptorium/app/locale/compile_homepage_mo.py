@@ -8,10 +8,19 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _homepage_catalog import STRINGS
 from _chrome_catalog import CHROME
+from _new_langs import EXTRA
 
-STRINGS = {**STRINGS, **CHROME}
+def _merge(table):
+    out = {}
+    for msgid, langs in table.items():
+        extra = EXTRA.get(msgid, {})
+        merged = {**langs, **extra}
+        out[msgid] = merged
+    return out
 
-LANGS = ("ar", "hi", "pl", "it", "es", "pt")
+STRINGS = _merge({**STRINGS, **CHROME})
+
+LANGS = ("ar", "hi", "pl", "it", "es", "pt", "fr", "de", "ur", "tr", "te")
 ROOT = Path(__file__).resolve().parent
 
 
