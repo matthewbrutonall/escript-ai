@@ -1,41 +1,54 @@
-FROM docker.io/library/node:12-alpine as frontend
+# Escript AI image, built from this tree (not the official eScriptorium image).
+#   docker compose build
+#   docker compose up -d
+#
+# Frontend is webpack production (hashed bundles + webpack-stats.json).
+# Python deps come from app/requirements.txt (kraken 7.x, drf-spectacular).
 
+FROM docker.io/library/node:20-bookworm-slim AS frontend
 WORKDIR /build
-COPY ./front /build
-RUN npm ci && npm run production
+COPY front/package.json front/package-lock.json ./
+RUN npm ci
+COPY front/ ./
+RUN npm run production
 
-# Pull official base image
-FROM registry.gitlab.com/scripta/escriptorium/base:drf-spectacular-sidecar
+FROM docker.io/library/python:3.12-slim-bookworm
 
-# try to autodetect number of cpus available
-# ENV NGINX_WORKER_PROCESSES auto
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    DEBIAN_FRONTEND=noninteractive \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    FRONTEND_DIR=/usr/src/app/front
 
-ARG VERSION_DATE="passthistobuildcmd"
-ENV VERSION_DATE=$VERSION_DATE
-ENV FRONTEND_DIR=/usr/src/app/front
-ENV LANG=C.UTF-8
-ENV LC_ALL=C.UTF-8
-
-# set work directory
 WORKDIR /usr/src/app
 
-COPY ./app/entrypoint.sh /usr/src/app/entrypoint.sh
-COPY ./app/manage.py /usr/src/app/manage.py
-COPY ./app/requirements.txt /usr/src/app/requirements.txt
-COPY ./app/uwsgi.ini /usr/src/app/uwsgi.ini
-
-COPY ./app/apps /usr/src/app/apps
-COPY ./app/escriptorium /usr/src/app/escriptorium
-COPY ./app/locale /usr/src/app/locale
-COPY ./app/homepage /usr/src/app/homepage
-COPY ./app/contributors /usr/src/app/contributors
-COPY --from=frontend /build/dist /usr/src/app/front
-
 RUN apt-get update -q && \
-    apt-get install -y --no-install-recommends gettext curl && \
+    apt-get install -y --no-install-recommends \
+        netcat-traditional jpegoptim pngcrush libvips libffi-dev \
+        git build-essential default-jre gettext curl \
+        libxml2 libxslt1.1 libpq5 && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
-RUN python manage.py compilemessages
 
-# run entrypoint.sh
+RUN addgroup --system uwsgi && \
+    adduser --system --no-create-home --ingroup uwsgi uwsgi
+
+COPY app/requirements.txt /usr/src/app/requirements.txt
+RUN pip install --root-user-action ignore --upgrade pip && \
+    pip install --root-user-action ignore --no-cache-dir -r requirements.txt
+
+COPY app/entrypoint.sh /usr/src/app/entrypoint.sh
+COPY app/manage.py /usr/src/app/manage.py
+COPY app/uwsgi.ini /usr/src/app/uwsgi.ini
+COPY app/apps /usr/src/app/apps
+COPY app/escriptorium /usr/src/app/escriptorium
+COPY app/locale /usr/src/app/locale
+COPY app/homepage /usr/src/app/homepage
+COPY app/contributors /usr/src/app/contributors
+COPY --from=frontend /build/dist /usr/src/app/front
+
+RUN chmod +x /usr/src/app/entrypoint.sh && \
+    python /usr/src/app/locale/compile_homepage_mo.py
+
 ENTRYPOINT ["/usr/src/app/entrypoint.sh"]

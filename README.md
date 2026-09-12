@@ -53,14 +53,28 @@ In Django admin, each `AIBackendConfig.key_ref` should match the env var name
 
 ## Setup
 
-You need a running eScriptorium-compatible stack (Docker Compose is the usual
-path — see `escriptorium/README.md`) with this tree’s `ai/` app installed:
+Build **this** tree. Do not overlay the official eScriptorium image — that
+image’s kraken and Django apps are older than this repo (no PPOCRv6, no
+`drf_spectacular`, no Phase 2 `ai/` files).
 
-1. `INSTALLED_APPS` includes `'ai'`.
-2. `python manage.py migrate` (includes `ai.0001_initial`).
-3. Export keys from `.env` into the **web and Celery** processes.
-4. Create an `AIBackendConfig` (admin) for Gemini, Claude, OpenAI, and/or local.
-5. Segment pages with kraken, then **Transcribe** → an AI backend.
+```bash
+cd escriptorium
+cp variables.env_example variables.env   # edit secrets
+docker compose build
+docker compose up -d
+```
+
+That image is `escript-ai:local` (`escriptorium/Dockerfile`): Node 20 webpack
+production frontend, Python 3.12, `app/requirements.txt` (kraken 7.x,
+drf-spectacular), this repo’s `ai/` app and locale catalogs. `entrypoint.sh`
+runs `migrate` and `collectstatic`.
+
+Then:
+
+1. Export keys from `.env` into the **web and Celery** processes (or
+   `variables.env`).
+2. Create an `AIBackendConfig` (admin) for Gemini, Claude, OpenAI, and/or local.
+3. Segment pages with kraken, then **Transcribe** → an AI backend.
 
 ## Sample / spike code
 
