@@ -36,6 +36,12 @@
                 :placeholder="$t('transcribe.layerPlaceholder')"
                 required
             />
+            <p
+                v-if="overwritingExisting"
+                class="escr-help-text escr-overwrite-warn"
+            >
+                {{ $t("transcribe.overwriteLayer") }}
+            </p>
         </template>
         <template #modal-actions>
             <EscrButton
@@ -199,16 +205,29 @@ export default {
         /**
          * Format existing transcription layers as options
          */
+        overwritingExisting() {
+            const name = (this.layerName || "").trim();
+            if (!name) return false;
+            return (this.transcriptions || []).some((t) => t.name === name);
+        },
         transcriptionOptionGroups() {
             const options = this.transcriptions.map((transcription) => ({
                 label: transcription.name,
                 value: transcription.name,
                 selected: this.layerName === transcription.name,
             }));
-
-            return options.length > 0
-                ? [{ label: "Existing Layers", options }]
-                : [];
+            const groups = [];
+            const name = (this.layerName || "").trim();
+            if (name && !options.some((o) => o.value === name)) {
+                groups.push({
+                    label: this.$t("transcribe.newLayer"),
+                    options: [{ label: name, value: name, selected: true }],
+                });
+            }
+            if (options.length > 0) {
+                groups.push({ label: this.$t("transcribe.existingLayers"), options });
+            }
+            return groups;
         },
     },
     methods: {
@@ -220,22 +239,35 @@ export default {
                 form: "transcribe", field: "layerName", value: e.target.value,
             });
         },
+        uniqueLayerName(suggested) {
+            const existing = new Set(
+                (this.transcriptions || []).map((t) => t.name),
+            );
+            if (!existing.has(suggested)) return suggested;
+            let n = 2;
+            while (existing.has(`${suggested} (${n})`)) n += 1;
+            return `${suggested} (${n})`;
+        },
         handleModelChange(e) {
             const value = e.target.value;
             this.handleGenericInput({ form: "transcribe", field: "model", value });
-            if (String(value).startsWith("ai:") && !this.layerName) {
-                const backend = (this.aiBackends || []).find(
-                    (b) => `ai:${b.pk}` === String(value),
-                );
-                if (backend) {
-                    this.handleGenericInput({
-                        form: "transcribe",
-                        field: "layerName",
-                        value: `AI — ${backend.name}`,
-                    });
-                }
-            }
+            if (!String(value).startsWith("ai:")) return;
+            const backend = (this.aiBackends || []).find(
+                (b) => `ai:${b.pk}` === String(value),
+            );
+            if (!backend) return;
+            this.handleGenericInput({
+                form: "transcribe",
+                field: "layerName",
+                value: this.uniqueLayerName(`AI — ${backend.name}`),
+            });
         },
     },
 };
 </script>
+<style scoped>
+.escr-overwrite-warn {
+    color: var(--warning, #e0b25a);
+    margin: 0.35rem 0 0;
+}
+</style>

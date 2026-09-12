@@ -19,8 +19,14 @@
                     · {{ $t("gate.meanCer", { cer: (gate.mean_cer * 100).toFixed(1) }) }}
                 </span>
             </p>
+            <p
+                v-if="!gate.sample_lines || !gate.sample_lines.length"
+                class="escr-help-text"
+            >
+                {{ $t("gate.emptySample") }}
+            </p>
             <table
-                v-if="gate.sample_lines && gate.sample_lines.length"
+                v-else
                 class="escr-ai-sample-table"
             >
                 <thead>

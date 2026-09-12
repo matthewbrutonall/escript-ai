@@ -155,6 +155,11 @@ export default {
          * Filter option groups based on search text
          */
         filteredOptions() {
+            // Only filter while the user is typing. A filled-in suggested
+            // name (e.g. "AI — OpenAI …") must not hide other existing layers.
+            if (!this.isUserTyping) {
+                return this.optionGroups;
+            }
             const search = this.searchText.toLowerCase();
             if (!search) {
                 return this.optionGroups;
@@ -239,7 +244,15 @@ export default {
                     this.isUserTyping = false;
                     return;
                 }
-                this.searchText = option ? option.label : "";
+                if (option) {
+                    this.searchText = option.label;
+                    return;
+                }
+                // Keep a custom typed value; do not wipe the field.
+                if (this.allowCustomValue && this.searchText) {
+                    return;
+                }
+                this.searchText = "";
             },
         },
         filteredOptions() {

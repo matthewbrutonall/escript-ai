@@ -1,6 +1,13 @@
 /* sidebar container */
 .escr-sidebar-container {
     display: flex;
+    flex-flow: column nowrap;
+    align-self: start;
+    position: sticky;
+    top: 0;
+    width: 64px;
+    height: 100vh;
+    min-height: 100vh;
     z-index: var(--sidebar-container-z);
 }
 /* sidebar */
@@ -9,6 +16,9 @@
     width: 64px;
     min-width: 64px;
     max-width: 64px;
+    flex: 1 1 auto;
+    height: 100%;
+    min-height: 100vh;
     padding-top: 32px;
     filter: drop-shadow(0px 4px 4px var(--drop-shadow));
     z-index: var(--sidebar-z);

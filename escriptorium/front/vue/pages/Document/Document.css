@@ -15,21 +15,18 @@
 .escr-document-dashboard .escr-doc-right-grid {
     display: grid;
     gap: 24px;
-    align-items: stretch;
+    align-items: start;
     min-height: 100%;
-    max-height: calc(100vh - 75px);
 }
 @media (max-width: 1200px),
 (max-height: 680px) {
     .escr-document-dashboard {
-        height: max(768px, calc(100vh - 16px));
+        min-height: max(768px, calc(100vh - 16px));
+        height: auto;
     }
     .escr-document-dashboard .escr-grid-container {
-        height: max(calc(768px - 51px), calc(100% - 51px));
-    }
-    .escr-document-dashboard .escr-doc-left-grid,
-    .escr-document-dashboard .escr-doc-right-grid {
-        max-height: calc(100% - 75px);
+        height: auto;
+        min-height: max(calc(768px - 51px), calc(100% - 51px));
     }
 }
 
@@ -38,9 +35,9 @@
  */
 .escr-document-dashboard .escr-doc-left-grid {
     grid-template-columns: 2fr 3fr;
-    grid-template-rows: 0.5fr 0.7fr 0.7fr 1fr 1fr;
+    grid-template-rows: auto auto auto auto;
     padding-bottom: 24px;
-    align-items: stretch;
+    align-items: start;
     grid-template-areas:
         "header header"
         "tags tasks"
@@ -187,16 +184,26 @@
     padding: 51px 48px 24px 24px;
     display: grid;
     grid-template-columns: 1fr 1fr 1fr;
-    grid-template-rows: 10% 116px 12% 11% auto 11% auto;
+    grid-template-rows: auto auto auto auto auto auto auto;
     grid-template-areas:
         "header header header"
         "images lines characters"
         "status status status"
         "chars chars chars"
-        "chars chars chars"
         "ontology ontology ontology"
-        "ontology ontology ontology";
+        "ai-layer ai-layer ai-layer"
+        "ai-seg ai-seg ai-seg";
     min-height: calc(100% + 51px);
+    padding-bottom: 4.5rem;
+}
+.escr-document-dashboard .escr-ai-sample-review {
+    grid-area: ai-layer;
+    min-width: 0;
+}
+.escr-document-dashboard .escr-ai-seg-review {
+    grid-area: ai-seg;
+    min-width: 0;
+    overflow-x: auto;
 }
 /* right side header and select element */
 .escr-document-dashboard .doc-stats-header {

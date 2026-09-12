@@ -527,6 +527,13 @@
                     :on-cancel="() => closeRedrawModal()"
                     :on-confirm="onRedrawMasks"
                 />
+                <ShareModal
+                    v-if="shareModalOpen"
+                    :groups="groups"
+                    :disabled="loading && loading.images"
+                    :on-cancel="closeShareModal"
+                    :on-submit="shareDocument"
+                />
                 <!-- delete images modal -->
                 <ConfirmModal
                     v-if="deleteModalOpen"
@@ -583,6 +590,7 @@ import PeopleIcon from "../../components/Icons/PeopleIcon/PeopleIcon.vue";
 import SearchIcon from "../../components/Icons/SearchIcon/SearchIcon.vue";
 import SearchPanel from "../../components/SearchPanel/SearchPanel.vue";
 import SegmentIcon from "../../components/Icons/SegmentIcon/SegmentIcon.vue";
+import ShareModal from "../../components/SharePanel/ShareModal.vue";
 import SegmentModal from "../../components/SegmentModal/SegmentModal.vue";
 import SegmentedButtonGroup from "../../components/SegmentedButtonGroup/SegmentedButtonGroup.vue";
 import SharePanel from "../../components/SharePanel/SharePanel.vue";
@@ -637,6 +645,7 @@ export default {
         SearchPanel,
         SegmentIcon,
         SegmentModal,
+        ShareModal,
         SegmentedButtonGroup,
         // eslint-disable-next-line vue/no-unused-components
         SharePanel,
@@ -699,6 +708,8 @@ export default {
         ...mapState({
             deleteModalOpen: (state) => state.images.deleteModalOpen,
             documentName: (state) => state.document.name,
+            groups: (state) => state.user.groups,
+            shareModalOpen: (state) => state.document.shareModalOpen,
             isDragging: (state) => state.images.isDragging,
             loading: (state) => state.images.loading,
             models: (state) => state.document.models,
@@ -957,10 +968,13 @@ export default {
     methods: {
         ...mapActions("alerts", ["addError"]),
         ...mapActions("document", [
+            "closeShareModal",
             "confirmImageCancelWarning",
             "fetchDocumentModels",
             "handleSubmitImport",
+            "openShareModal",
             "setId",
+            "shareDocument",
             "updatePartTaskStatus",
         ]),
         ...mapActions("images", [

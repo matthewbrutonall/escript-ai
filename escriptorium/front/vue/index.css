@@ -138,18 +138,34 @@
 }
 
 /* Site-wide styles */
-.escr-body,
-.escr-page-container {
+.escr-body {
     display: flex;
     flex-flow: row nowrap;
     align-items: stretch;
     height: 100vh;
-    overflow-y: hidden;
+    overflow: hidden;
     max-height: 100vh;
 }
-.escr-body main {
+.escr-page-container {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: stretch;
+    min-height: 100%;
+    width: 100%;
+    height: auto;
+    max-height: none;
+    overflow-x: hidden;
+    overflow-y: visible;
+}
+.escr-page-container:has(#editor) {
+    height: 100vh;
     max-height: 100vh;
-    overflow: auto;
+    overflow: hidden;
+}
+.escr-body main {
+    height: 100vh;
+    max-height: 100vh;
+    overflow-y: auto;
     width: 100%;
 }
 .escr-body  {
@@ -168,19 +184,16 @@ main:has(.escr-vue-enabled):not(:has(.escr-page)) {
 /* screens smaller than desktop */
 @media (max-width: 1200px),
     (max-height: 680px) {
-    .escr-page-container {
+    .escr-page-container:not(:has(#editor)) {
         min-width: 1200px;
         min-height: 768px;
-        max-height: max(768px, 100vh);
+        max-height: none;
+        height: auto;
+        overflow: visible;
     }
     html,
-    .escr-body,
-    .escr-body-main {
+    .escr-body {
         overflow: hidden;
-    }
-    .escr-page:not(#editor),
-    main:has(.escr-vue-enabled):not(:has(.escr-page)) {
-        padding-bottom: 0;
     }
 }
 

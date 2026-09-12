@@ -144,5 +144,5 @@ html[dir="rtl"] body.escr-body:has(#vue-global-nav) .esai-maintained-bar {
     right: 64px;
 }
 body.escr-body:not(.homepage) main {
-    padding-bottom: 2.75rem;
+    padding-bottom: 4.5rem;
 }

@@ -115,9 +115,12 @@ def assemble_sample_lines(sample_pks, disagreements_by_line=None, ai_text_by_lin
                 'cer': d.get('cer'),
             })
         else:
+            text = ai_text_by_line.get(pk) or ''
+            if not text.strip():
+                continue
             out.append({
                 'line_pk': pk,
-                'ai_text': ai_text_by_line.get(pk) or '',
+                'ai_text': text,
                 'comparison_text': '',
                 'cer': None,
             })
