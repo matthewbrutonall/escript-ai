@@ -24,11 +24,15 @@ class AIBackendConfig(models.Model):
     PROVIDER_ANTHROPIC = 'anthropic'
     PROVIDER_OPENAI = 'openai'
     PROVIDER_LOCAL = 'local'          # OpenAI-compatible: Ollama / vLLM
+    PROVIDER_AZURE = 'azure'
+    PROVIDER_MISTRAL = 'mistral'
     PROVIDER_CHOICES = (
         (PROVIDER_GEMINI, 'Google Gemini'),
         (PROVIDER_ANTHROPIC, 'Anthropic Claude'),
         (PROVIDER_OPENAI, 'OpenAI'),
         (PROVIDER_LOCAL, 'Local (OpenAI-compatible: Ollama/vLLM)'),
+        (PROVIDER_AZURE, 'Azure OpenAI'),
+        (PROVIDER_MISTRAL, 'Mistral / Pixtral'),
     )
 
     name = models.CharField(max_length=256)

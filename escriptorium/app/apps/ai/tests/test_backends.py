@@ -129,6 +129,28 @@ class GetBackendTests(unittest.TestCase):
         cfg = SimpleNamespace(provider="local", model_id="llava")
         self.assertIsInstance(get_backend(cfg), LocalOpenAIBackend)
 
+    def test_azure_and_mistral_map(self):
+        from ai.backends import AzureOpenAIBackend, MistralBackend, azure_chat_url
+        self.assertIsInstance(
+            get_backend(SimpleNamespace(provider="azure", model_id="gpt-4o")),
+            AzureOpenAIBackend)
+        self.assertIsInstance(
+            get_backend(SimpleNamespace(provider="mistral", model_id="pixtral-large-latest")),
+            MistralBackend)
+        url = azure_chat_url("https://ex.openai.azure.com", "my-dep", "2024-08-01-preview")
+        self.assertIn("/openai/deployments/my-dep/chat/completions", url)
+        self.assertIn("api-version=2024-08-01-preview", url)
+
+    def test_azure_requires_endpoint(self):
+        from ai.backends import AzureOpenAIBackend
+        from PIL import Image
+        cfg = SimpleNamespace(provider="azure", model_id="gpt-4o",
+                              endpoint=None, max_edge_px=32, params={})
+        img = Image.new("RGB", (8, 8), "white")
+        with self.assertRaises(RuntimeError) as ctx:
+            AzureOpenAIBackend(cfg, api_key="k").transcribe_region(img, ["red"], "p")
+        self.assertIn("endpoint", str(ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

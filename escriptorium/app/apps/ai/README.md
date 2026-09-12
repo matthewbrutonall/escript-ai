@@ -25,6 +25,7 @@ Design: `../../../../ARCHITECTURE.md`. Tests and contribution rules:
 | `passim_fallback.py` | Witness→OCR align; unmatched lines stay empty |
 | `fixthis.py` | One-line re-read prompt + parse |
 | `seg_review.py` | Numbered-box segmentation judgements; never writes masks |
+| `backends.py` | Gemini, Anthropic, OpenAI, local, Azure, Mistral |
 | `seg_apply.py` | Accept deletes spurious lines and stamps Line.typology |
 | `budget.py` | Monthly USD cap vs AIUsageLedger |
 | `secrets.py` | Fernet per-user keys; env/default fallback |

@@ -56,6 +56,35 @@ def estimate_image_tokens(w: int, h: int) -> int:
     return max(258, tiles * 258)
 
 
+def azure_chat_url(endpoint, deployment, api_version="2024-08-01-preview") -> str:
+    base = (endpoint or "").rstrip("/")
+    return (f"{base}/openai/deployments/{deployment}/chat/completions"
+            f"?api-version={api_version}")
+
+
+def _chat_completions_vision(url, headers, model, prompt, b64, timeout=600):
+    import requests
+    payload = {
+        "model": model,
+        "temperature": 0,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                {"type": "image_url",
+                 "image_url": {"url": f"data:image/png;base64,{b64}"}},
+            ],
+        }],
+    }
+    r = requests.post(url, json=payload, headers=headers, timeout=timeout)
+    if not r.ok:
+        raise RuntimeError(f"chat completions {r.status_code}: {r.text[:800]}")
+    data = r.json()
+    raw = data["choices"][0]["message"]["content"]
+    u = data.get("usage", {})
+    return raw, u
+
+
 def _extract_openai_text(data: dict) -> str:
     if data.get("output_text"):
         return data["output_text"]
@@ -153,7 +182,7 @@ class AnthropicBackend(BaseBackend):
                 "content-type": "application/json",
             },
             json=payload,
-            timeout=180,
+            timeout=600,
         )
         if not r.ok:
             raise RuntimeError(
@@ -206,7 +235,7 @@ class OpenAIBackend(BaseBackend):
                 "Content-Type": "application/json",
             },
             json=payload,
-            timeout=180,
+            timeout=600,
         )
         if not r.ok:
             raise RuntimeError(f"OpenAI {r.status_code}: {r.text[:800]}")
@@ -225,23 +254,57 @@ class LocalOpenAIBackend(BaseBackend):
     private path. Cost stays 0; only GPU-minutes (metered elsewhere)."""
 
     def transcribe_region(self, image, keys, prompt) -> AIResult:
-        import requests
         b64, w, h = _downscale_png_b64(image, self.config.max_edge_px)
         url = (self.config.endpoint or "http://localhost:11434/v1").rstrip("/") + "/chat/completions"
-        payload = {"model": self.config.model_id, "temperature": 0, "messages": [
-            {"role": "user", "content": [
-                {"type": "text", "text": prompt},
-                {"type": "image_url",
-                 "image_url": {"url": f"data:image/png;base64,{b64}"}}]}]}
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
-        r = requests.post(url, json=payload, headers=headers, timeout=600)
-        r.raise_for_status()
-        data = r.json()
-        raw = data["choices"][0]["message"]["content"]
-        u = data.get("usage", {})
+        raw, u = _chat_completions_vision(
+            url, headers, self.config.model_id, prompt, b64)
         text_by_key, unknown = parse_json_by_key(raw, keys)
         return AIResult(text_by_key, unknown,
                         u.get("prompt_tokens", 0), u.get("completion_tokens", 0), raw)
+
+
+class AzureOpenAIBackend(BaseBackend):
+    """Azure OpenAI chat completions (deployment name in model_id). Off-site
+    unless the archive's own Azure tenant; still blocked by never_send_offsite."""
+    in_usd_per_1m = 2.00
+    out_usd_per_1m = 12.00
+
+    def transcribe_region(self, image, keys, prompt) -> AIResult:
+        if not self.api_key:
+            raise RuntimeError("Azure OpenAI requires an API key (key_ref unresolved).")
+        if not self.config.endpoint:
+            raise RuntimeError("Azure OpenAI requires endpoint (resource URL).")
+        b64, w, h = _downscale_png_b64(image, self.config.max_edge_px)
+        params = self.config.params or {}
+        url = azure_chat_url(
+            self.config.endpoint, self.config.model_id,
+            params.get("api_version", "2024-08-01-preview"))
+        raw, u = _chat_completions_vision(
+            url, {"api-key": self.api_key}, self.config.model_id, prompt, b64)
+        text_by_key, unknown = parse_json_by_key(raw, keys)
+        return AIResult(text_by_key, unknown,
+                        u.get("prompt_tokens", estimate_image_tokens(w, h)),
+                        u.get("completion_tokens", 0), raw)
+
+
+class MistralBackend(BaseBackend):
+    """Mistral / Pixtral vision via OpenAI-compatible chat completions."""
+    in_usd_per_1m = 0.15
+    out_usd_per_1m = 0.15
+
+    def transcribe_region(self, image, keys, prompt) -> AIResult:
+        if not self.api_key:
+            raise RuntimeError("Mistral backend requires an API key (key_ref unresolved).")
+        b64, w, h = _downscale_png_b64(image, self.config.max_edge_px)
+        url = (self.config.endpoint or "https://api.mistral.ai/v1").rstrip("/") + "/chat/completions"
+        raw, u = _chat_completions_vision(
+            url, {"Authorization": f"Bearer {self.api_key}"},
+            self.config.model_id, prompt, b64)
+        text_by_key, unknown = parse_json_by_key(raw, keys)
+        return AIResult(text_by_key, unknown,
+                        u.get("prompt_tokens", estimate_image_tokens(w, h)),
+                        u.get("completion_tokens", 0), raw)
 
 
 class MockBackend(BaseBackend):
@@ -260,6 +323,8 @@ def get_backend(config, api_key=None) -> BaseBackend:
         'anthropic': AnthropicBackend,
         'openai': OpenAIBackend,
         'local': LocalOpenAIBackend,
+        'azure': AzureOpenAIBackend,
+        'mistral': MistralBackend,
     }
     cls = backends.get(config.provider)
     if cls is None:
