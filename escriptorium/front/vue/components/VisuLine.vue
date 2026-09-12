@@ -21,7 +21,6 @@
             v-if="$store.state.document.mainTextDirection != 'ttb'"
             ref="textElement"
             :text-anchor="$store.state.document.defaultTextDirection == 'rtl' ? 'end' : ''"
-            lengthAdjust="spacingAndGlyphs"
             data-toggle="tooltip"
         >
             <textPath
@@ -53,6 +52,11 @@
 <script>
 import { mapState } from "vuex";
 import { LineBase } from "../../src/editor/mixins.js";
+import {
+    displayedLineHeight,
+    shouldShrinkToPath,
+    visualFontSize,
+} from "./visualText";
 
 export default Vue.extend({
     mixins: [LineBase],
@@ -143,54 +147,28 @@ export default Vue.extend({
     },
     methods: {
         computeLineHeight() {
-            let lineHeight;
-            if (this.line.mask) {
-                let poly = this.line.mask.flat(1).map((pt) => Math.round(pt));
-                var area = 0;
-                // A = 1/2(x_1y_2-x_2y_1+x_2y_3-x_3y_2+...+x_(n-1)y_n-x_ny_(n-1)+x_ny_1-x_1y_n),
-
-                var liste = String(poly).split(",");
-                var indexCoordonnee = 0;
-                var arrayCoordonnees = new Array();
-                var paire = [];
-                for(var i = 0; i < liste.length; i++){
-                    paire.push(liste[i]);
-                    if(indexCoordonnee==0){
-                        indexCoordonnee = 1;
-                    }else{
-                        indexCoordonnee = 0;
-                        arrayCoordonnees.push(paire);
-                        paire = new Array();
-                    }
-                }
-
-                for (let i=0; i<arrayCoordonnees.length; i++) {
-                    let j = (i+1) % arrayCoordonnees.length; // loop back to 1
-                    area += arrayCoordonnees[i][0]*arrayCoordonnees[j][1] - arrayCoordonnees[j][0]*arrayCoordonnees[i][1];
-                }
-
-                area = Math.abs(area*this.ratio);
-                lineHeight = area / this.$refs.pathElement.getTotalLength();
-
-            } else {
-                lineHeight = 30;
-            }
-
-            lineHeight = Math.max(Math.round(lineHeight), 5) * 0.3;
-
-            let ratio = this.$parent.fontSizeRatio;
-            this.$refs.textElement.setAttribute("font-size", String(lineHeight * (ratio)) + "px");
+            if (!this.$refs.textElement) return;
+            const height = displayedLineHeight(
+                this.line && this.line.mask,
+                this.ratio,
+            );
+            const size = visualFontSize(height, this.$parent.fontSizeRatio);
+            this.$refs.textElement.setAttribute("font-size", `${size}px`);
         },
         computeTextLength() {
-            if (!this.line.currentTrans) return;
-            const content = this.line.currentTrans.content;
-            if (content) {
-                // adjust the text length to fit in the box
-                let textLength = this.$refs.textElement.getComputedTextLength();
-                let pathLength = this.$refs.pathElement.getTotalLength();
-                if (textLength && pathLength) {
-                    this.$refs.textElement.setAttribute("textLength", pathLength+"px");
-                }
+            const el = this.$refs.textElement;
+            const path = this.$refs.pathElement;
+            if (!el || !path || !this.line.currentTrans) return;
+            el.removeAttribute("textLength");
+            el.removeAttribute("lengthAdjust");
+            if (!this.line.currentTrans.content) return;
+            const natural = el.getComputedTextLength();
+            const pathLength = path.getTotalLength();
+            // Never stretch short strings (titles) across the baseline.
+            // Only shrink when the natural width overflows the path.
+            if (shouldShrinkToPath(natural, pathLength)) {
+                el.setAttribute("textLength", `${pathLength}px`);
+                el.setAttribute("lengthAdjust", "spacing");
             }
         },
         computeConfidence() {

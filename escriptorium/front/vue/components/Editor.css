@@ -68,6 +68,20 @@ div.escr-editor-tabcontent #diplo-panel .content-container {
     line-height: var(--transcription-font-line-height, inherit);
 }
 
+/* visual transcription font size (new UI; legacy still uses +/- in VisuPanel) */
+.escr-font-size-control {
+    display: flex;
+    flex-flow: row nowrap;
+    align-items: center;
+    gap: 4px;
+    margin-left: 8px;
+}
+.escr-font-size-control .escr-button {
+    min-width: 2.25rem;
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+}
+
 /* confidence visualization scale panel */
 .confidence-scale {
     display: flex;

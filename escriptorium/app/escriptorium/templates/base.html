@@ -1,4 +1,6 @@
-{% load i18n static %}<!DOCTYPE html>
+{% load i18n static %}
+{% load render_bundle from webpack_loader %}
+<!DOCTYPE html>
 {% get_current_language as LANGUAGE_CODE %}
 {% get_current_language_bidi as LANGUAGE_BIDI %}
 <html lang="{{ LANGUAGE_CODE }}" dir="{% if LANGUAGE_BIDI %}rtl{% else %}ltr{% endif %}" data-bs-theme="dark">
@@ -35,10 +37,10 @@
     </script>
 
     {% block styles %}
-    <link href="{% static 'vendor.css' %}" rel="stylesheet" type="text/css">
-    <link href="{% static 'main.css' %}" rel="stylesheet" type="text/css">
+    {% render_bundle 'vendor' 'css' %}
+    {% render_bundle 'main' 'css' %}
     {% if not user.legacy_mode %}
-    <link href="{% static 'globalNavigation.css' %}" rel="stylesheet" type="text/css">
+    {% render_bundle 'globalNavigation' 'css' %}
     {% endif %}
     <link href="{% static 'css/flags.css' %}" rel="stylesheet" type="text/css">
     <link href="{% static 'css/escript-ai-ui.css' %}" rel="stylesheet" type="text/css">
@@ -183,12 +185,12 @@
       </footer>
     {% endblock footer %}
 
-    <script src="{% static 'vendor.js' %}"></script>
+    {% render_bundle 'vendor' 'js' %}
 
     {% block scripts %}
-    <script src="{% static 'main.js' %}"></script>
+    {% render_bundle 'main' 'js' %}
     {% if not user.legacy_mode %}
-    <script src="{% static 'globalNavigation.js' %}"></script>
+    {% render_bundle 'globalNavigation' 'js' %}
     {% endif %}
     <script>
      const DEBUG = {% if debug %}true{% else %}false{% endif %};

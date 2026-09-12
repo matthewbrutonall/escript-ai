@@ -8,9 +8,12 @@ Vue.use(VueI18n);
 export const SUPPORTED = ["en", "ar", "hi", "pl", "it", "es", "pt"];
 
 export function detectLocale() {
-    const raw = Cookies.get("django_language") || "";
-    const code = raw.split("-")[0];
-    return SUPPORTED.includes(code) ? code : "en";
+    const fromHtml = (document.documentElement.getAttribute("lang") || "").split("-")[0];
+    const fromCookie = (Cookies.get("django_language") || "").split("-")[0];
+    for (const code of [fromHtml, fromCookie]) {
+        if (SUPPORTED.includes(code)) return code;
+    }
+    return "en";
 }
 
 export function applyDir(locale) {

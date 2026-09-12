@@ -61,6 +61,43 @@
                         :disabled="disabled"
                     />
 
+                    <div class="escr-font-size-control">
+                        <VDropdown
+                            theme="escr-tooltip-small"
+                            placement="bottom"
+                            :distance="8"
+                            :triggers="['hover']"
+                        >
+                            <EscrButton
+                                color="secondary"
+                                size="small"
+                                :disabled="disabled"
+                                :label="$t('editor.smallerFont')"
+                                :on-click="smallerFont"
+                            />
+                            <template #popper>
+                                {{ $t("editor.smallerFont") }}
+                            </template>
+                        </VDropdown>
+                        <VDropdown
+                            theme="escr-tooltip-small"
+                            placement="bottom"
+                            :distance="8"
+                            :triggers="['hover']"
+                        >
+                            <EscrButton
+                                color="secondary"
+                                size="small"
+                                :disabled="disabled"
+                                :label="$t('editor.largerFont')"
+                                :on-click="largerFont"
+                            />
+                            <template #popper>
+                                {{ $t("editor.largerFont") }}
+                            </template>
+                        </VDropdown>
+                    </div>
+
                     <!-- confidence visualization control -->
                     <div class="escr-confidence-control">
                         <VDropdown
@@ -170,6 +207,7 @@ import TranscriptionDropdown from "./EditorTranscriptionDropdown/EditorTranscrip
 import VisuLine from "./VisuLine.vue";
 import ToggleButton from "./ToggleButton/ToggleButton.vue";
 import TranscriptionModal from "./TranscriptionModal.vue";
+import { normalizeFontSizeRatio } from "./visualText";
 
 export default {
     name: "VisuPanel",
@@ -187,7 +225,9 @@ export default {
     mixins: [BasePanel],
     data() {
         return {
-            fontSizeRatio: userProfile.get("visu-font-size-" + this.$store.state.document.id, 0.25),
+            fontSizeRatio: normalizeFontSizeRatio(
+                userProfile.get("visu-font-size-" + this.$store.state.document.id, 1),
+            ),
             confidenceMenuOpen: false,
         }
     },
@@ -216,6 +256,8 @@ export default {
             this.refresh();
         }.bind(this));
 
+        this.persistFontSize();
+
         if (this.legacyModeEnabled && this.hasConfidence && this.confidenceVisible) {
             $('[data-toggle="tooltip"]').tooltip();
         }
@@ -236,14 +278,20 @@ export default {
                 this.resetLines();
             }.bind(this));
         },
+        persistFontSize() {
+            userProfile.set(
+                "visu-font-size-" + this.$store.state.document.id,
+                this.fontSizeRatio,
+            );
+        },
         smallerFont() {
-            this.fontSizeRatio -= this.fontSizeRatio/10;
-            userProfile.set("visu-font-size-" + this.$store.state.document.id, this.fontSizeRatio);
+            this.fontSizeRatio = Math.max(0.5, this.fontSizeRatio * 0.9);
+            this.persistFontSize();
             this.resetLines();
         },
         largerFont() {
-            this.fontSizeRatio += this.fontSizeRatio/10;
-            userProfile.set("visu-font-size-" + this.$store.state.document.id, this.fontSizeRatio);
+            this.fontSizeRatio = Math.min(3, this.fontSizeRatio * 1.1);
+            this.persistFontSize();
             this.resetLines();
         },
         changeConfidenceScale(e) {

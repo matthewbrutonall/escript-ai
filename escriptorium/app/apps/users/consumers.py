@@ -4,6 +4,7 @@ import logging
 from asgiref.sync import async_to_sync
 from channels.generic.websocket import WebsocketConsumer
 from channels.layers import get_channel_layer
+from django.utils.encoding import force_str
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,7 @@ def send_notification(user_pk, message, id=None, level='info', links=None):
             {'type': 'notification_message',
              'id': id,
              'level': level,
-             'text': message,
+             'text': force_str(message),
              'links': links or []})
     except Exception as e:
         # channel fails shouldn't crash the calling process

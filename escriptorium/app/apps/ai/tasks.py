@@ -10,7 +10,7 @@ import logging
 
 from django.apps import apps
 from django.contrib.auth import get_user_model
-from django.utils.translation import gettext_lazy as _
+from django.utils.translation import gettext as _
 
 from escriptorium.celery import app
 from users.consumers import send_event
@@ -31,6 +31,7 @@ from .fewshot import load_examples_for_document
 from .gate import build_gate_sample, find_comparison_transcription
 from .ketos_hook import reserve_held_out_parts
 from .models import AILayerGate, AILineDisagreement
+from .notify import notify_user
 from .pipeline import transcribe_part
 from .triage import normalised_cer
 
@@ -95,9 +96,8 @@ def ai_transcribe(self, instance_pks, ai_config_pk=None, transcription_pk=None,
                 job.status = job.STATUS_ERROR
                 job.error = str(e)[:2000]
                 job.save()
-            if user:
-                user.notify(_("Something went wrong during AI transcription!"),
-                            id="ai-transcription-error", level='danger')
+            notify_user(user, _("Something went wrong during AI transcription!"),
+                        id="ai-transcription-error", level='danger')
             send_event("document", part.document.pk, "part:workflow", {
                 "id": part.pk, "process": "ai-transcribe", "status": "canceled",
                 "task_id": self.request.id})
@@ -110,9 +110,8 @@ def ai_transcribe(self, instance_pks, ai_config_pk=None, transcription_pk=None,
             transcription.document, transcription, parts, user)
         rows = _disagreement_rows(transcription, comparison, written_pks)
         _write_layer_gate(job, transcription, comparison, rows, written_pks)
-    if user:
-        user.notify(_("AI transcription done!"),
-                    id="ai-transcription-success", level='success')
+    notify_user(user, _("AI transcription done!"),
+                id="ai-transcription-success", level='success')
     return {"cost": total_cost}
 
 
