@@ -123,4 +123,26 @@ html[dir="rtl"] .esai-script {
 body.homepage .esai-maintained-bar {
     color: #24312f;
     opacity: 1;
+    position: static;
+}
+/* App chrome is flex-row + 100vh; a normal footer becomes a third column. */
+body.escr-body:not(.homepage) .esai-maintained-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 20;
+    width: auto;
+    background: var(--background, #24312f);
+    border-top: 1px solid rgba(248, 244, 236, 0.08);
+}
+body.escr-body:has(#vue-global-nav) .esai-maintained-bar {
+    left: 64px;
+}
+html[dir="rtl"] body.escr-body:has(#vue-global-nav) .esai-maintained-bar {
+    left: 0;
+    right: 64px;
+}
+body.escr-body:not(.homepage) main {
+    padding-bottom: 2.75rem;
 }
