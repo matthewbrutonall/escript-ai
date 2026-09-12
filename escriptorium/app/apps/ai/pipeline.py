@@ -15,8 +15,11 @@ import logging
 
 from PIL import Image
 
+from .conventions import conventions_prompt
+from .gate import comparison_text_for_line
 from .overlay import render_crop, key_for_index
 from .preflight import evaluate_crop
+from .triage import normalised_cer
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +36,11 @@ DEFAULT_PROMPT = (
 
 def build_prompt(config, keys) -> str:
     base = (config.prompt_template or DEFAULT_PROMPT).strip()
-    return f'{base}\nThe colour keys on this crop are: {", ".join(keys)}.'
+    conv = conventions_prompt(getattr(config, 'conventions', None))
+    return (
+        f'{base}\n{conv}\n'
+        f'The colour keys on this crop are: {", ".join(keys)}.'
+    )
 
 
 def _line_masks(lines):
@@ -76,9 +83,9 @@ def stamp_line_transcription(line, transcription, text, version_source, author,
 
 
 def transcribe_part(part, config, transcription, backend, *, user=None,
-                    per_crop=6, job=None):
+                    per_crop=6, job=None, comparison=None):
     """Transcribe one DocumentPart into `transcription` via colour-keyed crops.
-    Returns dict(lines_written, lines_flagged, tokens_in, tokens_out, cost)."""
+    Returns dict including optional disagreement rows vs `comparison`."""
     lines = list(part.lines.all().order_by('order'))
     masks = _line_masks(lines)
     version_source = config.version_source
@@ -86,6 +93,8 @@ def transcribe_part(part, config, transcription, backend, *, user=None,
 
     written = flagged = tok_in = tok_out = 0
     cost = 0.0
+    disagreements = []
+    written_line_pks = []
 
     with Image.open(part.image.path) as im:
         for start in range(0, len(lines), per_crop):
@@ -131,6 +140,15 @@ def transcribe_part(part, config, transcription, backend, *, user=None,
                 stamp_line_transcription(
                     line, transcription, text, version_source, author)
                 written += 1
+                written_line_pks.append(line.pk)
+                if comparison is not None:
+                    other = comparison_text_for_line(line, comparison)
+                    disagreements.append({
+                        'line_pk': line.pk,
+                        'cer': normalised_cer(text, other),
+                        'ai_text': text,
+                        'comparison_text': other,
+                    })
 
     if job:
         job.lines_written += written
@@ -141,4 +159,6 @@ def transcribe_part(part, config, transcription, backend, *, user=None,
         job.save()
 
     return dict(lines_written=written, lines_flagged=flagged,
-                tokens_in=tok_in, tokens_out=tok_out, cost=cost)
+                tokens_in=tok_in, tokens_out=tok_out, cost=cost,
+                disagreements=disagreements,
+                written_line_pks=written_line_pks)

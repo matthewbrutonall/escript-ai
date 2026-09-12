@@ -807,9 +807,11 @@ def train(transcription_pk=None, model_pk=None, task_group_pk=None,
 
     try:
         model = OcrModel.objects.get(pk=model_pk)
+        transcription = Transcription.objects.get(pk=transcription_pk)
+        from ai.gate import LayerNotEligible, assert_training_eligible
+        assert_training_eligible(transcription)
         model.training = True
         model.save()
-        transcription = Transcription.objects.get(pk=transcription_pk)
         document = transcription.document
         send_event('document', document.pk, "training:start", {
             "id": model.pk,
@@ -1102,6 +1104,19 @@ def train_from_collection(collection_pk=None, model_pk=None, task_group_pk=None,
 
     try:
         model = OcrModel.objects.get(pk=model_pk)
+        collection_items = VirtualCollectionItem.objects.filter(
+            collection_id=collection_pk
+        ).select_related("document_part", "transcription_layer")
+        if not collection_items.exists():
+            raise ValueError("Cannot train on an empty collection.")
+        from ai.gate import assert_training_eligible
+        seen = set()
+        for item in collection_items:
+            tr = item.transcription_layer
+            if tr is None or tr.pk in seen:
+                continue
+            seen.add(tr.pk)
+            assert_training_eligible(tr)
         model.training = True
         model.save()
 
@@ -1114,11 +1129,6 @@ def train_from_collection(collection_pk=None, model_pk=None, task_group_pk=None,
                 "id": model.pk,
             },
         )
-        collection_items = VirtualCollectionItem.objects.filter(
-            collection_id=collection_pk
-        ).select_related("document_part", "transcription_layer")
-        if not collection_items.exists():
-            raise ValueError("Cannot train on an empty collection.")
 
         # ground truth: only lines from each part + transcription_layer pair in
         # the collection

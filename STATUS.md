@@ -13,7 +13,14 @@ provider (e.g. `gemini:gemini-2.5-flash`). Dispatch checks policy, keys, and
 part-document match **before** a hosted call.
 
 **AI output is a draft until a human reviews it.** Do not treat it as ground
-truth and do not train kraken on an unreviewed layer.
+truth and do not train kraken on an unreviewed layer. New AI layers start
+`raw`; a disagreement sample vs an existing kraken layer (when one exists)
+must be acknowledged (admin action, exact phrase) before the layer can be
+marked `training-eligible`. Disagreement sample when a comparison layer
+exists; otherwise a random AI-line sample must be reviewed.
+`TrainSerializer` and `core.tasks.train` refuse a gated layer that is still
+`raw` or `sampled`. Manual/kraken layers (no gate) are unchanged. Few-shot
+VLM priming is not in this release.
 
 ## Providers wired
 

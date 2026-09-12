@@ -14,10 +14,13 @@ Design: `../../../../ARCHITECTURE.md`. Tests and contribution rules:
 
 | File | Role |
 |------|------|
-| `models.py` | `AIBackendConfig`, `AIJob`, `AIUsageLedger`, `AIDocumentPolicy` |
+| `models.py` | `AIBackendConfig`, `AIJob`, `AIUsageLedger`, `AIDocumentPolicy`, `AILayerGate`, `AILineDisagreement` |
 | `backends.py` | Gemini, Anthropic, OpenAI, local OpenAI-compatible, Mock |
 | `overlay.py` | Colour-keyed region renderer |
 | `preflight.py` | Overlap / fragment guards — **before** spend |
+| `conventions.py` | Diplomatic toggles appended to the prompt |
+| `triage.py` | AI vs kraken CER + disagreement sample |
+| `gate.py` | Layer state `raw → sampled → training-eligible` |
 | `pipeline.py` | Crops → backend → ORM write with real `version_source` |
 | `dispatch.py` | Off-site policy, keys, budget, cross-document part pks |
 | `tasks.py` | Celery `ai_transcribe` |

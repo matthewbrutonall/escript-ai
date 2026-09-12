@@ -42,6 +42,10 @@ class AIBackendConfig(models.Model):
 
     prompt_template = models.TextField(
         help_text=_("Diplomatic-transcription prompt. Colour keys are appended."))
+    conventions = models.JSONField(
+        default=dict, blank=True,
+        help_text=_("Diplomatic toggles (abbreviations, long-s, u/v, hyphenation). "
+                    "Empty uses defaults: keep original spelling, do not expand."))
     max_edge_px = models.PositiveIntegerField(
         default=1024, help_text=_("Downscale cap — image tokens dominate cost."))
     params = models.JSONField(default=dict, blank=True)   # temperature, etc.
@@ -151,3 +155,58 @@ class AIDocumentPolicy(models.Model):
 
     def __str__(self):
         return f"AIDocumentPolicy doc={self.document_id} offsite={'no' if self.never_send_offsite else 'ok'}"
+
+
+class AILayerGate(models.Model):
+    """Quality-gate state for one AI transcription layer (§9).
+
+    raw → sampled → training-eligible. Training must not use a layer that
+    is still raw. ketos held-out CER is not computed here.
+    """
+    STATE_RAW = 'raw'
+    STATE_SAMPLED = 'sampled'
+    STATE_TRAINING_ELIGIBLE = 'training-eligible'
+    STATE_CHOICES = (
+        (STATE_RAW, 'Raw'),
+        (STATE_SAMPLED, 'Sampled'),
+        (STATE_TRAINING_ELIGIBLE, 'Training-eligible'),
+    )
+
+    transcription = models.OneToOneField(
+        'core.Transcription', on_delete=models.CASCADE, related_name='ai_gate')
+    job = models.ForeignKey(
+        AIJob, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='layer_gates')
+    comparison = models.ForeignKey(
+        'core.Transcription', null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='ai_gate_comparisons',
+        help_text=_("Kraken (or other) layer used for disagreement CER."))
+    state = models.CharField(
+        max_length=32, choices=STATE_CHOICES, default=STATE_RAW)
+    sample_line_pks = models.JSONField(default=list, blank=True)
+    mean_cer = models.FloatField(null=True, blank=True)
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
+    acknowledged_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"AILayerGate layer={self.transcription_id} {self.state}"
+
+
+class AILineDisagreement(models.Model):
+    """Per-line AI vs comparison CER (§9.1)."""
+    gate = models.ForeignKey(
+        AILayerGate, on_delete=models.CASCADE, related_name='disagreements')
+    line = models.ForeignKey('core.Line', on_delete=models.CASCADE)
+    ai_text = models.TextField(blank=True)
+    comparison_text = models.TextField(blank=True)
+    cer = models.FloatField()
+    in_sample = models.BooleanField(default=False)
+
+    class Meta:
+        unique_together = ['gate', 'line']
+        ordering = ['-cer']
+
+    def __str__(self):
+        return f"AILineDisagreement line={self.line_id} cer={self.cer:.3f}"

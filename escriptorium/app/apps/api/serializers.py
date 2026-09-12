@@ -1272,6 +1272,12 @@ class TrainSerializer(ProcessSerializerMixin, serializers.Serializer):
                 "You can't overwrite the existing file of a model you don't own."
             )
 
+        from ai.gate import LayerNotEligible, assert_training_eligible
+        try:
+            assert_training_eligible(data['transcription'])
+        except LayerNotEligible as e:
+            raise serializers.ValidationError({'transcription': str(e)})
+
         return data
 
     def process(self):

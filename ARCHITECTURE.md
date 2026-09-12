@@ -16,7 +16,7 @@
 **Two workflows we design for:**
 
 - **The headline (the normal workflow): AI reads, you tweak, you export.** The AI transcribes, the archivist skims and fixes minor errors, and exports. This is what the tool is *for* and what most users do most of the time. Everything in the UX optimises this path — fast review, easy correction, clean export.
-- **The power path (when AI needs help, or the collection is large/homogeneous):** the archivist corrects more heavily and either (a) trains a kraken model on those corrections for the rest of the collection, or (b) primes the AI to re-read similar material better. Then export.
+- **The power path (when AI needs help, or the collection is large/homogeneous):** the archivist corrects more heavily and trains a kraken model on those corrections for the rest of the collection, then exports.
 
 **The headline is workflow 1.** Training is a genuine, first-class capability — the AI trains the user's own models (an original project goal) — but it is the *power path*, not the everyday one. The doc must not let the flywheel's technical depth (§9) overstate its everyday weight: most users read, tweak, export, and never train.
 
@@ -260,6 +260,6 @@ Independent project derived from eScriptorium (not positioned as an eScriptorium
 
 - **Phase 0 — spike:** one line crop → one `LineTranscription` with `version_source="gemini..."`. Proves the write path. No UI.
 - **Phase 1 — keyed region MVP (§5.A) + per-line fallback (§5.B):** `ai/` app; `AIBackend` (Gemini + local); `AIModel` config + `AIJob` (§8); `ai_transcribe` mirroring the `core.tasks.transcribe` contract; colour-keyed overlay renderer + JSON-by-key parsing; minimal UI (pick AI backend → run on selected parts/regions → new layer); cost pre-flight + `AIUsageLedger` (§11); dispatch-level egress policy (§13).
-- **Phase 2 — the loops + gate:** dual-engine disagreement triage, non-skippable sample, layer state machine, `ketos test` CER (§9); style priming + conventions object (§10.1).
+- **Phase 2 — the loops + gate:** dual-engine disagreement triage, non-skippable sample, layer state machine, `ketos test` CER (§9); style priming + conventions object (§10.1). *In tree now:* conventions toggles on the prompt; CER vs an existing comparison layer, or a random AI-line sample if none; `AILayerGate` (`raw → sampled → training-eligible`); admin acknowledge + `TrainSerializer`/`core.tasks.train` refusal of raw/sampled AI layers. *Not yet:* few-shot image priming, `ketos test` hook.
 - **Phase 3 — hardening:** interactive "fix this" (§10.2); Passim fallback (§5.C); robustness on numbered-assignment failure modes.
 - **Phase 4 — AI segmentation review (§6), multi-tenant hardening (§12), more providers.**

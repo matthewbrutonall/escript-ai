@@ -23,6 +23,8 @@ from .dispatch import (
     load_parts_for_transcription,
     resolve_api_key,
 )
+from .gate import build_gate_sample, find_comparison_transcription
+from .models import AILayerGate, AILineDisagreement
 from .pipeline import transcribe_part
 
 logger = logging.getLogger(__name__)
@@ -64,10 +66,17 @@ def ai_transcribe(self, instance_pks, ai_config_pk=None, transcription_pk=None,
         job.save()
 
     total_cost = 0.0
+    disagreement_rows = []
+    written_pks = []
+    comparison = find_comparison_transcription(
+        transcription.document, transcription)
     for part in parts:
         try:
             res = transcribe_part(part, config, transcription, backend,
-                                  user=user, per_crop=per_crop, job=job)
+                                  user=user, per_crop=per_crop, job=job,
+                                  comparison=comparison)
+            disagreement_rows.extend(res.get('disagreements') or [])
+            written_pks.extend(res.get('written_line_pks') or [])
             total_cost += res['cost']
             AIUsageLedger.objects.create(
                 job=job, provider=config.provider, model_id=config.model_id,
@@ -93,7 +102,38 @@ def ai_transcribe(self, instance_pks, ai_config_pk=None, transcription_pk=None,
     if job:
         job.status = job.STATUS_DONE
         job.save()
+        _write_layer_gate(job, transcription, comparison, disagreement_rows,
+                          written_pks)
     if user:
         user.notify(_("AI transcription done!"),
                     id="ai-transcription-success", level='success')
     return {"cost": total_cost}
+
+
+def _write_layer_gate(job, transcription, comparison, rows, written_pks=None):
+    gate, _ = AILayerGate.objects.get_or_create(
+        transcription=transcription, defaults={'job': job})
+    gate.job = job
+    gate.comparison = comparison
+    gate.state = AILayerGate.STATE_RAW
+    summary = build_gate_sample(
+        rows, written_pks=written_pks, comparison=comparison)
+    gate.sample_line_pks = summary['sample_line_pks']
+    gate.mean_cer = summary['mean_cer']
+    gate.save()
+    AILineDisagreement.objects.filter(gate=gate).delete()
+    if not summary.get('write_disagreements'):
+        return
+    Line = apps.get_model('core', 'Line')
+    sample = summary['in_sample']
+    for row in rows:
+        if not Line.objects.filter(pk=row['line_pk']).exists():
+            continue
+        AILineDisagreement.objects.create(
+            gate=gate,
+            line_id=row['line_pk'],
+            ai_text=row.get('ai_text', '')[:2048],
+            comparison_text=row.get('comparison_text', '')[:2048],
+            cer=float(row['cer']),
+            in_sample=row['line_pk'] in sample,
+        )
