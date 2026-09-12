@@ -145,6 +145,35 @@ class AIUsageLedger(models.Model):
         ordering = ['-created_at']
 
 
+class AIUserQuota(models.Model):
+    """Per-user monthly USD cap. Null monthly_usd inherits instance default."""
+    user = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name='ai_quota')
+    monthly_usd = models.FloatField(
+        null=True, blank=True,
+        help_text=_("USD per calendar month. Blank = instance default. "
+                    "0 = blocked. Negative ignored."))
+
+    def __str__(self):
+        return f"AIUserQuota user={self.user_id} cap={self.monthly_usd}"
+
+
+class AIUserKey(models.Model):
+    """Per-user provider key, Fernet-encrypted with SECRET_KEY. Never logged."""
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='ai_keys')
+    provider = models.CharField(max_length=32)
+    ciphertext = models.BinaryField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ['user', 'provider']
+
+    def __str__(self):
+        return f"AIUserKey user={self.user_id} {self.provider}"
+
+
 class AIDocumentPolicy(models.Model):
     """Per-document egress policy (§13). Lives in ai/ so core.Document is untouched.
 

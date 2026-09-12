@@ -58,7 +58,7 @@ def ai_transcribe(self, instance_pks, ai_config_pk=None, transcription_pk=None,
         parts = load_parts_for_transcription(instance_pks, transcription)
         assert_dispatch_allowed(transcription.document, config, user=user,
                                 est_cost=job.est_cost if job else 0.0)
-        api_key = resolve_api_key(config)
+        api_key = resolve_api_key(config, user=user)
         backend = get_backend(config, api_key=api_key)
     except (CrossDocumentError, RemoteAIForbidden, ValueError, RuntimeError) as e:
         logger.exception(e)
@@ -219,7 +219,7 @@ def ai_seg_review(self, instance_pks, ai_config_pk=None, user_pk=None,
             job.save()
         raise
 
-    api_key = resolve_api_key(config)
+    api_key = resolve_api_key(config, user=user)
     backend = get_backend(config, api_key=api_key)
     if job:
         job.status = job.STATUS_RUNNING

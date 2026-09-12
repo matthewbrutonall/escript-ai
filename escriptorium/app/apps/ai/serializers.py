@@ -225,7 +225,7 @@ class AIFixSerializer(serializers.Serializer):
         if not mask:
             raise serializers.ValidationError(
                 {'line': 'Line has no mask or baseline to crop.'})
-        api_key = resolve_api_key(config)
+        api_key = resolve_api_key(config, user=self.user)
         backend = get_backend(config, api_key=api_key)
         prompt = fix_prompt(partial, conventions_prompt(config.conventions))
         with Image.open(line.document_part.image.path) as im:

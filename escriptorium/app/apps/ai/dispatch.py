@@ -23,26 +23,73 @@ class CrossDocumentError(ValueError):
     """
 
 
-def resolve_api_key(config):
-    """Resolve the provider key from a secret store, never stored in cleartext
-    on the config (§7/§13). Local backends need no key."""
+def resolve_api_key(config, user=None):
+    """Per-user encrypted key → env key_ref → instance default. Never logged."""
     from django.conf import settings
-    if getattr(config, 'is_local', False) or config.provider == 'local':
-        return None
-    if config.key_ref:
-        val = os.environ.get(config.key_ref)
-        if val:
-            return val
-    return getattr(settings, 'AI_DEFAULT_API_KEY', None)
+    from .secrets import decrypt_key, pick_api_key
+
+    is_local = getattr(config, 'is_local', False) or config.provider == 'local'
+    user_key = None
+    if user is not None and not is_local:
+        try:
+            from django.apps import apps
+            AIUserKey = apps.get_model('ai', 'AIUserKey')
+            row = AIUserKey.objects.filter(
+                user=user, provider=config.provider).first()
+            if row and row.ciphertext:
+                user_key = decrypt_key(row.ciphertext, settings.SECRET_KEY)
+        except Exception:
+            logger.exception("ai: could not decrypt per-user key for provider %s",
+                             getattr(config, 'provider', '?'))
+            user_key = None
+    env_key = None
+    if getattr(config, 'key_ref', None):
+        env_key = os.environ.get(config.key_ref)
+    default_key = getattr(settings, 'AI_DEFAULT_API_KEY', None)
+    return pick_api_key(
+        is_local=is_local, user_key=user_key,
+        env_key=env_key, default_key=default_key)
+
+
+def user_monthly_cap(user):
+    from django.conf import settings
+    if user is None:
+        return getattr(settings, 'AI_MONTHLY_BUDGET_USD', None)
+    quota = getattr(user, 'ai_quota', None)
+    if quota is None:
+        try:
+            from django.apps import apps
+            AIUserQuota = apps.get_model('ai', 'AIUserQuota')
+            quota = AIUserQuota.objects.filter(user=user).first()
+        except Exception:
+            quota = None
+    if quota is not None and quota.monthly_usd is not None:
+        return quota.monthly_usd
+    return getattr(settings, 'AI_MONTHLY_BUDGET_USD', None)
+
+
+def user_month_spend(user):
+    if user is None:
+        return 0.0
+    from django.apps import apps
+    from django.utils import timezone
+    from .budget import month_start
+    Ledger = apps.get_model('ai', 'AIUsageLedger')
+    start = month_start(timezone.now())
+    from django.db.models import Sum
+    total = (
+        Ledger.objects.filter(user=user, created_at__gte=start)
+        .aggregate(s=Sum('actual_cost'))['s']
+    )
+    return float(total or 0.0)
 
 
 def check_budget(user, est_cost):
-    """§11 budget gate. Placeholder mirroring users.has_free_cpu_minutes."""
-    from django.conf import settings
-    if getattr(settings, 'DISABLE_QUOTAS', True):
+    """§11: instance/user monthly USD cap. None/negative cap = unlimited."""
+    from .budget import budget_allows
+    if user is None:
         return True
-    fn = getattr(user, 'has_free_ai_budget', None)
-    return fn(est_cost) if callable(fn) else True
+    return budget_allows(user_month_spend(user), user_monthly_cap(user), est_cost)
 
 
 def assert_dispatch_allowed(document, config, user=None, est_cost=0.0, *,

@@ -533,6 +533,13 @@ QUOTA_CPU_MINUTES = int(os.environ['QUOTA_CPU_MINUTES']) if os.environ.get('QUOT
 # If set to None, users have unlimited GPU minutes capacity
 QUOTA_GPU_MINUTES = int(os.environ['QUOTA_GPU_MINUTES']) if os.environ.get('QUOTA_GPU_MINUTES') else None
 
+# AI monthly USD cap (§11/§12). None/blank = unlimited (self-host default).
+# Per-user override: ai.AIUserQuota.monthly_usd.
+try:
+    AI_MONTHLY_BUDGET_USD = float(os.environ['AI_MONTHLY_BUDGET_USD']) if os.environ.get('AI_MONTHLY_BUDGET_USD') else None
+except ValueError:
+    AI_MONTHLY_BUDGET_USD = None
+
 # Number of days that we have to wait before sending a new email to a user that reached one or more of its quotas
 QUOTA_NOTIFICATIONS_TIMEOUT = int(os.environ.get('QUOTA_NOTIFICATIONS_TIMEOUT', '3'))
 

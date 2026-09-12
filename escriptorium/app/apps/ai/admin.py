@@ -5,10 +5,52 @@ from django.utils import timezone
 from .gate import (
     ACK_PHRASE, LayerNotEligible, acknowledge_sample, mark_training_eligible,
 )
+from django import forms
+from django.conf import settings
+
 from .models import (
     AIBackendConfig, AIDocumentPolicy, AIExample, AIJob, AILayerGate,
     AILineDisagreement, AISegSuggestion, AIUsageLedger,
+    AIUserKey, AIUserQuota,
 )
+from .secrets import encrypt_key
+
+
+class AIUserKeyForm(forms.ModelForm):
+    plaintext = forms.CharField(
+        required=False, widget=forms.PasswordInput(render_value=False),
+        help_text="Set or rotate the key. Leave blank to keep the stored one.")
+
+    class Meta:
+        model = AIUserKey
+        fields = ('user', 'provider')
+
+    def clean(self):
+        cleaned = super().clean()
+        raw = (cleaned.get('plaintext') or "").strip()
+        if not self.instance.pk and not raw:
+            raise forms.ValidationError("Provide a key when creating.")
+        return cleaned
+
+    def save(self, commit=True):
+        obj = super().save(commit=False)
+        raw = (self.cleaned_data.get('plaintext') or "").strip()
+        if raw:
+            obj.ciphertext = encrypt_key(raw, settings.SECRET_KEY)
+        if commit:
+            obj.save()
+        return obj
+
+
+@admin.register(AIUserQuota)
+class AIUserQuotaAdmin(admin.ModelAdmin):
+    list_display = ('user', 'monthly_usd')
+
+
+@admin.register(AIUserKey)
+class AIUserKeyAdmin(admin.ModelAdmin):
+    form = AIUserKeyForm
+    list_display = ('user', 'provider', 'updated_at')
 
 
 @admin.register(AIBackendConfig)

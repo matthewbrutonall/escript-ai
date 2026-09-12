@@ -65,7 +65,8 @@ Claude payload without `temperature`, OpenAI `input_image` body).
 
 - Quality gate (dual-engine disagreement, training-eligible state) is designed,
   not productized.
-- Budget method `has_free_ai_budget` is a stub; env keys are the secret store.
+- Monthly AI cap: set `AI_MONTHLY_BUDGET_USD` and/or `AIUserQuota`. Per-user
+  keys (`AIUserKey`) are Fernet-encrypted; they beat instance env keys.
 - Frontend AI group is wired; some eScriptorium builds still use the older
   transcribe wizard.
 - Colour-key assignment that misses half the keys (or invents extra keys)
