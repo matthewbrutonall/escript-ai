@@ -1,11 +1,7 @@
-# Local LXD preview override only.
+# Optional local preview override.
 #
 # Usage:
 #   docker compose -f docker-compose.yml -f docker-compose.preview.yml up -d
-#
-# In the current LXD setup, the container's port 80 is forwarded to the host as
-# http://127.0.0.1:8091. Do not use docker-compose.lxd.yml; that was the old
-# official-image bind-mount overlay.
 services:
   nginx:
     ports:

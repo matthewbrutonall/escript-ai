@@ -15,10 +15,8 @@ It also injects failures (a dropped line, a merged pair) to demonstrate the
 claim that key mismatches are *detectable quality events*, not silent GT
 poisoning.
 
-The synthetic page contains real printed Latin at known baselines, so the SAME
-script becomes a genuine end-to-end test the moment a Gemini key + spend
-approval exist — just swap MockBackend for GeminiBackend. Nothing here contacts
-the eScriptorium server or any API.
+The synthetic page contains real printed Latin at known baselines. Nothing here
+contacts the eScriptorium server or any API.
 """
 from __future__ import annotations
 
