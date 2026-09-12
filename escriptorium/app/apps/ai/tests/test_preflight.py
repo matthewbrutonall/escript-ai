@@ -35,6 +35,8 @@ class OverlapTests(unittest.TestCase):
         self.assertIn("overlap", d.reason)
         self.assertEqual(d.keep, [])
         self.assertEqual([why for _, why in d.drop], ["overlap", "overlap"])
+        # Pipeline per-line fallback uses these indices; they must not vanish.
+        self.assertEqual([i for i, why in d.drop if why == "overlap"], [0, 1])
 
     def test_slanted_parallel_masks_with_overlapping_bboxes_are_ok(self):
         # Dense cursive can stack axis-aligned bounding boxes while the actual

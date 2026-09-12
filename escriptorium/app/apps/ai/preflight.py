@@ -2,9 +2,9 @@
 Pre-flight guards (ARCHITECTURE.md §5.A) — run BEFORE spending a VLM call.
 
 Empirical failure modes from phase0-spike:
-  - overlapping masks (HTRflow ALTO) → colour keys don't map to lines.
-    The *whole crop* is ill-posed: skip and re-segment. Do not per-line-retry
-    the same masks.
+  - overlapping masks (HTRflow ALTO, fat newspaper polygons) → colour keys
+    don't map to lines. Do not send the *group overlay*. Pipeline may still
+    crop each remaining line on its own (no sibling colours).
   - degenerate / fragment lines → VLM hallucinates on garbage (1866 last crop:
     a short leftover next to a full-width line). Drop *that line*, send the rest.
 
