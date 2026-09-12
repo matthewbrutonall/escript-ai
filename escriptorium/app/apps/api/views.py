@@ -688,6 +688,20 @@ class DocumentViewSet(ModelViewSet):
         return self.get_process_response(request, AISegReviewSerializer)
 
     @action(detail=True, methods=['get'])
+    def ai_jobs(self, request, pk=None):
+        from ai.models import AIJob
+        qs = AIJob.objects.filter(document=self.get_object()).order_by('-pk')[:20]
+        return Response([{
+            'pk': j.pk,
+            'status': j.status,
+            'mode': j.mode,
+            'error': j.error,
+            'parts_count': j.parts_count,
+            'lines_flagged': j.lines_flagged,
+            'actual_cost': j.actual_cost,
+        } for j in qs])
+
+    @action(detail=True, methods=['get'])
     def ai_seg_suggestions(self, request, pk=None):
         from ai.models import AISegSuggestion
         from ai.serializers import AISegSuggestionSerializer
@@ -696,6 +710,19 @@ class DocumentViewSet(ModelViewSet):
         if st:
             qs = qs.filter(status=st)
         return Response(AISegSuggestionSerializer(qs, many=True).data)
+
+    @action(detail=True, methods=['post'],
+            url_path='ai_seg_suggestions/bulk')
+    def ai_seg_suggestions_bulk(self, request, pk=None):
+        from ai.seg_apply import apply_pending
+        status_val = request.data.get('status')
+        allowed = {AISegSuggestion.STATUS_ACCEPTED,
+                   AISegSuggestion.STATUS_DISMISSED}
+        if status_val not in allowed:
+            return Response({'status': 'accepted or dismissed.'}, status=400)
+        result = apply_pending(self.get_object(), status_val)
+        result['status'] = status_val
+        return Response(result)
 
     @action(detail=True, methods=['post'],
             url_path='ai_seg_suggestions/(?P<sid>[0-9]+)')
@@ -714,8 +741,14 @@ class DocumentViewSet(ModelViewSet):
         if status_val not in allowed:
             return Response({'status': 'accepted, dismissed, or pending.'},
                             status=400)
-        sugg.status = status_val
-        sugg.save(update_fields=['status', 'updated_at'])
+        from ai.seg_apply import apply_suggestion
+        if status_val == AISegSuggestion.STATUS_PENDING:
+            sugg.status = status_val
+            sugg.save(update_fields=['status', 'updated_at'])
+        else:
+            apply_suggestion(
+                sugg, accept=(status_val == AISegSuggestion.STATUS_ACCEPTED))
+            sugg.refresh_from_db()
         return Response(AISegSuggestionSerializer(sugg).data)
 
     @action(detail=True, methods=['post'])

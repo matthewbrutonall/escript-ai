@@ -5,6 +5,12 @@
             {{ $t("seg.help") }}
         </p>
         <p
+            v-if="running"
+            class="escr-help-text"
+        >
+            {{ $t("seg.running") }}
+        </p>
+        <p
             v-if="error"
             class="text-danger"
         >
@@ -33,7 +39,8 @@
             <button
                 type="button"
                 class="btn btn-primary"
-                :disabled="busy || !backend"
+                :class="{ 'is-running': running }"
+                :disabled="busy || running || !backend"
                 @click="runReview"
             >
                 {{ $t("seg.run") }}
@@ -42,8 +49,29 @@
         <p v-if="!rows.length">
             {{ $t("seg.empty") }}
         </p>
-        <table
+        <div
             v-else
+            class="escr-ai-seg-bulk"
+        >
+            <button
+                type="button"
+                class="btn btn-primary btn-sm"
+                :disabled="busy || running"
+                @click="setAll('accepted')"
+            >
+                {{ $t("seg.acceptAll") }}
+            </button>
+            <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                :disabled="busy || running"
+                @click="setAll('dismissed')"
+            >
+                {{ $t("seg.dismissAll") }}
+            </button>
+        </div>
+        <table
+            v-if="rows.length"
             class="escr-ai-sample-table"
         >
             <thead>
@@ -91,9 +119,11 @@
 <script>
 import {
     retrieveAiBackends,
+    retrieveAiJobs,
     retrieveAiSegSuggestions,
     startAiSegReview,
     updateAiSegSuggestion,
+    bulkUpdateAiSegSuggestions,
 } from "../../../src/api/document";
 
 export default {
@@ -107,8 +137,13 @@ export default {
             backend: null,
             rows: [],
             busy: false,
+            running: false,
             error: "",
+            poller: null,
         };
+    },
+    beforeDestroy() {
+        this.stopPoll();
     },
     async created() {
         await this.refresh();
@@ -137,6 +172,33 @@ export default {
                 this.busy = false;
             }
         },
+        stopPoll() {
+            if (this.poller) {
+                clearInterval(this.poller);
+                this.poller = null;
+            }
+        },
+        async pollJob() {
+            try {
+                const { data } = await retrieveAiJobs(this.documentId);
+                const jobs = data.results || data || [];
+                const job = jobs.find((j) => j.mode === "seg_review");
+                if (!job) return;
+                if (job.status === "done") {
+                    this.running = false;
+                    this.stopPoll();
+                    await this.refresh();
+                } else if (job.status === "error") {
+                    this.running = false;
+                    this.stopPoll();
+                    const err = job.error || this.$t("seg.error");
+                    await this.refresh();
+                    this.error = err;
+                }
+            } catch (e) {
+                /* keep polling */
+            }
+        },
         async runReview() {
             this.busy = true;
             this.error = "";
@@ -145,10 +207,25 @@ export default {
                     documentId: this.documentId,
                     backend: this.backend,
                 });
+                this.running = true;
+                this.stopPoll();
+                this.poller = setInterval(() => this.pollJob(), 4000);
             } catch (e) {
                 this.error = (e.response && e.response.data && (
                     e.response.data.error || e.response.data.detail
                 )) || this.$t("seg.error");
+            } finally {
+                this.busy = false;
+            }
+        },
+        async setAll(status) {
+            this.busy = true;
+            this.error = "";
+            try {
+                await bulkUpdateAiSegSuggestions(this.documentId, status);
+                this.rows = [];
+            } catch (e) {
+                this.error = this.$t("seg.error");
             } finally {
                 this.busy = false;
             }
@@ -167,3 +244,37 @@ export default {
     },
 };
 </script>
+<style scoped>
+.escr-ai-seg-run {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+    margin: 0.75rem 0;
+}
+.escr-ai-seg-run select {
+    max-width: 18rem;
+}
+.escr-ai-seg-bulk {
+    display: flex;
+    gap: 0.5rem;
+    margin: 0.5rem 0 0.75rem;
+}
+.escr-ai-seg-run .btn.is-running {
+    animation: escr-workflow-blink 1s ease-in-out infinite alternate;
+}
+@keyframes escr-workflow-blink {
+    from { opacity: 1; }
+    to { opacity: 0.35; }
+}
+.escr-ai-sample-table {
+    width: 100%;
+    font-size: 0.875rem;
+}
+.escr-ai-sample-table th,
+.escr-ai-sample-table td {
+    text-align: start;
+    padding: 0.35rem 0.5rem;
+    vertical-align: top;
+}
+</style>

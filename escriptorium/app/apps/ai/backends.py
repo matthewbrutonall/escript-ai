@@ -104,7 +104,7 @@ class GeminiBackend(BaseBackend):
             {"inline_data": {"mime_type": "image/png", "data": b64}}]}],
             "generationConfig": {"temperature": self.config.params.get("temperature", 0)}}
         r = requests.post(url, headers={"x-goog-api-key": self.api_key},
-                          json=payload, timeout=180)
+                          json=payload, timeout=600)
         r.raise_for_status()
         data = r.json()
         raw = data["candidates"][0]["content"]["parts"][0]["text"]

@@ -233,6 +233,7 @@ def ai_seg_review(self, instance_pks, ai_config_pk=None, user_pk=None,
     process = client_process("ai.tasks.ai_seg_review")
     total_cost = 0.0
     n_sugg = 0
+    part_errors = []
     for part in parts:
         send_event("document", document.pk, "part:workflow", {
             "id": part.pk, "process": process, "status": "ongoing",
@@ -240,17 +241,12 @@ def ai_seg_review(self, instance_pks, ai_config_pk=None, user_pk=None,
         try:
             res = review_part_segmentation(part, backend)
         except Exception as e:
-            logger.exception(e)
-            if job:
-                job.status = job.STATUS_ERROR
-                job.error = str(e)[:2000]
-                job.save()
-            notify_user(user, _("Something went wrong during AI segmentation review!"),
-                        id="ai-seg-review-error", level='danger')
+            logger.exception("ai: seg review failed on part %s", part.pk)
+            part_errors.append(f"part {part.pk}: {e}")
             send_event("document", document.pk, "part:workflow", {
                 "id": part.pk, "process": process, "status": "canceled",
                 "task_id": self.request.id})
-            raise
+            continue
         total_cost += res['cost']
         AIUsageLedger.objects.create(
             job=job, provider=config.provider, model_id=config.model_id,
@@ -274,8 +270,19 @@ def ai_seg_review(self, instance_pks, ai_config_pk=None, user_pk=None,
             job.save()
 
     if job:
-        job.status = job.STATUS_DONE
+        if part_errors and n_sugg == 0:
+            job.status = job.STATUS_ERROR
+            job.error = "; ".join(part_errors)[:2000]
+            notify_user(user, _("Something went wrong during AI segmentation review!"),
+                        id="ai-seg-review-error", level='danger')
+        else:
+            job.status = job.STATUS_DONE
+            if part_errors:
+                job.error = "; ".join(part_errors)[:2000]
+            notify_user(user, _("AI segmentation review done!"),
+                        id="ai-seg-review-success", level='success')
         job.save()
-    notify_user(user, _("AI segmentation review done!"),
-                id="ai-seg-review-success", level='success')
-    return {"cost": total_cost, "suggestions": n_sugg}
+    elif n_sugg:
+        notify_user(user, _("AI segmentation review done!"),
+                    id="ai-seg-review-success", level='success')
+    return {"cost": total_cost, "suggestions": n_sugg, "errors": part_errors}

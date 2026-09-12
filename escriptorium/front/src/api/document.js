@@ -352,6 +352,9 @@ export const transcribeDocument = async ({
 export const retrieveAiBackends = async () =>
     await axios.get("/ai-backends/");
 
+export const retrieveAiJobs = async (documentId) =>
+    await axios.get(`/documents/${documentId}/ai_jobs/`);
+
 export const startAiSegReview = async ({ documentId, backend, parts }) =>
     await axios.post(`/documents/${documentId}/ai_seg_review/`, {
         backend,
@@ -365,6 +368,11 @@ export const retrieveAiSegSuggestions = async (documentId, status) =>
 
 export const updateAiSegSuggestion = async (documentId, id, status) =>
     await axios.post(`/documents/${documentId}/ai_seg_suggestions/${id}/`, {
+        status,
+    });
+
+export const bulkUpdateAiSegSuggestions = async (documentId, status) =>
+    await axios.post(`/documents/${documentId}/ai_seg_suggestions/bulk/`, {
         status,
     });
 

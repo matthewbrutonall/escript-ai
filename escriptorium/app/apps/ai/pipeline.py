@@ -22,7 +22,10 @@ from .fixthis import LINE_KEY, extract_line_text, fix_prompt
 from .gate import comparison_text_for_line
 from .overlay import crop_line, render_crop, render_numbered_lines
 from .seg_review import PROMPT as SEG_PROMPT
-from .seg_review import REVIEW_KEY, parse_review_json, suggestions_from_review
+from .seg_review import (
+    REVIEW_KEY, merge_geom_spurious, overlap_spurious_items,
+    parse_review_json, suggestions_from_review,
+)
 from .passim_fallback import align_witness_to_lines
 from .preflight import evaluate_crop
 from .triage import normalised_cer
@@ -263,17 +266,41 @@ def review_part_segmentation(part, backend):
         return dict(suggestions=[], tokens_in=0, tokens_out=0, cost=0.0, raw="")
     lines, masks = zip(*usable)
     lines, masks = list(lines), list(masks)
-    with Image.open(part.image.path) as im:
-        overlay = render_numbered_lines(im, masks)
-        result = backend.transcribe_region(overlay, [REVIEW_KEY], SEG_PROMPT)
-    raw = result.raw or result.text_by_key.get(REVIEW_KEY) or ""
-    parsed = parse_review_json(raw, len(lines))
+    geom = overlap_spurious_items(masks)
+    parsed = {"spurious": [], "missed": [], "order": [], "typology": []}
+    tokens_in = tokens_out = 0
+    cost = 0.0
+    raw = ""
+    hint = ""
+    if geom:
+        nums = ", ".join(str(item["n"]) for item in geom[:40])
+        more = "" if len(geom) <= 40 else f" and {len(geom) - 40} more"
+        hint = (
+            f" Geometry already flagged {len(geom)} overlapping boxes as "
+            f"likely duplicates (numbers {nums}{more}). "
+            "Add any extra junk/empty boxes. Focus on MISSED text with no box."
+        )
+    try:
+        with Image.open(part.image.path) as im:
+            overlay = render_numbered_lines(im, masks)
+            result = backend.transcribe_region(
+                overlay, [REVIEW_KEY], SEG_PROMPT + hint)
+        raw = result.raw or result.text_by_key.get(REVIEW_KEY) or ""
+        parsed = parse_review_json(raw, len(lines))
+        tokens_in = result.tokens_in
+        tokens_out = result.tokens_out
+        cost = backend.cost(tokens_in, tokens_out)
+    except Exception:
+        logger.exception(
+            "ai: VLM seg review failed on part %s; keeping geometry flags",
+            part.pk)
+    parsed = merge_geom_spurious(geom, parsed)
     suggestions = suggestions_from_review(lines, parsed)
     return dict(
         suggestions=suggestions,
-        tokens_in=result.tokens_in,
-        tokens_out=result.tokens_out,
-        cost=backend.cost(result.tokens_in, result.tokens_out),
+        tokens_in=tokens_in,
+        tokens_out=tokens_out,
+        cost=cost,
         raw=raw,
         parsed=parsed,
     )

@@ -10,23 +10,102 @@ import re
 
 REVIEW_KEY = "review"
 
+# Bbox IoU at or above this → smaller box is a likely duplicate (newspaper
+# fat polygons sat around 0.15–0.53). Geometry flags these; VLM confirms extras.
+SPURIOUS_IOU = 0.20
+
 PROMPT = (
-    "You are reviewing line segmentation on a manuscript or printed page. "
-    "Each existing kraken line is a numbered box. Numbers start at 1. "
-    "Do NOT draw new polygons. Do NOT return pixel masks. "
-    "Return ONLY JSON of the form:\n"
+    "You are reviewing kraken line segmentation. Numbered boxes are EXISTING "
+    "lines (1-based). Do NOT draw polygons. Do NOT return pixel masks. "
+    "FIRST report boxes that should not exist and writing that has no box. "
+    "Typology is optional and LAST. Return ONLY JSON:\n"
     "{"
     '"spurious": [{"n": 12, "reason": "duplicate of box 11"}], '
     '"missed": [{"after_n": 8, "where": "left margin", "reason": "unboxed text"}], '
     '"order": [{"n": 5, "should_follow_n": 3, "reason": "column jump"}], '
     '"typology": [{"n": 1, "type": "heading|body|margin|page_number", "reason": "..."}]'
     "}\n"
-    "spurious = box is junk, empty, or a near-duplicate of another box. "
+    "spurious = empty, junk, a picture, or a near-duplicate of another box. "
     "missed = visible text with no box. "
     "order = reading order is wrong. "
     "typology = heading vs body vs margin vs page_number. "
-    "Only report real problems. Empty lists are fine."
+    "Prefer spurious and missed. Empty typology is fine. Empty lists are fine."
 )
+
+
+def _bbox(mask):
+    xs = [p[0] for p in mask]
+    ys = [p[1] for p in mask]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def _area(box):
+    return max(0, box[2] - box[0]) * max(0, box[3] - box[1])
+
+
+def _iou(a, b):
+    x0 = max(a[0], b[0])
+    y0 = max(a[1], b[1])
+    x1 = min(a[2], b[2])
+    y1 = min(a[3], b[3])
+    inter = max(0, x1 - x0) * max(0, y1 - y0)
+    if not inter:
+        return 0.0
+    union = _area(a) + _area(b) - inter
+    return inter / union if union else 0.0
+
+
+def overlap_spurious_items(masks, threshold=SPURIOUS_IOU):
+    """Flag the smaller box of each overlapping pair. 1-based n. No mask writes."""
+    scored = []
+    for i, mask in enumerate(masks):
+        if not mask or len(mask) < 3:
+            continue
+        box = _bbox(mask)
+        scored.append((i, box, _area(box)))
+    scored.sort(key=lambda row: -row[2])
+    kept = []
+    flagged = []
+    for i, box, _area_i in scored:
+        n = i + 1
+        best_iou = 0.0
+        dup_of = None
+        for j, other, _area_j in kept:
+            iou = _iou(box, other)
+            if iou >= threshold and iou > best_iou:
+                best_iou = iou
+                dup_of = j + 1
+        if dup_of is not None:
+            flagged.append({
+                "n": n,
+                "reason": f"overlaps box {dup_of} (IoU {best_iou:.2f})",
+                "source": "geometry",
+            })
+        else:
+            kept.append((i, box, _area_i))
+    flagged.sort(key=lambda item: item["n"])
+    return flagged
+
+
+def merge_geom_spurious(geom_items, parsed):
+    """Geometry flags first; VLM may add more. Drop typology on flagged ns."""
+    parsed = {
+        "spurious": list(parsed.get("spurious") or []),
+        "missed": list(parsed.get("missed") or []),
+        "order": list(parsed.get("order") or []),
+        "typology": list(parsed.get("typology") or []),
+    }
+    seen = {item["n"] for item in geom_items if "n" in item}
+    extra = [
+        item for item in parsed["spurious"]
+        if item.get("n") not in seen
+    ]
+    parsed["spurious"] = list(geom_items) + extra
+    parsed["typology"] = [
+        item for item in parsed["typology"]
+        if item.get("n") not in seen
+    ]
+    return parsed
 
 
 def parse_review_json(raw: str, n_lines: int) -> dict:

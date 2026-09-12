@@ -74,7 +74,9 @@ Claude payload without `temperature`, OpenAI `input_image` body).
 - “Fix this” re-reads one line from the sample-review table (optional
   guide text). Same spend/policy guards as a full job.
 - AI segmentation review flags overlapping/missing/wrong-order lines as
-  suggestions. Accept/dismiss only — masks are never overwritten.
+  suggestions. Geometry overlap (IoU ≥ 0.20) is marked spurious even if
+  the VLM only talks about type. Accept deletes spurious lines and stamps
+  line types; it never invents new masks. Missed/order stays a to-do.
 
 ## Internationalisation (UI)
 
