@@ -1,44 +1,99 @@
 # Escript AI
 
-**Escript AI** is an independent open-source tool for turning scans of
-handwritten and printed documents into editable text. It finds the lines on a
-page, sends them to an AI model that can read images, and gives you a draft
-transcription to correct in the editor. Because the AI reads the image itself,
-Escript AI can work across the world’s major writing systems. The interface is
-available in English, Arabic, Hindi, Polish, Italian, Spanish, and Portuguese.
+**Escript AI** helps archives turn scanned pages into editable, reviewable
+text.
 
-It is **derived from [eScriptorium](https://gitlab.com/scripta/escriptorium)**
-(MIT), an established open-source platform for handwritten text recognition and
-scholarly transcription. It is **not** an official eScriptorium release and is
-**not endorsed** by the eScriptorium authors. Escript AI has its own roadmap
-while preserving the upstream licence and copyright notices.
+Upload page images, let the system make a first draft, correct the text in the
+editor, and export it when it is ready. The original image stays beside the
+transcription, so the work remains checkable. It is built for historical
+documents, not quick one-off chat prompts.
+
+The same workflow is designed for handwritten and printed material across the
+world’s major scripts: Latin-script languages, Arabic, Hindi and other Indic
+scripts, Urdu, and more. The software interface is available in English,
+Arabic, Hindi, Polish, Italian, Spanish, Portuguese, French, German, Urdu,
+Turkish, and Telugu.
+
+Escript AI is independent open-source software. It is **derived from
+[eScriptorium](https://gitlab.com/scripta/escriptorium)** (MIT), an established
+open-source platform used for handwritten text recognition, transcription
+editing, and model training. Escript AI is **not** an official eScriptorium
+release and is **not endorsed** by the eScriptorium authors.
 
 ## What it does
 
-Kraken draws line masks. Escript AI paints each line a colour, sends a small
-region image to an AI model that can read images, and writes the replies onto a
-named transcription layer — with `version_source` set to the provider (the
-stock eScriptorium API cannot do that). You correct in the usual editor.
+For an archivist, the basic loop is:
+
+1. Add scans or photographs of pages.
+2. Ask Escript AI to make a draft transcription.
+3. Review and correct the text beside the image.
+4. Export the finished text and page data.
+
+That is the main product. Building a custom handwriting model is possible, but
+it is a later step after you have corrected enough pages. Most users should
+start with “image in, draft text out, human review”.
+
+## Why not just paste images into ChatGPT?
+
+You can paste a page into a chat tool, but archival transcription usually needs
+more than an answer in a chat window.
+
+Escript AI is designed to keep the work inside an archival workflow:
+
+- It keeps the page image and transcription together.
+- It writes text line by line into an editable layer.
+- It lets you correct, compare, and export the work.
+- It can process many pages as a job, not just one image at a time.
+- It records which AI backend made the draft.
+- It can stop remote AI from being used on restricted documents.
+- It can later turn corrected pages into training data for your own models.
+
+The AI draft is not treated as finished text. It is a starting point for human
+review.
+
+## How it works, in plain terms
+
+Escript AI first needs to know where the lines of writing are on the page. It
+uses the existing eScriptorium/kraken page-analysis tools for that. Then it
+sends small page areas to a reading model, gets text back, and writes that text
+into a new transcription layer.
+
+If the page layout is normal prose, this can work well. If the page is a
+ledger, table, account book, or full of ditto marks and columns, the software
+needs to be more careful. Those pages are not “bad”; they are just a different
+layout problem.
+
+Under the hood, this project uses colour-keyed line crops, provider adapters,
+dispatch guards, review gates, and optional training paths. You do not need to
+understand those details to use the tool, but they are documented for
+developers and technical archivists.
 
 ## What works / what does not
 
-**Works (demo-quality, still draft until a human reviews it)**
+**Works now**
 
-- Prose pages with sane, non-overlapping line masks (English letter; modern
-  school-hand Hindi).
-- Gemini 2.5 Flash, Claude Sonnet 5, OpenAI GPT-5.6 Terra, and local
-  OpenAI-compatible backends (Ollama/vLLM).
-- Overlap/fragment preflight so junk masks do not skip a whole crop.
-- Dispatch guards: never-send-off-site, missing key, cross-document part pks.
+- Draft transcription into an editable layer.
+- Review and correction in the document editor.
+- Hosted AI backends: Gemini, Claude, OpenAI, Azure OpenAI, and Mistral.
+- Local OpenAI-compatible backends such as Ollama or vLLM.
+- Per-user encrypted API keys and monthly budget caps.
+- Document policy to block off-site AI for restricted material.
+- Review gates before AI-created layers can be used for training.
+- Page-analysis review suggestions for suspicious line boxes.
 
-**AI output is a draft layer until a human reviews it. Do not train a kraken
-model on an unreviewed AI layer.**
+**Still needs judgement**
+
+- AI output is a draft until a human reviews it.
+- Tables, ledgers, and complex account books need special handling.
+- A few interface strings are still in English.
+- Right-to-left language support exists, but still needs polish.
+- Training your own model is a power path, not the first thing to do.
 
 ## Paid APIs are never called silently
 
-Hosted Gemini / Claude / OpenAI run **only** when you start an `ai_transcribe`
-job **and** a key is present in the environment. No key → the job fails closed.
-Unknown providers do not fall back to Gemini. Local backends spend no API money.
+Hosted AI providers run **only** when you start an AI transcription job and a
+usable key is available. No key means the job fails closed. Unknown providers
+do not fall back to another paid service. Local backends spend no API money.
 
 Copy `.env.example` to `.env` and fill only the providers you use:
 
@@ -48,14 +103,15 @@ ANTHROPIC_API_KEY=
 OPENAI_API_KEY=
 ```
 
-In Django admin, each `AIBackendConfig.key_ref` should match the env var name
-(e.g. `GEMINI_API_KEY`). Keys are **not** stored on the config row.
+Provider keys can be supplied by environment variable or stored per user in
+encrypted form. They are not stored in clear text on backend configuration
+rows.
 
-## Setup
+## Running it
 
-Build **this** tree. Do not overlay the official eScriptorium image — that
-image’s kraken and Django apps are older than this repo (no PPOCRv6, no
-`drf_spectacular`, no Phase 2 `ai/` files).
+Escript AI is a Docker Compose stack. Build **this** repository; do not overlay
+the official eScriptorium image, because this project has additional Django
+apps, frontend code, migrations, and dependencies.
 
 ```bash
 cd escriptorium
@@ -64,22 +120,24 @@ docker compose build
 docker compose up -d
 ```
 
-That image is `escript-ai:local` (`escriptorium/Dockerfile`): Node 20 webpack
-production frontend, Python 3.12, `app/requirements.txt` (kraken 7.x,
-drf-spectacular), this repo’s `ai/` app and locale catalogs. `entrypoint.sh`
-runs `migrate` and `collectstatic`.
+The image is `escript-ai:local` from `escriptorium/Dockerfile`. It builds the
+Vue frontend, installs the Python application, runs migrations, and collects
+static files.
 
 Then:
 
-1. Export keys from `.env` into the **web and Celery** processes (or
-   `variables.env`).
-2. Create an `AIBackendConfig` (admin) for Gemini, Claude, OpenAI, and/or local.
-3. Segment pages with kraken, then **Transcribe** → an AI backend.
+1. Configure secrets in `variables.env` or your deployment environment.
+2. Create one or more AI backend configurations in Django admin.
+3. Add page images to a document.
+4. Run page analysis so the system knows where the writing is.
+5. Choose **Transcribe** and select an AI backend.
+
+Developers can read [ARCHITECTURE.md](ARCHITECTURE.md) for the internal design.
 
 ## Sample / spike code
 
 - `phase0-spike/` — **synthetic** colour-key demo (`spike.py`) plus a **masks-only** ALTO fixture (`_hard_seg.xml`). Generated PNGs and live-run `_results.json` are gitignored. Unpublished page images are **not** in this repository.
-- `escript-ai/` — optional write-path script against a **throwaway** eScriptorium instance. Set `ESCRIPT_AI_DEMO_IMAGE` to a JPEG you are allowed to upload. Credentials live in `~/.config/escript-ai/`, not in git.
+- `escript-ai/` — optional write-path script for a local demo instance. Set `ESCRIPT_AI_DEMO_IMAGE` to a JPEG you are allowed to upload. Credentials live outside git.
 
 ## Tests
 
