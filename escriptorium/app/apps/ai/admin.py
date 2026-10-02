@@ -11,7 +11,7 @@ from django.conf import settings
 from .models import (
     AIBackendConfig, AIDocumentPolicy, AIExample, AIJob, AILayerGate,
     AILineDisagreement, AISegSuggestion, AIUsageLedger,
-    AIUserKey, AIUserQuota,
+    AIUserKey, AIUserQuota, ExternalHTREngineConfig,
 )
 from .secrets import encrypt_key
 
@@ -51,6 +51,13 @@ class AIUserQuotaAdmin(admin.ModelAdmin):
 class AIUserKeyAdmin(admin.ModelAdmin):
     form = AIUserKeyForm
     list_display = ('user', 'provider', 'updated_at')
+
+
+@admin.register(ExternalHTREngineConfig)
+class ExternalHTREngineConfigAdmin(admin.ModelAdmin):
+    list_display = ("name", "enabled", "tier", "experimental", "timeout_seconds")
+    list_filter = ("enabled", "tier", "experimental")
+    search_fields = ("name",)
 
 
 @admin.register(AIBackendConfig)
