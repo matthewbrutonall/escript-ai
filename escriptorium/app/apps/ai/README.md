@@ -33,7 +33,7 @@ Design: `../../../../ARCHITECTURE.md`. Tests and contribution rules:
 | `dispatch.py` | Off-site policy, keys, budget, cross-document part pks |
 | `tasks.py` | Celery `ai_transcribe` |
 | `serializers.py` / `views.py` | DRF: transcribe, `GET /api/ai-backends/`, document `ai-gates` |
-| `htr_engine_contract.py` | External HTR engine wire contract, v1. Not imported by Stage 1 jobs, views, or adapters |
+| `htr_engine_contract.py` | External HTR engine contract, v1. Not imported by existing transcription jobs, views, or adapters |
 | `docs/htr-engine-contract.md` | Wrapper-facing examples for that contract. Not a running service |
 
 ## Tests (no Django, no network, no API)

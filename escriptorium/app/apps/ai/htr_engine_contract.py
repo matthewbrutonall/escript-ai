@@ -1,8 +1,8 @@
-"""External HTR engine wire contract, version 1.
+"""External HTR engine contract, version 1.
 
-Stage 2.1 scaffolding. Nothing in the Stage 1 transcription path imports
-this module. Escript AI does not serve these routes and does not start
-an engine container.
+This module is not imported by the existing transcription pipeline.
+Escript AI does not serve these routes and does not start an engine
+container.
 
 The external process owns the routes:
 
