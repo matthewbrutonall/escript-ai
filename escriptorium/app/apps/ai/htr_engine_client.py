@@ -73,6 +73,52 @@ def join_engine_url(endpoint_url: str, path: str) -> str:
     return urllib.parse.urlunsplit((parts.scheme, parts.netloc, base_path + path, "", ""))
 
 
+def probe_configs(configs, *, fetch_capabilities=None, fetch_models=None):
+    """Check enabled engines and return admin message pairs.
+
+    Each item is ``("success"|"warning"|"error", text)``. The text uses the
+    config name, a status code, and on success the tier and model count.
+    It does not include the endpoint, stored options, or a response body.
+    Disabled rows are not fetched.
+    """
+    if fetch_capabilities is None:
+        fetch_capabilities = globals()["fetch_capabilities"]
+    if fetch_models is None:
+        fetch_models = globals()["fetch_models"]
+    return [
+        _probe_one(config, fetch_capabilities, fetch_models)
+        for config in configs
+    ]
+
+
+def _probe_one(config, fetch_capabilities, fetch_models):
+    label = _probe_label(config)
+    if getattr(config, "enabled", False) is not True:
+        return ("warning", f"{label} is disabled and was not called")
+    try:
+        capabilities = fetch_capabilities(config)
+        listing = fetch_models(config)
+    except (EngineClientError, ContractError) as exc:
+        code = getattr(exc, "code", None)
+        if isinstance(code, str) and code.strip():
+            return ("error", f"{label} was not checked ({code.strip()})")
+        return ("error", f"{label} was not checked")
+    except Exception:
+        return ("error", f"{label} was not checked")
+    tier = getattr(capabilities, "tier", None)
+    models = getattr(listing, "models", None)
+    if not isinstance(tier, str) or not isinstance(models, tuple):
+        return ("error", f"{label} was not checked")
+    return ("success", f"{label} responded ({tier}, {len(models)} models)")
+
+
+def _probe_label(config) -> str:
+    name = getattr(config, "name", None)
+    if isinstance(name, str) and name.strip():
+        return name.strip()
+    return "engine"
+
+
 def fetch_capabilities(config):
     return parse_capabilities(_get_json(config, PATH_CAPABILITIES))
 
