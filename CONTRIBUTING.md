@@ -33,6 +33,7 @@ These tests **must not** touch the network or a provider API. They use
 | ORM write + default prompt | `escriptorium/app/apps/ai/pipeline.py` |
 | Celery task | `escriptorium/app/apps/ai/tasks.py` |
 | DRF serializer / list of backends | `escriptorium/app/apps/ai/serializers.py`, `views.py` |
+| External HTR engine contract (not wired to jobs or UI) | `escriptorium/app/apps/ai/htr_engine_contract.py` |
 | Design | `ARCHITECTURE.md` |
 
 Do not inject AI into `DocumentPart.transcribe()` (that path is kraken). Do not
