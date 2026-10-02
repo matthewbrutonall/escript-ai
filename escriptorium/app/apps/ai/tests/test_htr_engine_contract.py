@@ -12,10 +12,12 @@ from ai.htr_engine_contract import (
     PATH_MODELS,
     PATH_RECOGNIZE,
     ContractError,
+    check_preprocessing,
     parse_capabilities,
     parse_error,
     parse_model,
     parse_model_list,
+    parse_preprocessing,
     parse_recognize_request,
     parse_recognize_response,
 )
@@ -90,6 +92,7 @@ def _capabilities(**overrides):
         "image_transport": ["base64"],
         "max_lines_per_request": 32,
         "preprocessing_supported": ["line_height", "grayscale"],
+        "params_accepted": [],
         "reports": ["timing_ms", "confidence", "warnings"],
     }
     payload.update(overrides)
@@ -218,12 +221,71 @@ class RecognizeTests(unittest.TestCase):
         with self.assertRaises(ContractError):
             parse_recognize_request(payload)
 
-    def test_unknown_preprocessing_field_is_unsupported(self):
+    def test_unknown_top_level_field_must_go_in_params(self):
         preprocessing = dict(PREPROCESS)
-        preprocessing["binarize"] = True
+        preprocessing["beam_width"] = 4
         with self.assertRaises(ContractError) as caught:
             parse_recognize_request(_request(preprocessing=preprocessing))
+        self.assertEqual(caught.exception.code, "invalid_request")
+
+    def test_params_hold_scalars_without_a_new_field(self):
+        preprocessing = dict(PREPROCESS)
+        preprocessing["params"] = {
+            "beam_width": 4,
+            "enabled": True,
+            "flags": ["tight", "raw"],
+        }
+        parsed = parse_recognize_request(_request(preprocessing=preprocessing))
+        self.assertEqual(
+            parsed.preprocessing.params,
+            (("beam_width", 4), ("enabled", True), ("flags", ("tight", "raw"))),
+        )
+
+    def test_null_param_is_rejected(self):
+        with self.assertRaises(ContractError) as caught:
+            parse_preprocessing({"params": {"note": None}}, "preprocessing")
+        self.assertEqual(caught.exception.code, "invalid_request")
+        with self.assertRaises(ContractError) as caught:
+            parse_preprocessing({"params": {"flags": ["tight", None]}}, "preprocessing")
+        self.assertEqual(caught.exception.code, "invalid_request")
+
+    def test_omitted_shared_fields_stay_unset(self):
+        parsed = parse_preprocessing({"params": {"crop_side": "left"}}, "preprocessing")
+        self.assertIsNone(parsed.line_height)
+        self.assertIsNone(parsed.deslant)
+        self.assertEqual(parsed.params, (("crop_side", "left"),))
+
+    def test_nested_param_object_is_rejected(self):
+        with self.assertRaises(ContractError) as caught:
+            parse_preprocessing({"params": {"crop": {"side": "left"}}}, "preprocessing")
+        self.assertEqual(caught.exception.code, "invalid_request")
+
+    def test_declared_params_pass_and_unknown_params_do_not(self):
+        capabilities = parse_capabilities(_capabilities(
+            preprocessing_supported=["line_height"],
+            params_accepted=["beam_width"],
+        ))
+        accepted = parse_preprocessing(
+            {"line_height": 64, "params": {"beam_width": 4}},
+            "preprocessing",
+        )
+        check_preprocessing(accepted, capabilities)
+        extra = parse_preprocessing({"params": {"slant": 0.2}}, "preprocessing")
+        with self.assertRaises(ContractError) as caught:
+            check_preprocessing(extra, capabilities)
         self.assertEqual(caught.exception.code, "unsupported_preprocessing")
+        shared = parse_preprocessing({"deslant": True}, "preprocessing")
+        with self.assertRaises(ContractError) as caught:
+            check_preprocessing(shared, capabilities)
+        self.assertEqual(caught.exception.code, "unsupported_preprocessing")
+
+    def test_wildcard_accepts_any_param_key(self):
+        capabilities = parse_capabilities(_capabilities(params_accepted=["*"]))
+        parsed = parse_preprocessing({"params": {"custom_knob": True}}, "preprocessing")
+        check_preprocessing(parsed, capabilities)
+        with self.assertRaises(ContractError) as caught:
+            parse_capabilities(_capabilities(params_accepted=["*", "beam_width"]))
+        self.assertEqual(caught.exception.code, "invalid_request")
 
     def test_response_must_cover_every_requested_line(self):
         request = parse_recognize_request(_request())

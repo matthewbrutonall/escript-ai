@@ -14,6 +14,12 @@ The external process owns the routes:
 Line images are standard base64 with no ``data:`` prefix. Confidence is
 meaningful inside one engine only; do not rank engines by it.
 A ``timing_ms`` of 0 means the engine did not measure that interval.
+
+Preprocessing has four optional shared fields. Anything engine-specific
+belongs in ``params``: a string, finite number, boolean, or a list of
+those. Null is rejected. Capabilities name
+the shared fields and param keys that engine accepts. ``params_accepted``
+of ``["*"]`` accepts any param key. That wildcard must be the only entry.
 """
 from __future__ import annotations
 
@@ -37,6 +43,7 @@ PREPROCESSING_FIELDS = (
     "grayscale",
     "preserve_aspect",
 )
+PARAMS_WILDCARD = "*"
 REPORT_FIELDS = frozenset({"timing_ms", "confidence", "warnings"})
 REPORTS_REQUIRED = frozenset({"timing_ms"})
 ERROR_CODES = frozenset({
@@ -72,12 +79,19 @@ class ContractError(ValueError):
         super().__init__(message)
 
 
+# A param value is a string, finite number, or boolean, or a list of those.
+# Null and nested objects are rejected so a new engine knob stays a flat value.
+ParamScalar = str | int | float | bool
+ParamValue = ParamScalar | tuple[ParamScalar, ...]
+
+
 @dataclass(frozen=True)
 class Preprocessing:
-    line_height: int
-    deslant: bool
-    grayscale: bool
-    preserve_aspect: bool
+    line_height: int | None = None
+    deslant: bool | None = None
+    grayscale: bool | None = None
+    preserve_aspect: bool | None = None
+    params: tuple[tuple[str, ParamValue], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -145,6 +159,7 @@ class Capabilities:
     image_transport: tuple[str, ...]
     max_lines_per_request: int
     preprocessing_supported: tuple[str, ...]
+    params_accepted: tuple[str, ...]
     reports: tuple[str, ...]
 
 
@@ -185,7 +200,7 @@ def parse_capabilities(payload) -> Capabilities:
     _exact(obj, (
         "api_version", "engine", "tier", "tasks", "accepts",
         "image_transport", "max_lines_per_request",
-        "preprocessing_supported", "reports",
+        "preprocessing_supported", "params_accepted", "reports",
     ), "capabilities")
     _version(obj["api_version"], "capabilities.api_version")
     engine = _name(obj["engine"], "capabilities.engine")
@@ -207,6 +222,7 @@ def parse_capabilities(payload) -> Capabilities:
         allowed=frozenset(PREPROCESSING_FIELDS),
         allow_empty=True,
     )
+    params_accepted = _params_accepted(obj["params_accepted"])
     reports = _name_tuple(obj["reports"], "capabilities.reports", allowed=REPORT_FIELDS)
     missing_reports = REPORTS_REQUIRED - set(reports)
     if missing_reports:
@@ -225,6 +241,7 @@ def parse_capabilities(payload) -> Capabilities:
             obj["max_lines_per_request"], "capabilities.max_lines_per_request",
         ),
         preprocessing_supported=supported,
+        params_accepted=params_accepted,
         reports=reports,
     )
 
@@ -360,20 +377,95 @@ def parse_error(payload) -> EngineErrorBody:
     )
 
 
-def parse_preprocessing(value, where: str) -> Preprocessing:
+def _optional(obj, name, where, parse):
+    if name not in obj:
+        return None
+    return parse(obj[name], f"{where}.{name}")
+
+
+def _params_accepted(value):
+    names = _name_tuple(value, "capabilities.params_accepted", allow_empty=True)
+    if PARAMS_WILDCARD in names and names != (PARAMS_WILDCARD,):
+        raise ContractError(
+            "invalid_request",
+            "capabilities.params_accepted wildcard must be the only entry",
+        )
+    return names
+
+
+def _params(value, where: str):
     obj = _object(value, where)
-    extra = [key for key in obj if key not in PREPROCESSING_FIELDS]
-    if extra:
-        raise ContractError("unsupported_preprocessing", f"{where} has unsupported fields: {extra}")
-    missing = [key for key in PREPROCESSING_FIELDS if key not in obj]
-    if missing:
-        raise ContractError("invalid_request", f"{where} missing {missing}")
-    return Preprocessing(
-        line_height=_positive_int(obj["line_height"], f"{where}.line_height"),
-        deslant=_bool(obj["deslant"], f"{where}.deslant"),
-        grayscale=_bool(obj["grayscale"], f"{where}.grayscale"),
-        preserve_aspect=_bool(obj["preserve_aspect"], f"{where}.preserve_aspect"),
+    items = []
+    for key, raw in obj.items():
+        name = _name(key, f"{where} key")
+        if name == PARAMS_WILDCARD:
+            raise ContractError("invalid_request", f"{where} key {name!r} is reserved")
+        items.append((name, _param_value(raw, f"{where}.{name}")))
+    return tuple(sorted(items, key=lambda item: item[0]))
+
+
+def _param_value(value, where: str):
+    if isinstance(value, list):
+        return tuple(_param_scalar(item, f"{where}[]") for item in value)
+    return _param_scalar(value, where)
+
+
+def _param_scalar(value, where: str):
+    if isinstance(value, bool) or isinstance(value, str):
+        return value
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if value != value or value in (float("inf"), float("-inf")):
+            raise ContractError("invalid_request", f"{where} must be a finite number")
+        return value
+    raise ContractError(
+        "invalid_request",
+        f"{where} must be a string, number, or boolean",
     )
+
+
+def parse_preprocessing(value, where: str) -> Preprocessing:
+    """Parse a preprocessing object.
+
+    Shared fields may be omitted. Unknown top-level names are
+    ``invalid_request``; put those values in ``params`` instead.
+    """
+    obj = _object(value, where)
+    allowed = set(PREPROCESSING_FIELDS) | {"params"}
+    extra = sorted(key for key in obj if key not in allowed)
+    if extra:
+        raise ContractError(
+            "invalid_request",
+            f"{where} has unknown fields {extra}; put engine-specific values in params",
+        )
+    parsed = {
+        "line_height": _optional(obj, "line_height", where, _positive_int),
+        "deslant": _optional(obj, "deslant", where, _bool),
+        "grayscale": _optional(obj, "grayscale", where, _bool),
+        "preserve_aspect": _optional(obj, "preserve_aspect", where, _bool),
+        "params": _params(obj["params"], f"{where}.params") if "params" in obj else (),
+    }
+    return Preprocessing(**parsed)
+
+
+def check_preprocessing(preprocessing: Preprocessing, capabilities: Capabilities) -> None:
+    """Reject shared fields and param keys this engine did not declare."""
+    supported = set(capabilities.preprocessing_supported)
+    for name in PREPROCESSING_FIELDS:
+        if getattr(preprocessing, name) is not None and name not in supported:
+            raise ContractError(
+                "unsupported_preprocessing",
+                f"preprocessing.{name} is not supported",
+            )
+    accepted = set(capabilities.params_accepted)
+    wildcard = accepted == {PARAMS_WILDCARD}
+    for key, _value in preprocessing.params:
+        if not wildcard and key not in accepted:
+            raise ContractError(
+                "unsupported_preprocessing",
+                f"preprocessing.params.{key} is not accepted",
+            )
 
 
 def _match_request(request, job_id, engine, model_id, result_ids):
