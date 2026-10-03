@@ -324,9 +324,9 @@ class AISegSuggestion(models.Model):
 class ExternalHTREngineConfig(models.Model):
     """Address of an external line-recognition process.
 
-    Stored configuration only. Transcription jobs do not read this table,
-    and nothing in this app calls the endpoint. Do not put secrets in
-    metadata.
+    Stored configuration only. Transcription jobs do not read this table.
+    Saving the row does not call the endpoint. The admin probe may call the
+    configured endpoint for an explicit test. Do not put secrets in metadata.
     """
     TIER_PRODUCTION = "production"
     TIER_API = "api"
