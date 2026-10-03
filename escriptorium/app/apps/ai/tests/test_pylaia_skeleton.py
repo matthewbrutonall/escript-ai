@@ -293,6 +293,35 @@ class IsolationTests(unittest.TestCase):
             self.assertNotIn("external_engines", text, path)
             self.assertNotIn("pylaia", text, path)
 
+    def test_prototype_dockerfile_stays_loopback_and_unwired(self):
+        dockerfile = (AI_DIR / "external_engines" / "pylaia" / "Dockerfile").read_text()
+        readme = (AI_DIR / "external_engines" / "pylaia" / "README.md").read_text()
+        self.assertIn("FROM python:3.10", dockerfile)
+        self.assertIn("pylaia==1.1.2", dockerfile)
+        self.assertIn("--host", dockerfile)
+        self.assertIn("127.0.0.1", dockerfile)
+        self.assertNotIn("0.0.0.0", dockerfile)
+        self.assertNotIn("COPY .", dockerfile)
+        for banned in ("weights.ckpt", "syms.txt", ".env", "API_KEY", "PASSWORD", "SECRET"):
+            self.assertNotIn(banned, dockerfile, banned)
+        self.assertIn("from escriptorium/app/apps/ai:", dockerfile)
+        for snippet in (
+            "COPY __init__.py /opt/engine/ai/__init__.py",
+            "COPY htr_engine_contract.py /opt/engine/ai/htr_engine_contract.py",
+            "COPY external_engines/__init__.py /opt/engine/ai/external_engines/__init__.py",
+            "COPY external_engines/pylaia/__init__.py /opt/engine/ai/external_engines/pylaia/__init__.py",
+            "COPY external_engines/pylaia/backend.py /opt/engine/ai/external_engines/pylaia/backend.py",
+            "COPY external_engines/pylaia/engine.py /opt/engine/ai/external_engines/pylaia/engine.py",
+            "COPY external_engines/pylaia/server.py /opt/engine/ai/external_engines/pylaia/server.py",
+        ):
+            self.assertIn(snippet, dockerfile, snippet)
+        self.assertNotIn("COPY ai/", dockerfile)
+        self.assertIn("is not built by default", readme)
+        self.assertIn("Compose does not reference it", readme)
+        self.assertIn("read-only model mount is future work", readme)
+        self.assertIn("does not add a container bind mode", readme)
+        self.assertIn("not reachable as a service yet", readme)
+
 
 if __name__ == "__main__":
     unittest.main()
