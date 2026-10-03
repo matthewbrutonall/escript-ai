@@ -11,6 +11,8 @@ Three tables, all additive — no change to core:
 """
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
+from django.core.validators import MinValueValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
@@ -317,3 +319,48 @@ class AISegSuggestion(models.Model):
 
     def __str__(self):
         return f"AISegSuggestion {self.kind} part={self.part_id} {self.status}"
+
+
+class ExternalHTREngineConfig(models.Model):
+    """Address of an external line-recognition process.
+
+    Stored configuration only. Transcription jobs do not read this table.
+    Saving the row does not call the endpoint. The admin probe may call the
+    configured endpoint for an explicit test. Do not put secrets in metadata.
+    """
+    TIER_PRODUCTION = "production"
+    TIER_API = "api"
+    TIER_RESEARCH = "research"
+    TIER_CHOICES = (
+        (TIER_PRODUCTION, "production"),
+        (TIER_API, "api"),
+        (TIER_RESEARCH, "research"),
+    )
+
+    name = models.CharField(max_length=256, unique=True)
+    endpoint_url = models.URLField(
+        help_text=_("Base URL of the engine process. Routes are not called from here."))
+    enabled = models.BooleanField(
+        default=False,
+        help_text=_("Transcription jobs do not read this flag."))
+    tier = models.CharField(max_length=16, choices=TIER_CHOICES)
+    experimental = models.BooleanField(default=False)
+    timeout_seconds = models.PositiveIntegerField(
+        default=30, validators=[MinValueValidator(1)])
+    metadata = models.JSONField(
+        default=dict, blank=True,
+        help_text=_("Non-secret options. Do not store API keys."))
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+        verbose_name = "external HTR engine"
+
+    def __str__(self):
+        return self.name
+
+    def clean(self):
+        super().clean()
+        if not isinstance(self.metadata, dict):
+            raise ValidationError({"metadata": _("metadata must be a JSON object.")})
