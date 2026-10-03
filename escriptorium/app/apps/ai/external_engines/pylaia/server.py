@@ -28,10 +28,10 @@ _INTERNAL = {
 }
 
 
-def respond(method, path, body: bytes | None = None) -> tuple[int, bytes]:
+def respond(method, path, body: bytes | None = None, backend=None) -> tuple[int, bytes]:
     """Return an HTTP status and a JSON body. Does not open a socket."""
     try:
-        status, payload = handle(method, path, _body_bytes(body))
+        status, payload = handle(method, path, _body_bytes(body), backend)
     except Exception:
         status, payload = 500, _INTERNAL
     try:
@@ -42,11 +42,11 @@ def respond(method, path, body: bytes | None = None) -> tuple[int, bytes]:
     return status, raw
 
 
-def serve(host: str = _DEFAULT_HOST, port: int = _DEFAULT_PORT) -> None:
+def serve(host: str = _DEFAULT_HOST, port: int = _DEFAULT_PORT, backend=None) -> None:
     """Bind the skeleton. Raises before listening if the host is not loopback."""
     if not _loopback(host) or isinstance(port, bool) or not isinstance(port, int) or not 0 < port < 65536:
         raise ValueError("pylaia skeleton binds to loopback only")
-    server = HTTPServer((host, port), SkeletonHandler)
+    server = HTTPServer((host, port), _handler(backend))
     try:
         server.serve_forever()
     finally:
@@ -68,29 +68,33 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-class SkeletonHandler(BaseHTTPRequestHandler):
-    protocol_version = "HTTP/1.1"
+def _handler(backend):
+    class SkeletonHandler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+        bound_backend = backend
 
-    def handle_one_request(self):
-        try:
-            self.raw_requestline = self.rfile.readline(65537)
-            if len(self.raw_requestline) > 65536 or not self.raw_requestline:
+        def handle_one_request(self):
+            try:
+                self.raw_requestline = self.rfile.readline(65537)
+                if len(self.raw_requestline) > 65536 or not self.raw_requestline:
+                    self.close_connection = True
+                    return
+                if not self.parse_request():
+                    return
+                body = _read_body(self.rfile, self.headers.get("Content-Length"))
+                status, raw = respond(self.command, self.path, body, self.bound_backend)
+                self.send_response(status)
+                self.send_header("Content-Type", CONTENT_TYPE)
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+            except Exception:
                 self.close_connection = True
-                return
-            if not self.parse_request():
-                return
-            body = _read_body(self.rfile, self.headers.get("Content-Length"))
-            status, raw = respond(self.command, self.path, body)
-            self.send_response(status)
-            self.send_header("Content-Type", CONTENT_TYPE)
-            self.send_header("Content-Length", str(len(raw)))
-            self.end_headers()
-            self.wfile.write(raw)
-        except Exception:
-            self.close_connection = True
 
-    def log_message(self, format, *args):
-        return
+        def log_message(self, format, *args):
+            return
+
+    return SkeletonHandler
 
 
 def _body_bytes(body) -> bytes | None:

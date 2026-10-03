@@ -1,5 +1,6 @@
 """PyLaia wrapper skeleton. Not a recognizer."""
 
-from .engine import ENGINE_NAME, handle
+from .backend import ENGINE_NAME, UnavailablePyLaiaBackend
+from .engine import handle
 
-__all__ = ["ENGINE_NAME", "handle"]
+__all__ = ["ENGINE_NAME", "UnavailablePyLaiaBackend", "handle"]

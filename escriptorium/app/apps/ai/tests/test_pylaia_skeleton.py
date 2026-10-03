@@ -5,9 +5,17 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from ai.external_engines.pylaia import ENGINE_NAME, handle
+from ai.external_engines.pylaia import ENGINE_NAME, UnavailablePyLaiaBackend, handle
+from ai.external_engines.pylaia.backend import BackendFailure
 from ai.external_engines.pylaia.server import respond, serve
-from ai.htr_engine_contract import parse_capabilities, parse_error, parse_model_list
+from ai.htr_engine_contract import (
+    parse_capabilities,
+    parse_error,
+    parse_model,
+    parse_model_list,
+    parse_recognize_response,
+    parse_recognize_request,
+)
 
 AI_DIR = Path(__file__).resolve().parents[1]
 APPS_DIR = AI_DIR.parent
@@ -82,6 +90,79 @@ class SkeletonTests(unittest.TestCase):
         self.assertEqual(parse_error(json.loads(raw.decode("utf-8"))).code, "unavailable")
         self.assertNotIn("AAAA", raw.decode("utf-8"))
 
+    def test_injected_backend_returns_one_model_and_one_line(self):
+        backend = _DemoBackend()
+        status, listing = handle("GET", "/v1/models", backend=backend)
+        self.assertEqual(status, 200)
+        parsed = parse_model_list(listing)
+        self.assertEqual(parsed.models[0].model_id, "demo")
+
+        status, detail = handle("GET", "/v1/models/demo", backend=backend)
+        self.assertEqual(status, 200)
+        self.assertEqual(parse_model(detail).model_id, "demo")
+
+        image = "QUJDRA=="
+        raw = _request(image)
+        status, body = respond("POST", "/v1/recognize", raw, backend)
+        self.assertEqual(status, 200)
+        response = parse_recognize_response(
+            json.loads(body.decode("utf-8")),
+            parse_recognize_request(json.loads(raw.decode("utf-8"))),
+        )
+        self.assertEqual(response.results[0].text, "demo")
+        self.assertNotIn(image, body.decode("utf-8"))
+
+    def test_unavailable_backend_stays_empty(self):
+        backend = UnavailablePyLaiaBackend()
+        status, listing = handle("GET", "/v1/models", backend=backend)
+        self.assertEqual(status, 200)
+        self.assertEqual(parse_model_list(listing).models, ())
+        status, detail = handle("GET", f"/v1/models/{SECRET_MODEL}", backend=backend)
+        self.assertEqual(status, 404)
+        self.assertEqual(parse_error(detail).code, "model_not_found")
+        self.assertNotIn(SECRET_MODEL, json.dumps(detail))
+        status, body = handle("POST", "/v1/recognize", _request("AAAA"), backend=backend)
+        self.assertEqual(status, 503)
+        parsed = parse_error(body)
+        self.assertEqual(parsed.code, "unavailable")
+        self.assertEqual(parsed.message, "recognition backend is not installed")
+        self.assertNotIn("AAAA", json.dumps(body))
+        self.assertNotIn("results", body)
+
+    def test_backend_exception_does_not_leak(self):
+        class Boom:
+            def capabilities(self):
+                raise RuntimeError(SECRET_TEXT)
+
+            def list_models(self):
+                raise RuntimeError(SECRET_TEXT)
+
+            def get_model(self, model_id):
+                raise RuntimeError(model_id + SECRET_IMAGE)
+
+            def recognize(self, request):
+                raise RuntimeError(SECRET_TEXT + request.lines[0].image)
+
+        status, body = handle("GET", "/v1/capabilities", backend=Boom())
+        self.assertEqual(status, 500)
+        self.assertEqual(parse_error(body).code, "internal")
+        self.assertNotIn(SECRET_TEXT, json.dumps(body))
+
+        status, body = handle("GET", f"/v1/models/{SECRET_MODEL}", backend=Boom())
+        self.assertEqual(status, 500)
+        encoded = json.dumps(body)
+        self.assertEqual(parse_error(body).code, "internal")
+        self.assertNotIn(SECRET_MODEL, encoded)
+        self.assertNotIn(SECRET_IMAGE, encoded)
+
+        image = "AAAA"
+        status, body = handle("POST", "/v1/recognize", _request(image), backend=Boom())
+        self.assertEqual(status, 500)
+        encoded = json.dumps(body)
+        self.assertEqual(parse_error(body).code, "internal")
+        self.assertNotIn(image, encoded)
+        self.assertNotIn(SECRET_TEXT, encoded)
+
     def test_non_loopback_host_is_refused_before_bind(self):
         with mock.patch("ai.external_engines.pylaia.server.HTTPServer") as server:
             with self.assertRaises(ValueError) as caught:
@@ -89,22 +170,99 @@ class SkeletonTests(unittest.TestCase):
             server.assert_not_called()
         self.assertNotIn("0.0.0.0", str(caught.exception))
 
+    def test_serve_keeps_an_injected_backend_without_binding(self):
+        backend = _DemoBackend()
+        with mock.patch("ai.external_engines.pylaia.server.HTTPServer") as server:
+            serve("127.0.0.1", 8766, backend)
+        handler = server.call_args.args[1]
+        self.assertIs(handler.bound_backend, backend)
+
+
+class _DemoBackend:
+    def capabilities(self):
+        return {
+            "api_version": "1",
+            "engine": "pylaia",
+            "tier": "research",
+            "tasks": ["recognize_lines"],
+            "accepts": ["image/png"],
+            "image_transport": ["base64"],
+            "max_lines_per_request": 32,
+            "preprocessing_supported": [],
+            "params_accepted": [],
+            "reports": ["timing_ms", "confidence", "warnings"],
+        }
+
+    def list_models(self):
+        return {"api_version": "1", "engine": "pylaia", "models": [self.get_model("demo")]}
+
+    def get_model(self, model_id):
+        if model_id != "demo":
+            return BackendFailure("model_not_found")
+        return {
+            "api_version": "1",
+            "engine": "pylaia",
+            "model_id": "demo",
+            "model_version": "0",
+            "display_name": "Demo",
+            "licence": "test-only",
+            "source": "test:fake",
+            "scripts": [],
+            "languages": [],
+            "input": {},
+            "alphabet_note": "",
+            "experimental": True,
+        }
+
+    def recognize(self, request):
+        line_id = request.lines[0].line_id
+        return {
+            "api_version": "1",
+            "job_id": request.job_id,
+            "engine": request.engine,
+            "model_id": request.model_id,
+            "model_version": "0",
+            "results": [{
+                "line_id": line_id,
+                "text": "demo",
+                "confidence": None,
+                "timing_ms": 0,
+                "warnings": [],
+            }],
+            "provenance": {
+                "engine": request.engine,
+                "model_id": request.model_id,
+                "model_version": "0",
+                "api_version": "1",
+            },
+            "timing_ms": 0,
+            "resources": {"device": "cpu"},
+        }
+
 
 class IsolationTests(unittest.TestCase):
     def test_skeleton_does_not_import_pylaia_or_open_files(self):
-        text = (AI_DIR / "external_engines" / "pylaia" / "engine.py").read_text()
-        self.assertNotIn("import laia", text)
-        self.assertNotIn("import torch", text)
-        self.assertNotIn("LINE ", text)
-        tree = ast.parse(text)
+        package = AI_DIR / "external_engines" / "pylaia"
+        for path in sorted(package.glob("*.py")):
+            text = path.read_text()
+            tree = ast.parse(text)
+            modules = []
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    modules.extend(alias.name.split(".")[0] for alias in node.names)
+                elif isinstance(node, ast.ImportFrom) and node.module:
+                    modules.append(node.module.split(".")[0])
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                    self.assertNotIn(node.func.id, {"open", "socket"}, path.name)
+            self.assertFalse({"laia", "torch"} & set(modules), path.name)
+            self.assertNotIn("LINE ", text, path.name)
+        tree = ast.parse((package / "engine.py").read_text())
         modules = []
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 modules.extend(alias.name.split(".")[0] for alias in node.names)
             elif isinstance(node, ast.ImportFrom) and node.module:
                 modules.append(node.module.split(".")[0])
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-                self.assertNotIn(node.func.id, {"open", "socket"})
         self.assertEqual(set(modules), {"__future__", "json", "ai"})
 
     def test_stage1_and_startup_do_not_import_the_skeleton(self):

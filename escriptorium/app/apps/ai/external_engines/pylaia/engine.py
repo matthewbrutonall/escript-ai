@@ -1,13 +1,17 @@
-"""Skeleton PyLaia engine.
+"""Skeleton PyLaia routes.
 
-This speaks the external HTR routes and does not recognize text. PyLaia is
-not imported. There is no model list because no recognition backend is
-installed. A valid recognize call returns ``unavailable``.
+Routes call a backend object. The default backend does not recognize text.
+PyLaia is not imported.
 """
 from __future__ import annotations
 
 import json
 
+from ai.external_engines.pylaia.backend import (
+    ENGINE_NAME,
+    BackendFailure,
+    UnavailablePyLaiaBackend,
+)
 from ai.htr_engine_contract import (
     ERROR_HTTP_STATUS,
     PATH_CAPABILITIES,
@@ -17,31 +21,13 @@ from ai.htr_engine_contract import (
     check_preprocessing,
     parse_capabilities,
     parse_error,
+    parse_model,
     parse_model_list,
     parse_recognize_request,
+    parse_recognize_response,
 )
 
-ENGINE_NAME = "pylaia"
 _MAX_BODY = 1_048_576
-
-_CAPABILITIES = {
-    "api_version": "1",
-    "engine": ENGINE_NAME,
-    "tier": "research",
-    "tasks": ["recognize_lines"],
-    "accepts": ["image/png"],
-    "image_transport": ["base64"],
-    "max_lines_per_request": 32,
-    "preprocessing_supported": [],
-    "params_accepted": [],
-    "reports": ["timing_ms", "confidence", "warnings"],
-}
-
-_MODELS = {
-    "api_version": "1",
-    "engine": ENGINE_NAME,
-    "models": [],
-}
 
 _MESSAGES = {
     "invalid_request": "request was not valid",
@@ -54,11 +40,13 @@ _MESSAGES = {
 }
 
 
-def handle(method: str, path: str, body: bytes | None = None) -> tuple[int, dict]:
+def handle(method: str, path: str, body: bytes | None = None, backend=None) -> tuple[int, dict]:
     """Return ``(http_status, json_object)`` for one contract call.
 
-    This never returns recognized text.
+    ``backend`` defaults to ``UnavailablePyLaiaBackend``, which has no models
+    and does not return text.
     """
+    backend = UnavailablePyLaiaBackend() if backend is None else backend
     if not isinstance(method, str) or not isinstance(path, str):
         return _error("invalid_request")
     if "?" in path or "#" in path:
@@ -67,19 +55,20 @@ def handle(method: str, path: str, body: bytes | None = None) -> tuple[int, dict
     verb = method.upper()
     try:
         if verb == "GET" and route == PATH_CAPABILITIES:
-            return _ok(parse_capabilities, _CAPABILITIES)
+            return _payload(parse_capabilities, _call(backend.capabilities))
         if verb == "GET" and route == PATH_MODELS:
-            return _ok(parse_model_list, _MODELS)
+            return _payload(parse_model_list, _call(backend.list_models))
         if verb == "GET" and route.startswith(PATH_MODELS + "/"):
-            return _error("model_not_found")
+            model_id = route[len(PATH_MODELS) + 1:]
+            return _payload(parse_model, _call(backend.get_model, model_id))
         if verb == "POST" and route == PATH_RECOGNIZE:
-            return _recognize(body)
+            return _recognize(body, backend)
     except ContractError as exc:
         return _error(exc.code)
     return _error("invalid_request")
 
 
-def _recognize(body: bytes | None):
+def _recognize(body: bytes | None, backend):
     if body is None:
         body = b""
     if not isinstance(body, bytes) or len(body) > _MAX_BODY:
@@ -91,13 +80,42 @@ def _recognize(body: bytes | None):
     request = parse_recognize_request(payload)
     if request.engine != ENGINE_NAME:
         return _error("model_not_found")
-    check_preprocessing(request.preprocessing, parse_capabilities(_CAPABILITIES))
-    return _error("unavailable")
+    caps_payload = _call(backend.capabilities)
+    if not isinstance(caps_payload, dict):
+        return _error("internal")
+    caps = parse_capabilities(caps_payload)
+    check_preprocessing(request.preprocessing, caps)
+    outcome = _call(backend.recognize, request)
+    if isinstance(outcome, BackendFailure):
+        return _error(_safe_code(outcome.code))
+    if not isinstance(outcome, dict):
+        return _error("internal")
+    parse_recognize_response(outcome, request)
+    return 200, outcome
 
 
-def _ok(parser, payload: dict) -> tuple[int, dict]:
-    parser(payload)
-    return 200, payload
+def _call(method, *args):
+    try:
+        return method(*args)
+    except ContractError:
+        raise
+    except Exception:
+        return BackendFailure("internal")
+
+
+def _payload(parser, outcome) -> tuple[int, dict]:
+    if isinstance(outcome, BackendFailure):
+        return _error(_safe_code(outcome.code))
+    if not isinstance(outcome, dict):
+        return _error("internal")
+    parser(outcome)
+    return 200, outcome
+
+
+def _safe_code(code: str) -> str:
+    if code in _MESSAGES:
+        return code
+    return "internal"
 
 
 def _error(code: str) -> tuple[int, dict]:
