@@ -281,6 +281,12 @@ class IsolationTests(unittest.TestCase):
                     modules.append(node.module.split(".")[0])
                 if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
                     self.assertNotIn(node.func.id, {"open", "socket"}, path.name)
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "open"
+                ):
+                    self.assertEqual(path.name, "decoder.py", path.name)
             self.assertFalse({"laia", "torch"} & set(modules), path.name)
             self.assertNotIn("LINE ", text, path.name)
         tree = ast.parse((package / "engine.py").read_text())
@@ -347,6 +353,7 @@ class IsolationTests(unittest.TestCase):
             "COPY external_engines/pylaia/backend.py /opt/engine/ai/external_engines/pylaia/backend.py",
             "COPY external_engines/pylaia/engine.py /opt/engine/ai/external_engines/pylaia/engine.py",
             "COPY external_engines/pylaia/server.py /opt/engine/ai/external_engines/pylaia/server.py",
+            "COPY external_engines/pylaia/decoder.py /opt/engine/ai/external_engines/pylaia/decoder.py",
         ):
             self.assertIn(snippet, dockerfile, snippet)
         self.assertNotIn("COPY ai/", dockerfile)

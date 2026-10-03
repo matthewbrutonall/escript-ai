@@ -16,7 +16,7 @@ The PyPI package is `pylaia`. The import name is `laia`. Current `pylaia` 1.1.2 
 
 PyLaia has no HTTP API. The decode entrypoint is `pylaia-htr-decode-ctc`. It reads image files plus `img_list.txt`, `syms.txt`, a model architecture pickle, and a checkpoint (`*.ckpt`). Hugging Face bundles such as `Teklia/pylaia-huginmunin` contain `model`, `weights.ckpt`, and `syms.txt`. CPU decode uses `--trainer.gpus 0`. Line-image height and colour must match the trained model. Known bundles are often 128 pixels high.
 
-A future adapter would write temporary line images and invoke or hold a decoder process. That adapter is not implemented.
+`decoder.py` is the scaffold for that step. It can check the model directory, write temporary PNG line images and `img_list.txt`, and build the argument list for `pylaia-htr-decode-ctc`. It does not call that program. The HTTP server does not import it.
 
 ## Planned container
 
@@ -24,7 +24,7 @@ This is the planned shape of a separate engine container. Compose does not start
 
 The container uses Python 3.10 and installs `pylaia==1.1.2`. That keeps the torch 1.13 / Lightning 1.4 stack isolated from the Escript AI app image.
 
-The container entrypoint is an HTTP wrapper process. The wrapper receives contract JSON over HTTP, writes temporary line images into an internal workdir, and later calls PyLaia decode from inside the container. That decode call is not implemented.
+The container entrypoint is an HTTP wrapper process. The wrapper receives contract JSON over HTTP. The intended decode flow is: contract request, temporary PNG line images, `img_list.txt`, `pylaia-htr-decode-ctc`, stdout, then a contract response. `decoder.py` can prepare the images, the list, and the argument list. The server still returns `unavailable` and does not call the program.
 
 The model directory is mounted read-only. It should contain at minimum `model`, `weights.ckpt` or an equivalent checkpoint, and `syms.txt`. Optional language-model files may be supported later. They are not required for the first pass.
 
