@@ -38,6 +38,7 @@ Design: `../../../../ARCHITECTURE.md`. Tests and contribution rules:
 | `docs/htr-engine-contract.md` | Wrapper-facing examples for that contract. Not a running service |
 | `reference_engine/` | In-process fake engine for contract tests. Returns `LINE {line_id}`. Not a recognizer and not used by transcription jobs |
 | `htr_engine_contract_check.py` | Operator check: capabilities, models, one model, one synthetic recognize. Not used by transcription jobs |
+| `management/commands/check_external_htr_engine.py` | CLI for that check: `check_external_htr_engine <config_id>`. Not used by transcription jobs |
 
 ## Tests (no Django, no network, no API)
 
