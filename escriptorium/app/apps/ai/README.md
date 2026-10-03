@@ -36,6 +36,7 @@ Design: `../../../../ARCHITECTURE.md`. Tests and contribution rules:
 | `htr_engine_contract.py` | External HTR engine contract, v1. Not imported by existing transcription jobs, views, or adapters |
 | `htr_engine_client.py` | GET capabilities and models, plus `recognize_lines` (`POST /v1/recognize`). Not imported by transcription jobs |
 | `docs/htr-engine-contract.md` | Wrapper-facing examples for that contract. Not a running service |
+| `reference_engine/` | In-process fake engine for contract tests. Returns `LINE {line_id}`. Not a recognizer and not used by transcription jobs |
 
 ## Tests (no Django, no network, no API)
 
