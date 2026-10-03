@@ -38,6 +38,7 @@ These tests **must not** touch the network or a provider API. They use
 | Reference HTR engine (fake contract test double, loopback server only, not a recognizer) | `escriptorium/app/apps/ai/reference_engine/` |
 | External HTR contract check (not used by transcription jobs) | `escriptorium/app/apps/ai/htr_engine_contract_check.py` |
 | External HTR contract check command (not used by transcription jobs) | `escriptorium/app/apps/ai/management/commands/check_external_htr_engine.py` |
+| PyLaia wrapper skeleton (no PyLaia dependency, not a recognizer) | `escriptorium/app/apps/ai/external_engines/pylaia/` |
 | Design | `ARCHITECTURE.md` |
 
 Do not inject AI into `DocumentPart.transcribe()` (that path is kraken). Do not
