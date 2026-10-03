@@ -6,7 +6,7 @@ This is the external-engine shape for a future PyLaia service. It is not a recog
 
 `tier` is `research`. `GET /v1/models` returns an empty list because no recognition backend is installed. `GET /v1/models/{model_id}` returns `model_not_found`. A valid `POST /v1/recognize` returns `unavailable` with the fixed message "recognition backend is not installed". It does not return text. An invalid request returns a contract error and does not echo the image or the line text.
 
-`python -m ai.external_engines.pylaia.server` serves that handler on `127.0.0.1` port `8766` for local checks. It refuses any non-loopback host. Docker and transcription do not start it.
+`python -m ai.external_engines.pylaia.server` serves that handler on `127.0.0.1` port `8766` for local checks. It refuses any non-loopback host unless `--allow-container-bind` is set, and that flag allows only `0.0.0.0`. Compose and transcription do not start it.
 
 ## Runtime
 
@@ -42,4 +42,4 @@ docker build -f external_engines/pylaia/Dockerfile -t escript-ai-pylaia-skeleton
 
 The image uses Python 3.10 and installs `pylaia==1.1.2`. It copies only the contract module and this skeleton package. It does not copy model files. A read-only model mount is future work, and the image does not read one yet.
 
-The default command is `python -m ai.external_engines.pylaia.server --host 127.0.0.1 --port 8766`. The server still refuses any non-loopback host, so the process binds loopback inside the container. Publishing the container port does not reach it. The image is not reachable as a service yet. This prototype does not add a container bind mode.
+The prototype image command is `python -m ai.external_engines.pylaia.server --host 0.0.0.0 --port 8766 --allow-container-bind`. That exposes the fake skeleton on the Docker network only when the container is run. The unflagged default remains `127.0.0.1`. The flag allows only `0.0.0.0`. It is still not a recognizer, and Compose does not start it.

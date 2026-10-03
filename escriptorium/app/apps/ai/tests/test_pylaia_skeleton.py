@@ -7,7 +7,7 @@ from unittest import mock
 
 from ai.external_engines.pylaia import ENGINE_NAME, UnavailablePyLaiaBackend, handle
 from ai.external_engines.pylaia.backend import BackendFailure
-from ai.external_engines.pylaia.server import respond, serve
+from ai.external_engines.pylaia.server import main, respond, serve
 from ai.htr_engine_contract import (
     parse_capabilities,
     parse_error,
@@ -163,12 +163,39 @@ class SkeletonTests(unittest.TestCase):
         self.assertNotIn(image, encoded)
         self.assertNotIn(SECRET_TEXT, encoded)
 
+    def test_default_serve_binds_loopback(self):
+        with mock.patch("ai.external_engines.pylaia.server.HTTPServer") as server:
+            serve()
+        self.assertEqual(server.call_args.args[0], ("127.0.0.1", 8766))
+
     def test_non_loopback_host_is_refused_before_bind(self):
         with mock.patch("ai.external_engines.pylaia.server.HTTPServer") as server:
             with self.assertRaises(ValueError) as caught:
                 serve("0.0.0.0", 8766)
             server.assert_not_called()
         self.assertNotIn("0.0.0.0", str(caught.exception))
+
+    def test_container_bind_accepts_only_all_interfaces(self):
+        with mock.patch("ai.external_engines.pylaia.server.HTTPServer") as server:
+            serve("0.0.0.0", 8766, allow_container_bind=True)
+        self.assertEqual(server.call_args.args[0], ("0.0.0.0", 8766))
+        with mock.patch("ai.external_engines.pylaia.server.HTTPServer") as server:
+            with self.assertRaises(ValueError) as caught:
+                serve("10.1.2.3", 8766, allow_container_bind=True)
+            server.assert_not_called()
+        self.assertNotIn("10.1.2.3", str(caught.exception))
+        with mock.patch("ai.external_engines.pylaia.server.HTTPServer") as server:
+            with self.assertRaises(ValueError):
+                serve("::", 8766, allow_container_bind=True)
+            server.assert_not_called()
+
+    def test_cli_container_bind_flag_is_explicit(self):
+        with mock.patch("ai.external_engines.pylaia.server.serve") as serve_mock:
+            self.assertEqual(main([]), 0)
+        serve_mock.assert_called_once_with("127.0.0.1", 8766, allow_container_bind=False)
+        with mock.patch("ai.external_engines.pylaia.server.serve") as serve_mock:
+            self.assertEqual(main(["--host", "0.0.0.0", "--allow-container-bind"]), 0)
+        serve_mock.assert_called_once_with("0.0.0.0", 8766, allow_container_bind=True)
 
     def test_serve_keeps_an_injected_backend_without_binding(self):
         backend = _DemoBackend()
@@ -298,9 +325,10 @@ class IsolationTests(unittest.TestCase):
         readme = (AI_DIR / "external_engines" / "pylaia" / "README.md").read_text()
         self.assertIn("FROM python:3.10", dockerfile)
         self.assertIn("pylaia==1.1.2", dockerfile)
-        self.assertIn("--host", dockerfile)
-        self.assertIn("127.0.0.1", dockerfile)
-        self.assertNotIn("0.0.0.0", dockerfile)
+        self.assertIn(
+            'CMD ["python", "-m", "ai.external_engines.pylaia.server", "--host", "0.0.0.0", "--port", "8766", "--allow-container-bind"]',
+            dockerfile,
+        )
         self.assertNotIn("COPY .", dockerfile)
         for banned in ("weights.ckpt", "syms.txt", ".env", "API_KEY", "PASSWORD", "SECRET"):
             self.assertNotIn(banned, dockerfile, banned)
@@ -319,8 +347,10 @@ class IsolationTests(unittest.TestCase):
         self.assertIn("is not built by default", readme)
         self.assertIn("Compose does not reference it", readme)
         self.assertIn("read-only model mount is future work", readme)
-        self.assertIn("does not add a container bind mode", readme)
-        self.assertIn("not reachable as a service yet", readme)
+        self.assertIn("--allow-container-bind", readme)
+        self.assertIn("Docker network only when the container is run", readme)
+        self.assertIn("still not a recognizer", readme)
+        self.assertNotIn("not reachable as a service yet", readme)
 
 
 if __name__ == "__main__":
