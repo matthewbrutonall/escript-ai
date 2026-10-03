@@ -40,6 +40,6 @@ The intended later build context is `escriptorium/app/apps/ai`:
 docker build -f external_engines/pylaia/Dockerfile -t escript-ai-pylaia-skeleton .
 ```
 
-The image uses Python 3.10 and installs `pylaia==1.1.2`. It copies only the contract module and this skeleton package. It does not copy model files. A read-only model mount is future work, and the image does not read one yet.
+The image uses Python 3.10 and installs `pylaia==1.1.2`. It also installs `git`, because importing `laia` probes `git` and raises `TypeError` when `git` is absent. The skeleton server still does not import `laia`. It copies only the contract module and this skeleton package. It does not copy model files. A read-only model mount is future work, and the image does not read one yet.
 
 The prototype image command is `python -m ai.external_engines.pylaia.server --host 0.0.0.0 --port 8766 --allow-container-bind`. That exposes the fake skeleton on the Docker network only when the container is run. The unflagged default remains `127.0.0.1`. The flag allows only `0.0.0.0`. It is still not a recognizer, and Compose does not start it.

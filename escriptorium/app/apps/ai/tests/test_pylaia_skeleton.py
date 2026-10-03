@@ -326,6 +326,12 @@ class IsolationTests(unittest.TestCase):
         self.assertIn("FROM python:3.10", dockerfile)
         self.assertIn("pylaia==1.1.2", dockerfile)
         self.assertIn(
+            "apt-get install -y --no-install-recommends git",
+            dockerfile,
+        )
+        self.assertIn("installs `git`", readme)
+        self.assertIn("still does not import `laia`", readme)
+        self.assertIn(
             'CMD ["python", "-m", "ai.external_engines.pylaia.server", "--host", "0.0.0.0", "--port", "8766", "--allow-container-bind"]',
             dockerfile,
         )

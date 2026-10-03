@@ -13,6 +13,10 @@
 #
 # Model files are not copied. A read-only model mount is future work.
 # This image does not read one. No API keys or secrets are copied in.
+#
+# laia/__init__.py runs git during import. which("git") is None on this
+# base image, and that raises TypeError. git lets the probe fail softly.
+# The skeleton server still does not import laia.
 
 FROM python:3.10-slim
 
@@ -22,6 +26,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/opt/engine
 
 WORKDIR /opt/engine
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir "pylaia==1.1.2"
 
