@@ -5,10 +5,11 @@
 # Intended later build, from escriptorium/app/apps/ai:
 #   docker build -f external_engines/pylaia/Dockerfile -t escript-ai-pylaia-skeleton .
 #
-# The server refuses any host outside loopback. This image does not add a
-# container bind mode, so the process listens on 127.0.0.1 inside the
-# container. Publishing the container port does not reach it.
-# The image is not reachable as a service yet.
+# Without --allow-container-bind the server stays on 127.0.0.1.
+# The command below opts in. It listens on 0.0.0.0 inside the container,
+# so a deliberately started container is reachable on the Docker network.
+# The flag allows only 0.0.0.0. Compose does not start this image.
+# It is still not a recognizer.
 #
 # Model files are not copied. A read-only model mount is future work.
 # This image does not read one. No API keys or secrets are copied in.
@@ -32,4 +33,4 @@ COPY external_engines/pylaia/backend.py /opt/engine/ai/external_engines/pylaia/b
 COPY external_engines/pylaia/engine.py /opt/engine/ai/external_engines/pylaia/engine.py
 COPY external_engines/pylaia/server.py /opt/engine/ai/external_engines/pylaia/server.py
 
-CMD ["python", "-m", "ai.external_engines.pylaia.server", "--host", "127.0.0.1", "--port", "8766"]
+CMD ["python", "-m", "ai.external_engines.pylaia.server", "--host", "0.0.0.0", "--port", "8766", "--allow-container-bind"]

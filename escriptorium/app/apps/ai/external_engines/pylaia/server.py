@@ -1,9 +1,9 @@
-"""Loopback HTTP wrapper for the PyLaia skeleton.
+"""HTTP wrapper for the PyLaia skeleton.
 
-Run it with ``python -m ai.external_engines.pylaia.server``. It serves the
-skeleton handler on 127.0.0.1 for local contract checks. It is not a
-recognizer, not for production, and not started by Docker or by
-transcription. It refuses to bind to any host outside the loopback range.
+Run it with ``python -m ai.external_engines.pylaia.server``. The default
+bind is 127.0.0.1 for local contract checks. ``--allow-container-bind``
+allows only ``0.0.0.0``. It is not a recognizer, not for production, and
+not started by Compose or by transcription.
 """
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from ai.external_engines.pylaia.engine import _MAX_BODY, handle
 
 CONTENT_TYPE = "application/json; charset=utf-8"
 _DEFAULT_HOST = "127.0.0.1"
+_CONTAINER_HOST = "0.0.0.0"
 _DEFAULT_PORT = 8766
 _INTERNAL = {
     "api_version": "1",
@@ -42,9 +43,14 @@ def respond(method, path, body: bytes | None = None, backend=None) -> tuple[int,
     return status, raw
 
 
-def serve(host: str = _DEFAULT_HOST, port: int = _DEFAULT_PORT, backend=None) -> None:
-    """Bind the skeleton. Raises before listening if the host is not loopback."""
-    if not _loopback(host) or isinstance(port, bool) or not isinstance(port, int) or not 0 < port < 65536:
+def serve(
+    host: str = _DEFAULT_HOST,
+    port: int = _DEFAULT_PORT,
+    backend=None,
+    allow_container_bind: bool = False,
+) -> None:
+    """Bind the skeleton. Raises before listening if the host is not allowed."""
+    if not _allowed_host(host, allow_container_bind) or isinstance(port, bool) or not isinstance(port, int) or not 0 < port < 65536:
         raise ValueError("pylaia skeleton binds to loopback only")
     server = HTTPServer((host, port), _handler(backend))
     try:
@@ -59,9 +65,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--host", default=_DEFAULT_HOST)
     parser.add_argument("--port", type=int, default=_DEFAULT_PORT)
+    parser.add_argument(
+        "--allow-container-bind",
+        action="store_true",
+        help="Allow host 0.0.0.0. Other non-loopback hosts stay refused.",
+    )
     args = parser.parse_args(argv)
     try:
-        serve(args.host, args.port)
+        serve(args.host, args.port, allow_container_bind=args.allow_container_bind)
     except ValueError as exc:
         print(exc, file=sys.stderr)
         return 2
@@ -124,6 +135,12 @@ def _content_length(value):
     if not isinstance(value, str) or not value.isdigit():
         return None
     return int(value)
+
+
+def _allowed_host(host, allow_container_bind) -> bool:
+    if _loopback(host):
+        return True
+    return allow_container_bind is True and host == _CONTAINER_HOST
 
 
 def _loopback(host) -> bool:
