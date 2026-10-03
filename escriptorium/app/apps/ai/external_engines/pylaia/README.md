@@ -17,3 +17,17 @@ The PyPI package is `pylaia`. The import name is `laia`. Current `pylaia` 1.1.2 
 PyLaia has no HTTP API. The decode entrypoint is `pylaia-htr-decode-ctc`. It reads image files plus `img_list.txt`, `syms.txt`, a model architecture pickle, and a checkpoint (`*.ckpt`). Hugging Face bundles such as `Teklia/pylaia-huginmunin` contain `model`, `weights.ckpt`, and `syms.txt`. CPU decode uses `--trainer.gpus 0`. Line-image height and colour must match the trained model. Known bundles are often 128 pixels high.
 
 A future adapter would write temporary line images and invoke or hold a decoder process. That adapter is not implemented.
+
+## Planned container
+
+This is the planned shape of a separate engine container. This repository does not add a Dockerfile or Compose file, and it does not install PyLaia.
+
+The container uses Python 3.10 and installs `pylaia==1.1.2`. That keeps the torch 1.13 / Lightning 1.4 stack isolated from the Escript AI app image.
+
+The container entrypoint is an HTTP wrapper process. The wrapper receives contract JSON over HTTP, writes temporary line images into an internal workdir, and later calls PyLaia decode from inside the container. That decode call is not implemented.
+
+The model directory is mounted read-only. It should contain at minimum `model`, `weights.ckpt` or an equivalent checkpoint, and `syms.txt`. Optional language-model files may be supported later. They are not required for the first pass.
+
+The first mode is CPU decode with `--trainer.gpus 0`. GPU mode can be added after the CPU wrapper works.
+
+No API keys or secrets belong in this container. Model metadata and licence belong in Escript AI configuration or documentation.
