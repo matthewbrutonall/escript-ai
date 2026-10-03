@@ -141,3 +141,43 @@ def _fail(step: str, code: str) -> ContractCheckResult:
     else:
         message = _STEP_FAILED[step]
     return ContractCheckResult(False, step, code, message)
+
+
+class EngineConfigNotFound(Exception):
+    """The requested stored engine row does not exist."""
+
+
+def execute_contract_check(config_id, fetch_config, check) -> tuple[int, str]:
+    """Look up one config, run ``check``, and return an exit code and one line.
+
+    ``fetch_config`` raises ``EngineConfigNotFound`` when the row is missing.
+    The line uses the config name and the result fields only.
+    """
+    try:
+        config = fetch_config(config_id)
+    except EngineConfigNotFound:
+        return 1, "FAILED: engine was not found"
+    result = check(config)
+    name = _config_label(config)
+    step = _piece(getattr(result, "step", None), "internal")
+    if getattr(result, "ok", False) is True:
+        return 0, f"OK: {name} ({step})"
+    code = _piece(getattr(result, "code", None), "internal")
+    message = _piece(getattr(result, "message", None), "contract check failed")
+    return 1, f"FAILED: {name} ({step}: {code}) {message}"
+
+
+def _config_label(config) -> str:
+    name = getattr(config, "name", None)
+    if isinstance(name, str):
+        label = " ".join(name.split())
+        if label:
+            return label
+    return "engine"
+
+
+def _piece(value, fallback: str) -> str:
+    if not isinstance(value, str):
+        return fallback
+    text = " ".join(value.split())
+    return text or fallback
