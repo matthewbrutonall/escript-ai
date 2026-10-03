@@ -34,7 +34,7 @@ Design: `../../../../ARCHITECTURE.md`. Tests and contribution rules:
 | `tasks.py` | Celery `ai_transcribe` |
 | `serializers.py` / `views.py` | DRF: transcribe, `GET /api/ai-backends/`, document `ai-gates` |
 | `htr_engine_contract.py` | External HTR engine contract, v1. Not imported by existing transcription jobs, views, or adapters |
-| `htr_engine_client.py` | Read-only GET client for capabilities and models. Used by the admin test-connection action, not by transcription jobs |
+| `htr_engine_client.py` | GET capabilities and models, plus `recognize_lines` (`POST /v1/recognize`). Not imported by transcription jobs |
 | `docs/htr-engine-contract.md` | Wrapper-facing examples for that contract. Not a running service |
 
 ## Tests (no Django, no network, no API)

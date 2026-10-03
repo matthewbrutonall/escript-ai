@@ -9,12 +9,14 @@ from unittest import mock
 
 from ai.htr_engine_client import (
     EngineClientError,
+    _MAX_BODY,
     _NoRedirect,
     _request,
     fetch_capabilities,
     fetch_model,
     fetch_models,
     join_engine_url,
+    recognize_lines,
 )
 from ai.htr_engine_contract import PATH_CAPABILITIES, PATH_MODEL, PATH_MODELS, ContractError
 
@@ -196,10 +198,129 @@ class RequestTests(unittest.TestCase):
         self.assertEqual(body, b"{}")
 
 
+RECOGNIZE_REQUEST = {
+    "api_version": "1",
+    "job_id": "job-1",
+    "document_id": "123",
+    "part_id": "456",
+    "engine": "example",
+    "model_id": "example-model",
+    "preprocessing": {"line_height": 64},
+    "lines": [{"line_id": "1", "image": "AAAA"}],
+}
+
+RECOGNIZE_RESPONSE = {
+    "api_version": "1",
+    "job_id": "job-1",
+    "engine": "example",
+    "model_id": "example-model",
+    "model_version": "1",
+    "results": [{
+        "line_id": "1",
+        "text": "hello",
+        "confidence": None,
+        "timing_ms": 0,
+        "warnings": [],
+    }],
+    "provenance": {
+        "engine": "example",
+        "model_id": "example-model",
+        "model_version": "1",
+        "api_version": "1",
+    },
+    "timing_ms": 1,
+    "resources": {},
+}
+
+
+class RecognizeTests(unittest.TestCase):
+    def test_success_posts_the_contract_path(self):
+        with mock.patch(
+            "ai.htr_engine_client._request",
+            return_value=(200, _body(RECOGNIZE_RESPONSE)),
+        ) as request, mock.patch(
+            "ai.htr_engine_client.urllib.request.build_opener",
+            side_effect=AssertionError("socket opened"),
+        ):
+            parsed = recognize_lines(Config(), RECOGNIZE_REQUEST)
+        self.assertEqual(parsed.results[0].text, "hello")
+        url, timeout = request.call_args.args
+        self.assertEqual(request.call_args.kwargs["method"], "POST")
+        self.assertTrue(url.endswith("/v1/recognize"))
+        self.assertEqual(timeout, 12)
+        self.assertIn(b"AAAA", request.call_args.kwargs["data"])
+
+    def test_disabled_config_is_rejected_before_the_request(self):
+        with mock.patch("ai.htr_engine_client._request") as request:
+            with self.assertRaises(EngineClientError) as caught:
+                recognize_lines(Config(enabled=False), RECOGNIZE_REQUEST)
+        self.assertEqual(caught.exception.code, "disabled")
+        self.assertNotIn("AAAA", str(caught.exception))
+        self.assertNotIn("secret.example", str(caught.exception))
+        request.assert_not_called()
+
+    def test_bad_json_does_not_include_the_body(self):
+        with mock.patch("ai.htr_engine_client._request", return_value=(200, b"{AAAA")):
+            with self.assertRaises(EngineClientError) as caught:
+                recognize_lines(Config(), RECOGNIZE_REQUEST)
+        self.assertEqual(caught.exception.code, "invalid_response")
+        self.assertNotIn("AAAA", str(caught.exception))
+
+    def test_contract_error_hides_the_engine_message(self):
+        payload = {
+            "api_version": "1",
+            "error": {
+                "code": "line_failed",
+                "message": "failed AAAA http://secret.example/token",
+                "retryable": False,
+                "line_id": "1",
+            },
+        }
+        with mock.patch("ai.htr_engine_client._request", return_value=(422, _body(payload))):
+            with self.assertRaises(ContractError) as caught:
+                recognize_lines(Config(), RECOGNIZE_REQUEST)
+        self.assertEqual(caught.exception.code, "line_failed")
+        self.assertEqual(str(caught.exception), "engine rejected the recognition request")
+        self.assertNotIn("AAAA", str(caught.exception))
+        self.assertNotIn("secret.example", str(caught.exception))
+
+    def test_http_error_hides_the_body(self):
+        with mock.patch("ai.htr_engine_client._request", return_value=(500, b"AAAA secret.example")):
+            with self.assertRaises(EngineClientError) as caught:
+                recognize_lines(Config(), RECOGNIZE_REQUEST)
+        self.assertEqual(caught.exception.code, "http_error")
+        self.assertEqual(caught.exception.status, 500)
+        self.assertNotIn("AAAA", str(caught.exception))
+        self.assertNotIn("secret.example", str(caught.exception))
+
+    def test_oversized_response_is_rejected(self):
+        with mock.patch(
+            "ai.htr_engine_client._request",
+            return_value=(200, b"x" * (_MAX_BODY + 1)),
+        ):
+            with self.assertRaises(EngineClientError) as caught:
+                recognize_lines(Config(), RECOGNIZE_REQUEST)
+        self.assertEqual(caught.exception.code, "invalid_response")
+        self.assertEqual(str(caught.exception), "engine response is too large")
+
+    def test_oversized_request_is_rejected_before_http(self):
+        payload = dict(RECOGNIZE_REQUEST)
+        payload["lines"] = [{"line_id": "1", "image": "A" * 80}]
+        with mock.patch("ai.htr_engine_client._MAX_REQUEST", 64), mock.patch(
+            "ai.htr_engine_client._request",
+        ) as request:
+            with self.assertRaises(EngineClientError) as caught:
+                recognize_lines(Config(), payload)
+        self.assertEqual(caught.exception.code, "invalid_request")
+        self.assertEqual(str(caught.exception), "recognition request is too large")
+        self.assertNotIn("AAAA", str(caught.exception))
+        request.assert_not_called()
+
+
 class IsolationTests(unittest.TestCase):
-    def test_client_does_not_read_metadata_or_call_recognition(self):
+    def test_client_does_not_read_metadata(self):
         text = (AI_DIR / "htr_engine_client.py").read_text()
-        self.assertNotIn("recognize", text)
+        self.assertNotIn("logging", text)
         tree = ast.parse(text)
         for node in ast.walk(tree):
             if isinstance(node, ast.Attribute):
@@ -226,7 +347,9 @@ class IsolationTests(unittest.TestCase):
             APPS_DIR / "api" / "urls.py",
         ]
         for path in paths:
-            self.assertNotIn("htr_engine_client", path.read_text(), path)
+            text = path.read_text()
+            self.assertNotIn("htr_engine_client", text, path)
+            self.assertNotIn("recognize_lines", text, path)
 
 
 if __name__ == "__main__":

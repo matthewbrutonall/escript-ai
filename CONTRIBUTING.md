@@ -34,7 +34,7 @@ These tests **must not** touch the network or a provider API. They use
 | Celery task | `escriptorium/app/apps/ai/tasks.py` |
 | DRF serializer / list of backends | `escriptorium/app/apps/ai/serializers.py`, `views.py` |
 | External HTR engine contract (not wired to jobs or UI) | `escriptorium/app/apps/ai/htr_engine_contract.py`, `escriptorium/app/apps/ai/docs/htr-engine-contract.md` |
-| External HTR engine client (admin test-connection only, not transcription jobs) | `escriptorium/app/apps/ai/htr_engine_client.py`, `escriptorium/app/apps/ai/admin.py` |
+| External HTR engine client (not used by transcription jobs) | `escriptorium/app/apps/ai/htr_engine_client.py`, `escriptorium/app/apps/ai/admin.py` |
 | Design | `ARCHITECTURE.md` |
 
 Do not inject AI into `DocumentPart.transcribe()` (that path is kraken). Do not

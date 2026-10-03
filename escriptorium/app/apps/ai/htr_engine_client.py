@@ -1,7 +1,7 @@
-"""Read-only client for an external HTR engine.
+"""Client for an external HTR engine.
 
-Calls the capabilities and model routes. Transcription jobs do not import
-this module. The recognition route is not called.
+Calls the capabilities, model, and recognition routes. Transcription jobs
+do not import this module. Nothing here retries a request.
 """
 from __future__ import annotations
 
@@ -14,14 +14,19 @@ from ai.htr_engine_contract import (
     PATH_CAPABILITIES,
     PATH_MODEL,
     PATH_MODELS,
+    PATH_RECOGNIZE,
     ContractError,
     parse_capabilities,
     parse_error,
     parse_model,
     parse_model_list,
+    parse_recognize_request,
+    parse_recognize_response,
 )
 
 _MAX_BODY = 1_048_576
+# Line images travel in the request. The response is text and stays at _MAX_BODY.
+_MAX_REQUEST = 32 * 1024 * 1024
 
 
 class EngineClientError(Exception):
@@ -119,6 +124,41 @@ def _probe_label(config) -> str:
     return "engine"
 
 
+def recognize_lines(config, payload):
+    """POST one recognition request and return the parsed response.
+
+    A disabled config is rejected before the body is encoded or sent.
+    Error text does not include the image, the endpoint, or the response body.
+    """
+    _ensure_enabled(config)
+    parsed_request = parse_recognize_request(payload)
+    body = _encode_request(payload)
+    url = join_engine_url(_endpoint(config), PATH_RECOGNIZE)
+    status, raw = _request(url, _timeout(config), method="POST", data=body)
+    if len(raw) > _MAX_BODY:
+        raise EngineClientError("invalid_response", "engine response is too large")
+    if status != 200:
+        parsed = _error_payload(raw)
+        if parsed is not None:
+            raise ContractError(
+                parsed.code,
+                "engine rejected the recognition request",
+                line_id=parsed.line_id,
+            )
+        raise EngineClientError("http_error", f"engine returned HTTP {status}", status=status)
+    return parse_recognize_response(_json_body(raw), parsed_request)
+
+
+def _encode_request(payload) -> bytes:
+    try:
+        body = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    except (TypeError, ValueError):
+        raise EngineClientError("invalid_request", "recognition request could not be encoded") from None
+    if len(body) > _MAX_REQUEST:
+        raise EngineClientError("invalid_request", "recognition request is too large")
+    return body
+
+
 def fetch_capabilities(config):
     return parse_capabilities(_get_json(config, PATH_CAPABILITIES))
 
@@ -193,8 +233,11 @@ def _error_payload(body: bytes):
         return None
 
 
-def _request(url: str, timeout: int) -> tuple[int, bytes]:
-    request = urllib.request.Request(url, method="GET", headers={"Accept": "application/json"})
+def _request(url: str, timeout: int, *, method: str = "GET", data: bytes | None = None) -> tuple[int, bytes]:
+    headers = {"Accept": "application/json"}
+    if data is not None:
+        headers["Content-Type"] = "application/json"
+    request = urllib.request.Request(url, data=data, method=method, headers=headers)
     opener = urllib.request.build_opener(
         urllib.request.ProxyHandler({}),
         _NoRedirect(),
