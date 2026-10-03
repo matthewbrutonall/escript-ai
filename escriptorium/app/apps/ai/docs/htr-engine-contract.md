@@ -4,6 +4,8 @@ This is the HTTP contract for a process that recognises line images.
 Escript AI does not serve these routes, does not call them, and does not
 ship an engine container. A wrapper, for example a small FastAPI service
 in front of PyLaia or TrOCR, owns the process and the dependencies.
+PyLaia support is currently a skeleton because its runtime belongs in a
+separate engine container.
 
 The shapes are checked by `../htr_engine_contract.py`. That module is
 standard-library code. Current transcription jobs do not import it.
