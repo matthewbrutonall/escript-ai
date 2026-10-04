@@ -1,11 +1,15 @@
-"""Scaffold for the PyLaia decode layout. No PyLaia process and no model load."""
+"""PyLaia decode layout and mocked process runner. No real PyLaia decode."""
 import json
+import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from ai.external_engines.pylaia.decoder import (
     DecodeLayoutError,
+    DecodeRunError,
     DecodeRunner,
     LineImage,
     PreparedDecode,
@@ -39,8 +43,8 @@ def _model_dir(root: Path, checkpoint: str = "weights.ckpt") -> Path:
 class DecodeAdapterTests(unittest.TestCase):
     def test_command_is_an_argument_list_without_a_shell(self):
         source = DECODER.read_text()
-        self.assertNotIn("subprocess", source)
         self.assertNotIn("shell=True", source)
+        self.assertIn("shell=False", source)
         self.assertNotIn("import laia", source)
         self.assertNotIn("import torch", source)
         with tempfile.TemporaryDirectory() as tmp:
@@ -243,11 +247,14 @@ class DecodeAdapterTests(unittest.TestCase):
             self.assertNotIn(SECRET, str(caught.exception))
 
     def test_runner_and_server_do_not_decode(self):
-        with self.assertRaises(DecodeLayoutError) as caught:
-            DecodeRunner().run(
-                PreparedDecode("m", ("pylaia-htr-decode-ctc",), ("0001",), ("7",))
-            )
-        self.assertEqual(caught.exception.code, "not_implemented")
+        with mock.patch("ai.external_engines.pylaia.decoder.subprocess.run") as run:
+            with self.assertRaises(DecodeRunError) as caught:
+                DecodeRunner().run(
+                    PreparedDecode("m", ("pylaia-htr-decode-ctc",), ("0001",), ("7",))
+                )
+            run.assert_not_called()
+        self.assertEqual(caught.exception.code, "output")
+        self.assertNotIn("pylaia-htr-decode-ctc", str(caught.exception))
         for name in ("__init__.py", "engine.py", "server.py", "backend.py"):
             text = (AI_DIR / "external_engines" / "pylaia" / name).read_text()
             self.assertNotIn("decoder", text, name)
@@ -274,6 +281,162 @@ class DecodeAdapterTests(unittest.TestCase):
         self.assertEqual(parsed.message, "recognition backend is not installed")
         self.assertNotIn("results", body)
         self.assertNotIn("text", json.dumps(body))
+
+
+def _prepared(work_dir: Path) -> PreparedDecode:
+    return PreparedDecode(
+        model_id="model-1",
+        command=(
+            "pylaia-htr-decode-ctc",
+            "--trainer.gpus",
+            "0",
+            "--decode.include_img_ids",
+            "true",
+            "--img_dirs",
+            json.dumps([str(work_dir)]),
+        ),
+        image_ids=("0001", "0002"),
+        line_ids=("line-a", "line-b"),
+    )
+
+
+class DecodeRunnerTests(unittest.TestCase):
+    def test_subprocess_uses_an_argument_list_and_no_shell(self):
+        secret = "secret-parent-env"
+        previous = os.environ.get("PYLAIA_SECRET")
+        os.environ["PYLAIA_SECRET"] = secret
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                work_dir = Path(tmp)
+                prepared = _prepared(work_dir)
+                completed = subprocess.CompletedProcess(
+                    list(prepared.command),
+                    0,
+                    stdout="0001.png first line\n0002.png second line\n",
+                    stderr="",
+                )
+                with mock.patch(
+                    "ai.external_engines.pylaia.decoder.subprocess.run",
+                    return_value=completed,
+                ) as run:
+                    result = DecodeRunner().run(prepared)
+        finally:
+            if previous is None:
+                os.environ.pop("PYLAIA_SECRET", None)
+            else:
+                os.environ["PYLAIA_SECRET"] = previous
+        args, kwargs = run.call_args
+        self.assertIsInstance(args[0], list)
+        self.assertEqual(args[0], list(prepared.command))
+        self.assertIs(kwargs["shell"], False)
+        self.assertEqual(kwargs["cwd"], str(work_dir))
+        self.assertEqual(kwargs["timeout"], 30)
+        self.assertIs(kwargs["stdin"], subprocess.DEVNULL)
+        self.assertNotIn("PYLAIA_SECRET", kwargs["env"])
+        self.assertNotIn(secret, kwargs["env"].values())
+        self.assertEqual(
+            [(line.line_id, line.text) for line in result.lines],
+            [("line-a", "first line"), ("line-b", "second line")],
+        )
+
+    def test_stdout_ids_out_of_order_map_back_to_contract_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            prepared = _prepared(Path(tmp))
+            completed = subprocess.CompletedProcess(
+                [],
+                0,
+                stdout="0002.png second\n0001.png first\n",
+                stderr="secret-stderr",
+            )
+            with mock.patch(
+                "ai.external_engines.pylaia.decoder.subprocess.run",
+                return_value=completed,
+            ):
+                result = DecodeRunner().run(prepared)
+        self.assertEqual(result.lines[0].text, "first")
+        self.assertEqual(result.lines[1].text, "second")
+        self.assertEqual(result.lines[0].line_id, "line-a")
+
+    def test_empty_transcription_is_valid(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            prepared = _prepared(Path(tmp))
+            completed = subprocess.CompletedProcess(
+                [],
+                0,
+                stdout="0001.png \n0002.png kept\n",
+                stderr="",
+            )
+            with mock.patch(
+                "ai.external_engines.pylaia.decoder.subprocess.run",
+                return_value=completed,
+            ):
+                result = DecodeRunner().run(prepared)
+        self.assertEqual(
+            [(line.line_id, line.text) for line in result.lines],
+            [("line-a", ""), ("line-b", "kept")],
+        )
+
+    def test_missing_extra_and_malformed_stdout_fail_without_text(self):
+        cases = (
+            "0001.png only one\n",
+            "0001.png one\n0002.png two\n0003.png extra\n",
+            "0001.png one\n0002.png two\n0001.png again\n",
+            "0001.png one\nnot a valid row\n",
+            "0001.png\n0002.png kept\n",
+            "0001.png secret-line-text\n",
+        )
+        for stdout in cases:
+            with tempfile.TemporaryDirectory() as tmp:
+                prepared = _prepared(Path(tmp))
+                completed = subprocess.CompletedProcess([], 0, stdout=stdout, stderr="")
+                with mock.patch(
+                    "ai.external_engines.pylaia.decoder.subprocess.run",
+                    return_value=completed,
+                ):
+                    with self.assertRaises(DecodeRunError) as caught:
+                        DecodeRunner().run(prepared)
+            self.assertEqual(caught.exception.code, "output")
+            self.assertNotIn("secret-line-text", str(caught.exception))
+            self.assertNotIn("extra", str(caught.exception))
+            self.assertEqual(str(caught.exception), "decode run was rejected")
+
+    def test_nonzero_exit_and_timeout_hide_process_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            prepared = _prepared(Path(tmp))
+            completed = subprocess.CompletedProcess(
+                [],
+                1,
+                stdout="0001.png secret-stdout\n",
+                stderr="secret-stderr",
+            )
+            with mock.patch(
+                "ai.external_engines.pylaia.decoder.subprocess.run",
+                return_value=completed,
+            ):
+                with self.assertRaises(DecodeRunError) as caught:
+                    DecodeRunner().run(prepared)
+        self.assertEqual(caught.exception.code, "exit")
+        self.assertNotIn("secret-stdout", str(caught.exception))
+        self.assertNotIn("secret-stderr", str(caught.exception))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            prepared = _prepared(Path(tmp))
+            timeout = subprocess.TimeoutExpired(
+                cmd=["pylaia-htr-decode-ctc"],
+                timeout=30,
+                output="secret-timeout-stdout",
+                stderr="secret-timeout-stderr",
+            )
+            with mock.patch(
+                "ai.external_engines.pylaia.decoder.subprocess.run",
+                side_effect=timeout,
+            ):
+                with self.assertRaises(DecodeRunError) as caught:
+                    DecodeRunner().run(prepared)
+            self.assertNotIn(tmp, str(caught.exception))
+        self.assertEqual(caught.exception.code, "timeout")
+        self.assertNotIn("secret-timeout-stdout", str(caught.exception))
+        self.assertNotIn("secret-timeout-stderr", str(caught.exception))
 
 
 if __name__ == "__main__":

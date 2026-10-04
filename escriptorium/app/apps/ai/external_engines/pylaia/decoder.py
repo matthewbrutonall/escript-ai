@@ -1,13 +1,16 @@
-"""Decode-adapter scaffold for PyLaia.
+"""Decode adapter for PyLaia.
 
-This module plans the file layout and the argument list for
-``pylaia-htr-decode-ctc``. It does not call that program, does not load a
-model, and is not used by the HTTP server.
+This module prepares the file layout and argument list for
+``pylaia-htr-decode-ctc``. ``DecodeRunner`` can start that program from an
+argument list. It does not load a model. The HTTP server does not call it.
+Stdout lines are ``{image file name} {text}``. An empty transcription is the
+file name, a space, and no further characters. A line with no space is rejected.
 """
 from __future__ import annotations
 
 import json
 import os
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
@@ -19,6 +22,8 @@ _MODEL_NAME = "model"
 _SYMS_NAME = "syms.txt"
 _PREFERRED_CHECKPOINT = "weights.ckpt"
 _IMG_LIST_NAME = "img_list.txt"
+_DEFAULT_TIMEOUT = 30
+_MAX_STDOUT = 1_048_576
 
 
 class DecodeLayoutError(Exception):
@@ -47,13 +52,72 @@ class PreparedDecode:
     line_ids: tuple[str, ...]
 
 
-class DecodeRunner:
-    """Placeholder. The server does not call this, and it does not start a process."""
+class DecodeRunError(Exception):
+    """A fixed reason the decode process was rejected. The message has no output."""
 
-    def run(self, prepared: PreparedDecode) -> None:
+    def __init__(self, code: str) -> None:
+        self.code = code
+        super().__init__("decode run was rejected")
+
+
+@dataclass(frozen=True)
+class DecodedLine:
+    """One recognized line, in contract order rather than stdout order."""
+
+    line_id: str
+    image_id: str
+    text: str
+
+
+@dataclass(frozen=True)
+class DecodeRunResult:
+    """Structured decode output. This is not a contract response."""
+
+    model_id: str
+    lines: tuple[DecodedLine, ...]
+
+
+class DecodeRunner:
+    """Run a prepared argument list. The server does not call this."""
+
+    def __init__(self, *, timeout_seconds: int = _DEFAULT_TIMEOUT) -> None:
+        if (
+            isinstance(timeout_seconds, bool)
+            or not isinstance(timeout_seconds, int)
+            or not 0 < timeout_seconds <= 3600
+        ):
+            raise DecodeRunError("timeout")
+        self.timeout_seconds = timeout_seconds
+
+    def run(self, prepared: PreparedDecode) -> DecodeRunResult:
+        """Execute argv with ``shell=False`` and map stdout back to line order."""
         if not isinstance(prepared, PreparedDecode):
-            raise DecodeLayoutError("not_implemented")
-        raise DecodeLayoutError("not_implemented")
+            raise DecodeRunError("output")
+        command = _command_list(prepared.command)
+        work_dir = _work_dir(command)
+        try:
+            completed = subprocess.run(
+                command,
+                shell=False,
+                cwd=work_dir,
+                timeout=self.timeout_seconds,
+                capture_output=True,
+                stdin=subprocess.DEVNULL,
+                text=True,
+                encoding="utf-8",
+                errors="strict",
+                env=_process_env(),
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            raise DecodeRunError("timeout") from None
+        except UnicodeError:
+            raise DecodeRunError("output") from None
+        except OSError:
+            raise DecodeRunError("exit") from None
+        if completed.returncode != 0 or not isinstance(completed.stdout, str):
+            raise DecodeRunError("exit")
+        return _parse_stdout(prepared, completed.stdout)
 
 
 def prepare_decode(
@@ -122,6 +186,73 @@ def build_decode_command(
         str(syms_path),
         str(list_path),
     )
+
+
+def _command_list(command) -> list[str]:
+    if (
+        isinstance(command, str)
+        or not isinstance(command, tuple)
+        or not command
+        or any(not isinstance(part, str) or part == "" for part in command)
+    ):
+        raise DecodeRunError("output")
+    return list(command)
+
+
+def _work_dir(command: list[str]) -> str:
+    try:
+        raw = command[command.index("--img_dirs") + 1]
+        directories = json.loads(raw)
+    except (ValueError, json.JSONDecodeError, IndexError):
+        raise DecodeRunError("output") from None
+    if (
+        not isinstance(directories, list)
+        or len(directories) != 1
+        or not isinstance(directories[0], str)
+        or directories[0] == ""
+    ):
+        raise DecodeRunError("output")
+    return directories[0]
+
+
+def _process_env() -> dict[str, str]:
+    """Pass only what is needed to find the program. Do not forward the parent environment."""
+    return {
+        "PATH": os.environ.get("PATH", ""),
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+    }
+
+
+def _parse_stdout(prepared: PreparedDecode, stdout: str) -> DecodeRunResult:
+    if len(stdout) > _MAX_STDOUT:
+        raise DecodeRunError("output")
+    if len(prepared.image_ids) != len(prepared.line_ids):
+        raise DecodeRunError("output")
+    expected = {}
+    for image_id, line_id in zip(prepared.image_ids, prepared.line_ids):
+        key = f"{image_id}.png"
+        if key in expected:
+            raise DecodeRunError("output")
+        expected[key] = (image_id, line_id)
+    found = {}
+    for row in stdout.splitlines():
+        # The separator is required. Text after it may be empty.
+        image_key, separator, text = row.partition(" ")
+        if separator != " " or image_key not in expected or image_key in found:
+            raise DecodeRunError("output")
+        found[image_key] = text
+    if len(found) != len(expected):
+        raise DecodeRunError("output")
+    lines = tuple(
+        DecodedLine(
+            line_id=expected[f"{image_id}.png"][1],
+            image_id=image_id,
+            text=found[f"{image_id}.png"],
+        )
+        for image_id in prepared.image_ids
+    )
+    return DecodeRunResult(model_id=prepared.model_id, lines=lines)
 
 
 def _plain_id(value, code: str) -> str:
