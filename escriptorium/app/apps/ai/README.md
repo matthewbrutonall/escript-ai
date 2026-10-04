@@ -39,7 +39,7 @@ Design: `../../../../ARCHITECTURE.md`. Tests and contribution rules:
 | `reference_engine/` | Fake contract-test engine. Returns `LINE {line_id}`. Optional loopback server: `python -m ai.reference_engine.server`. Not a recognizer, not for production, and not used by transcription jobs |
 | `htr_engine_contract_check.py` | Operator check: capabilities, models, one model, one synthetic recognize. Not used by transcription jobs |
 | `management/commands/check_external_htr_engine.py` | CLI for that check: `check_external_htr_engine <config_id>`. Not used by transcription jobs |
-| `external_engines/pylaia/` | PyLaia wrapper skeleton and backend seam. Default backend: empty model list, recognize returns `unavailable`. No PyLaia dependency, not a recognizer, and not used by transcription jobs. PyLaia support is currently a skeleton because its runtime belongs in a separate engine container. A prototype Dockerfile is in that directory. It is not wired into Compose and is not built by default |
+| `external_engines/pylaia/` | PyLaia wrapper skeleton and backend seam. Default backend: empty model list, recognize returns `unavailable`. `DecodePyLaiaBackend` runs only when a caller injects it. No PyLaia dependency in the app image, the default server is not a recognizer, and transcription jobs do not use it. PyLaia support is currently a skeleton because its runtime belongs in a separate engine container. A prototype Dockerfile is in that directory. It is not wired into Compose and is not built by default |
 
 ## Tests (no Django, no network, no API)
 
