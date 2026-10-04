@@ -40,5 +40,6 @@ COPY external_engines/pylaia/__init__.py /opt/engine/ai/external_engines/pylaia/
 COPY external_engines/pylaia/backend.py /opt/engine/ai/external_engines/pylaia/backend.py
 COPY external_engines/pylaia/engine.py /opt/engine/ai/external_engines/pylaia/engine.py
 COPY external_engines/pylaia/server.py /opt/engine/ai/external_engines/pylaia/server.py
+COPY external_engines/pylaia/decoder.py /opt/engine/ai/external_engines/pylaia/decoder.py
 
 CMD ["python", "-m", "ai.external_engines.pylaia.server", "--host", "0.0.0.0", "--port", "8766", "--allow-container-bind"]
