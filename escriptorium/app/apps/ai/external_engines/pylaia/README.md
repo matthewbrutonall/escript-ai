@@ -16,7 +16,7 @@ The PyPI package is `pylaia`. The import name is `laia`. Current `pylaia` 1.1.2 
 
 PyLaia has no HTTP API. The decode entrypoint is `pylaia-htr-decode-ctc`. It reads image files plus `img_list.txt`, `syms.txt`, a model architecture pickle, and a checkpoint (`*.ckpt`). Hugging Face bundles such as `Teklia/pylaia-huginmunin` contain `model`, `weights.ckpt`, and `syms.txt`. CPU decode uses `--trainer.gpus 0`. Line-image height and colour must match the trained model. Known bundles are often 128 pixels high.
 
-`decoder.py` is the scaffold for that step. It can check the model directory, write temporary PNG line images and `img_list.txt`, and build the argument list for `pylaia-htr-decode-ctc`. It does not call that program. The HTTP server does not import it.
+`decoder.py` checks the model directory, writes temporary PNG line images and `img_list.txt`, and builds the argument list for `pylaia-htr-decode-ctc`. `DecodeRunner` can run that list with `shell=False`. With `--decode.include_img_ids true`, each stdout line is `{image file name} {text}`, for example `0001.png hello`. Text may contain spaces. `0001.png ` (the file name, one space, and nothing after it) is a successful empty transcription. `0001.png` with no space is malformed and rejected. The runner maps those ids back to contract line order. A mismatch, a nonzero exit, or a timeout is a fixed error and does not include the text or stderr. The HTTP server does not call the runner.
 
 ## Planned container
 
