@@ -112,9 +112,62 @@ docker run --rm --network none \
   --timeout 180
 ```
 
-If the image was built before this server, also mount the current `ai` package read-only at `/opt/engine/ai`, as in the smoke section. The prototype Dockerfile copies `decoder.py`, which provides `check_model_layout`, and it does not copy `check_model.py`.
+That example does not publish a host port. The live HTTP smoke below does. If the image was built before this server, also mount the current `ai` package read-only at `/opt/engine/ai`, as in the one-line smoke section. The prototype Dockerfile copies `decoder.py`, which provides `check_model_layout`, and it does not copy `check_model.py`.
 
 `--allow-container-bind` still allows only `0.0.0.0`. Compose does not start this process. Escript AI transcription jobs do not call PyLaia.
+
+## Live HTTP decode smoke
+
+This is an optional local check that the skeleton server can answer HTTP when started with `--backend decode`. The result is process evidence that the service ran. It is not an accuracy result. This run replaces the image command for one container. The image command itself stays the unavailable server.
+
+Keep the model bundle outside this repository. Do not commit `model`, `syms.txt`, or a checkpoint. The check reads a directory mounted from outside the image. The image does not contain that bundle.
+
+If `escript-ai-pylaia-skeleton:local` was built before `--backend decode` existed, rebuild it from current main. From `escriptorium/app/apps/ai`:
+
+```bash
+docker build -f external_engines/pylaia/Dockerfile -t escript-ai-pylaia-skeleton:local .
+```
+
+The image tag, container name, and every host path below are examples. Publish the host port on `127.0.0.1` only. Mount the model directory read-only. Mount an empty temporary work directory read-write, outside the model directory. The process inside the container listens on `0.0.0.0` with `--allow-container-bind` so Docker can forward that published port. This smoke uses the default Docker network so the host can reach the port.
+
+```bash
+docker run -d --name pylaia-http-smoke \
+  -p 127.0.0.1:8766:8766 \
+  -v "/path/to/model:/models/<model-name>:ro" \
+  -v "/tmp/pylaia-http-work:/work" \
+  --entrypoint python \
+  escript-ai-pylaia-skeleton:local \
+  -m ai.external_engines.pylaia.server \
+  --host 0.0.0.0 \
+  --port 8766 \
+  --allow-container-bind \
+  --backend decode \
+  --model-dir /models/<model-name> \
+  --model-id <model-name> \
+  --work-root /work \
+  --timeout 180
+```
+
+`/path/to/model` is the bundle outside the repository. `/tmp/pylaia-http-work` is the empty temporary work directory. `<model-name>` is the `--model-id` label, not a file in this repository. `--timeout 180` is only for this smoke. The runner default remains 30 seconds. Startup still checks the model layout and exits before listening when the directory is not accepted.
+
+From the host, call:
+
+```bash
+curl -sS http://127.0.0.1:8766/v1/capabilities
+curl -sS http://127.0.0.1:8766/v1/models
+curl -sS http://127.0.0.1:8766/v1/models/<model-name>
+```
+
+Then `POST /v1/recognize` with one synthetic grayscale line image. Do not use a user document. A successful response has one line. The text is process evidence that the HTTP path ran. It is not an accuracy result, so this note does not record it.
+
+The server removes its own child directory under the work mount. Stop the container and remove it when the check is done:
+
+```bash
+docker stop pylaia-http-smoke
+docker rm pylaia-http-smoke
+```
+
+Compose is not wired to this container. Escript AI transcription jobs are not wired to PyLaia. The default server remains `UnavailablePyLaiaBackend` and is still not a recognizer.
 
 ## One-line decode smoke
 
