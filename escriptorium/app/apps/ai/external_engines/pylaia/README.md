@@ -194,6 +194,36 @@ docker compose -f docker-compose.pylaia-smoke.yml down
 
 This optional path has been exercised with a model bundle kept outside the repository. `GET /v1/capabilities`, `GET /v1/models`, `GET /v1/models/<model-id>`, and `POST /v1/recognize` each returned a successful HTTP response. The recognize call used one synthetic grayscale line. Its text is process evidence only, not an accuracy result, so this note does not record it. `docker compose -f docker-compose.pylaia-smoke.yml down` removed the service while `PYLAIA_MODEL_DIR` stayed set. The default Compose project and Escript AI transcription jobs remain unwired. `/tmp/escript-ai-pylaia-work` may remain as an empty host bind directory. It is not a leftover decode directory, and it can be removed manually.
 
+## Manual admin check
+
+An admin can store a pointer to a smoke service that is already running and reachable. In Django admin, under **AI transcription**, open **External HTR engines** at `/admin/ai/externalhtrengineconfig/`. Saving the row does not call the service. It does not add a Transcribe option. Transcription jobs, views, and the UI do not read this table.
+
+Suggested fields for a local test:
+
+- `name`: `PyLaia smoke`
+- `endpoint_url`: `http://127.0.0.1:8766`
+- `tier`: `research`
+- `experimental`: true
+- `enabled`: true only while testing
+- `timeout_seconds`: `180`
+- `metadata`: `{}`
+
+`endpoint_url` is the base URL only. Do not add a route, a query, or user info. `http://127.0.0.1:8766` is the host port published by the optional smoke file. Use it when `manage.py` runs on the host and can open that loopback port. The smoke service name `pylaia-smoke` is visible only to containers on a network that includes that service. The optional file is its own project, `escript-ai-pylaia-smoke`, and it does not join the app stack, so app containers cannot use that name today. The admin form also cannot save a single-label host such as `http://pylaia-smoke:8766`. Do not put that name in `endpoint_url`.
+
+`enabled` must be true or the check does not call the service. The default is false. Transcription jobs do not read the flag. `timeout_seconds` is how long the client waits. `180` matches the smoke container's decode timeout. `metadata` must be a JSON object. Leave it empty. Do not store an API key or any other secret there. Keep the model bundle outside this repository. The row does not contain `model`, `syms.txt`, or a checkpoint, and it does not need the model path.
+
+The admin action **Test connection** calls capabilities and the model list only. It does not recognize a line.
+
+The full check is the management command. From `escriptorium/app`, with the smoke service up and `PYLAIA_MODEL_DIR` still set:
+
+```bash
+python manage.py check_external_htr_engine <config_id>
+```
+
+`<config_id>` is the numeric id of the row, not the name. The command calls `GET /v1/capabilities`, `GET /v1/models`, `GET /v1/models/<model_id>`, and one `POST /v1/recognize`. It stops at the first failure. A disabled row is not called. An empty model list stops before model detail and recognize. The default unavailable server does that. The smoke service in decode mode lists one model, so the check continues.
+
+The recognize call sends one synthetic line. That image is not a user document and it is not a PNG. Decode mode rejects a non-PNG image, so the command can report a recognize failure while the smoke service is up. It prints one `OK:` or `FAILED:` line and does not print recognized text. This does not transcribe a document and does not add a Transcribe option. The default Compose project and Escript AI transcription jobs remain unwired.
+
 ## One-line decode smoke
 
 This is an operator check that one synthetic line can pass through `DecodePyLaiaBackend`. The result is process evidence that the decode command ran. It is not an accuracy result. Compose does not run this check, and Escript AI transcription jobs do not call PyLaia.
