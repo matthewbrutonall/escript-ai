@@ -4,11 +4,11 @@ This is the external-engine shape for a future PyLaia service. It is not a recog
 
 `backend.py` is the seam a real recognizer will implement: `capabilities`, `list_models`, `get_model`, and `recognize`. The default `UnavailablePyLaiaBackend` does not load a model. The HTTP routes call that object and do not contain recognition code.
 
-`DecodePyLaiaBackend` is not the default. A caller can pass that object to `handle`. It keeps one configured model id and model directory, writes a temporary work directory, calls `prepare_decode`, then `DecodeRunner.run`, and builds a contract recognize response. The server does not construct it. The model id is a label, not a path. A layout or runner failure becomes a contract error code and does not include the image, the recognized text, stdout, stderr, or a path. The temporary directory is removed after the call. Listing the configured model does not claim accuracy, and it does not prove the model files are present; `recognize` checks those files.
+`DecodePyLaiaBackend` is not the default. A caller can pass that object to `handle`, and the server constructs it only when started with `--backend decode`. It keeps one configured model id and model directory, writes a temporary work directory, calls `prepare_decode`, then `DecodeRunner.run`, and builds a contract recognize response. The model id is a label, not a path. A layout or runner failure becomes a contract error code and does not include the image, the recognized text, stdout, stderr, or a path. The temporary directory is removed after the call. Listing the configured model does not claim accuracy, and it does not prove the model files are present; `recognize` checks those files.
 
-`tier` is `research`. `GET /v1/models` returns an empty list because no recognition backend is installed. `GET /v1/models/{model_id}` returns `model_not_found`. A valid `POST /v1/recognize` returns `unavailable` with the fixed message "recognition backend is not installed". It does not return text. An invalid request returns a contract error and does not echo the image or the line text.
+`tier` is `research`. With the default backend, `GET /v1/models` returns an empty list because no recognition backend is installed. `GET /v1/models/{model_id}` returns `model_not_found`. A valid `POST /v1/recognize` returns `unavailable` with the fixed message "recognition backend is not installed". It does not return text. An invalid request returns a contract error and does not echo the image or the line text.
 
-`python -m ai.external_engines.pylaia.server` serves that handler on `127.0.0.1` port `8766` for local checks. It refuses any non-loopback host unless `--allow-container-bind` is set, and that flag allows only `0.0.0.0`. Compose and transcription do not start it.
+`python -m ai.external_engines.pylaia.server` serves that handler on `127.0.0.1` port `8766` for local checks. Omitting `--backend` selects `UnavailablePyLaiaBackend`. It refuses any non-loopback host unless `--allow-container-bind` is set, and that flag allows only `0.0.0.0`. Compose and transcription do not start it.
 
 ## Runtime
 
@@ -20,7 +20,7 @@ PyLaia has no HTTP API. The decode entrypoint is `pylaia-htr-decode-ctc`. It rea
 
 `python -m ai.external_engines.pylaia.check_model MODEL_DIR` checks that directory for `model`, `syms.txt`, and a checkpoint. It prints `OK` or `FAILED:` plus a fixed code. It does not print the path, does not import PyLaia, and does not run decode. `weights.ckpt` is preferred when it is present. Otherwise exactly one regular top-level `*.ckpt` file inside the directory is accepted. A symlink for `model`, `syms.txt`, or `weights.ckpt` that resolves outside the directory is rejected. Compose and the HTTP server do not start this command.
 
-`decoder.py` checks the model directory, writes temporary PNG line images and `img_list.txt`, and builds the argument list for `pylaia-htr-decode-ctc`. `DecodeRunner` can run that list with `shell=False`. With `--decode.include_img_ids true`, each stdout line is `{image file name} {text}`, for example `0001.png hello`. Text may contain spaces. `0001.png ` (the file name, one space, and nothing after it) is a successful empty transcription. `0001.png` with no space is malformed and rejected. The runner maps those ids back to contract line order. A mismatch, a nonzero exit, or a timeout is a fixed error and does not include the text or stderr. The HTTP server does not construct `DecodePyLaiaBackend` and does not call the runner.
+`decoder.py` checks the model directory, writes temporary PNG line images and `img_list.txt`, and builds the argument list for `pylaia-htr-decode-ctc`. `DecodeRunner` can run that list with `shell=False`. With `--decode.include_img_ids true`, each stdout line is `{image file name} {text}`, for example `0001.png hello`. Text may contain spaces. `0001.png ` (the file name, one space, and nothing after it) is a successful empty transcription. `0001.png` with no space is malformed and rejected. The runner maps those ids back to contract line order. A mismatch, a nonzero exit, or a timeout is a fixed error and does not include the text or stderr. The HTTP server does not call the runner directly. It constructs `DecodePyLaiaBackend` only for `--backend decode`, after `check_model_layout` accepts the directory.
 
 ## Model files
 
@@ -58,7 +58,7 @@ The first mode is CPU decode with `--trainer.gpus 0`. GPU mode can be added afte
 
 No API keys or secrets belong in this container. Model metadata and licence belong in Escript AI configuration or documentation.
 
-A prototype Dockerfile is `escriptorium/app/apps/ai/external_engines/pylaia/Dockerfile`. Compose does not reference it, and it is not built by default. Do not treat that image as HTR. The skeleton inside it still returns `unavailable` and does not import PyLaia.
+A prototype Dockerfile is `escriptorium/app/apps/ai/external_engines/pylaia/Dockerfile`. Compose does not reference it, and it is not built by default. Do not treat that image as HTR. The default command inside it still returns `unavailable` and does not import PyLaia. That command does not pass `--backend decode`.
 
 The intended later build context is `escriptorium/app/apps/ai`:
 
@@ -69,6 +69,52 @@ docker build -f external_engines/pylaia/Dockerfile -t escript-ai-pylaia-skeleton
 The image uses Python 3.10 and installs `pylaia==1.1.2`. It also installs `git`, because importing `laia` probes `git` and raises `TypeError` when `git` is absent. The skeleton server still does not import `laia`. It copies only the contract module and this skeleton package. It does not copy model files, and it does not copy `check_model.py`. A read-only model mount is future work for the image command, and the image does not read one yet. The smoke below passes that mount only on an explicit `docker run`.
 
 The prototype image command is `python -m ai.external_engines.pylaia.server --host 0.0.0.0 --port 8766 --allow-container-bind`. That exposes the fake skeleton on the Docker network only when the container is run. The unflagged default remains `127.0.0.1`. The flag allows only `0.0.0.0`. It is still not a recognizer, and Compose does not start it.
+
+## Server modes
+
+The default command uses `UnavailablePyLaiaBackend`. No model directory is read. `GET /v1/models` is empty, and a valid recognize call returns `unavailable`.
+
+```bash
+python -m ai.external_engines.pylaia.server
+```
+
+`--backend unavailable` is the same default. Model flags with that mode are rejected. Nothing in the process environment selects decode mode.
+
+`--backend decode` constructs `DecodePyLaiaBackend`. It requires `--model-dir`, `--model-id`, and `--work-root`. `--timeout` defaults to 30 seconds. Startup calls `check_model_layout` and exits before listening when the directory is not accepted. Failure text is a fixed message or `FAILED:` plus a fixed code. It does not include the model path. `--model-id` is a label, not a path.
+
+Mount the model directory read-only. Mount the work root read-write, outside the model directory. The paths, model id, and image tag below are examples.
+
+```bash
+python -m ai.external_engines.pylaia.server \
+  --backend decode \
+  --model-dir /models/<model-name> \
+  --model-id <model-name> \
+  --work-root /tmp/pylaia-work \
+  --timeout 180
+```
+
+A container keeps the unavailable image command unless this run replaces it. The model mount stays read-only. Paths, the model id, and the image tag are examples:
+
+```bash
+docker run --rm --network none \
+  -v "/path/to/model:/models/<model-name>:ro" \
+  -v "/tmp/pylaia-work:/work" \
+  --entrypoint python \
+  escript-ai-pylaia-skeleton:local \
+  -m ai.external_engines.pylaia.server \
+  --host 0.0.0.0 \
+  --port 8766 \
+  --allow-container-bind \
+  --backend decode \
+  --model-dir /models/<model-name> \
+  --model-id <model-name> \
+  --work-root /work \
+  --timeout 180
+```
+
+If the image was built before this server, also mount the current `ai` package read-only at `/opt/engine/ai`, as in the smoke section. The prototype Dockerfile copies `decoder.py`, which provides `check_model_layout`, and it does not copy `check_model.py`.
+
+`--allow-container-bind` still allows only `0.0.0.0`. Compose does not start this process. Escript AI transcription jobs do not call PyLaia.
 
 ## One-line decode smoke
 

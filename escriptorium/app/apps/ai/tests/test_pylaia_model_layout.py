@@ -323,13 +323,17 @@ class ModelLayoutTests(unittest.TestCase):
         self.assertNotIn(str(model_dir), output)
         self.assertNotIn(SECRET, str(result))
 
-    def test_server_does_not_import_the_checker_and_it_does_not_import_pylaia(self):
+    def test_checker_cli_stays_unwired_and_does_not_import_pylaia(self):
         package = AI_DIR / "external_engines" / "pylaia"
         source = (package / "check_model.py").read_text()
         self.assertNotIn("import laia", source)
         self.assertNotIn("import torch", source)
         self.assertNotIn("subprocess", source)
-        for name in ("__init__.py", "engine.py", "server.py"):
+        for name in ("__init__.py", "engine.py"):
             text = (package / name).read_text()
             self.assertNotIn("check_model", text, name)
             self.assertNotIn("check_model_layout", text, name)
+        server = (package / "server.py").read_text()
+        self.assertNotIn("pylaia.check_model", server)
+        self.assertNotIn("from ai.external_engines.pylaia.check_model", server)
+        self.assertIn("check_model_layout", server)
