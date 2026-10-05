@@ -365,6 +365,57 @@ class IsolationTests(unittest.TestCase):
         self.assertIn("still not a recognizer", readme)
         self.assertNotIn("not reachable as a service yet", readme)
 
+    def test_pylaia_smoke_compose_is_opt_in(self):
+        path = REPO / "escriptorium" / "docker-compose.pylaia-smoke.yml"
+        self.assertTrue(path.is_file(), path)
+        self.assertEqual(path.name, "docker-compose.pylaia-smoke.yml")
+        self.assertNotEqual(path.name, "docker-compose.override.yml")
+        self.assertFalse((REPO / "escriptorium" / "docker-compose.override.yml").exists())
+        text = path.read_text()
+        self.assertIn("name: escript-ai-pylaia-smoke", text)
+        self.assertIn("pylaia-smoke:", text)
+        self.assertIn("image: escript-ai-pylaia-skeleton:local", text)
+        self.assertNotIn("build:", text)
+        self.assertIn('"127.0.0.1:8766:8766"', text)
+        self.assertNotIn('"8766:8766"', text)
+        self.assertNotIn('"0.0.0.0:8766:8766"', text)
+        self.assertIn("${PYLAIA_MODEL_DIR:?set PYLAIA_MODEL_DIR}:/models/current:ro", text)
+        self.assertIn("${PYLAIA_WORK_DIR:-/tmp/escript-ai-pylaia-work}:/work", text)
+        self.assertNotIn(":/work:ro", text)
+        self.assertIn("${PYLAIA_MODEL_ID:-huginmunin}", text)
+        self.assertIn("${PYLAIA_TIMEOUT:-180}", text)
+        self.assertIn("--backend", text)
+        self.assertIn("decode", text)
+        self.assertIn("--allow-container-bind", text)
+        self.assertNotIn("restart:", text)
+        for banned in ("API_KEY", "PASSWORD", "SECRET", "weights.ckpt", "syms.txt", ".env"):
+            self.assertNotIn(banned, text, banned)
+        readme = (AI_DIR / "external_engines" / "pylaia" / "README.md").read_text()
+        section = readme.split("## Optional Compose smoke", 1)[1].split(
+            "## One-line decode smoke", 1
+        )[0]
+        self.assertLess(
+            section.index("export PYLAIA_MODEL_DIR=/path/to/model"),
+            section.index("docker compose -f docker-compose.pylaia-smoke.yml up -d"),
+        )
+        self.assertLess(
+            section.index("docker compose -f docker-compose.pylaia-smoke.yml up -d"),
+            section.index("docker compose -f docker-compose.pylaia-smoke.yml down"),
+        )
+        self.assertIn("including `down`", section)
+        self.assertIn("not loaded by default", readme)
+        self.assertIn("local-only", readme)
+        self.assertIn("including down", text)
+        for name in (
+            "docker-compose.yml",
+            "docker-compose.preview.yml",
+            "docker-compose.override.yml_example",
+        ):
+            other = (REPO / "escriptorium" / name).read_text()
+            self.assertNotIn("pylaia", other, name)
+            self.assertNotIn("docker-compose.pylaia-smoke.yml", other, name)
+            self.assertNotIn("external_engines", other, name)
+
 
 if __name__ == "__main__":
     unittest.main()

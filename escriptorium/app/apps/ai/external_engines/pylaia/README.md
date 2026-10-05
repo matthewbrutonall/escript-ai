@@ -8,7 +8,7 @@ This is the external-engine shape for a future PyLaia service. It is not a recog
 
 `tier` is `research`. With the default backend, `GET /v1/models` returns an empty list because no recognition backend is installed. `GET /v1/models/{model_id}` returns `model_not_found`. A valid `POST /v1/recognize` returns `unavailable` with the fixed message "recognition backend is not installed". It does not return text. An invalid request returns a contract error and does not echo the image or the line text.
 
-`python -m ai.external_engines.pylaia.server` serves that handler on `127.0.0.1` port `8766` for local checks. Omitting `--backend` selects `UnavailablePyLaiaBackend`. It refuses any non-loopback host unless `--allow-container-bind` is set, and that flag allows only `0.0.0.0`. Compose and transcription do not start it.
+`python -m ai.external_engines.pylaia.server` serves that handler on `127.0.0.1` port `8766` for local checks. Omitting `--backend` selects `UnavailablePyLaiaBackend`. It refuses any non-loopback host unless `--allow-container-bind` is set, and that flag allows only `0.0.0.0`. The default Compose project and transcription jobs do not start it.
 
 ## Runtime
 
@@ -42,7 +42,7 @@ That command prints `OK` or `FAILED:` plus a fixed code. It does not print the p
 
 `Teklia/pylaia-huginmunin` on Hugging Face redirects to `Teklia/pylaia-norhand-v1`. The model card for `Teklia/pylaia-norhand-v1` is labelled MIT. This note does not download it. Check the model licence before any hosted or client use. A public example is not permission to serve that model.
 
-The future engine container should mount that directory read-only. Compose does not mount it. A one-off smoke can mount the same directory for a single process check. That check does not add the mount to Compose.
+The future engine container should mount that directory read-only. The default Compose project does not mount it. A one-off smoke can mount the same directory for a single process check. `docker-compose.pylaia-smoke.yml` can mount it when that file is named with `-f`. Neither adds the mount to `docker-compose.yml`.
 
 ## Planned container
 
@@ -66,9 +66,9 @@ The intended later build context is `escriptorium/app/apps/ai`:
 docker build -f external_engines/pylaia/Dockerfile -t escript-ai-pylaia-skeleton .
 ```
 
-The image uses Python 3.10 and installs `pylaia==1.1.2`. It also installs `git`, because importing `laia` probes `git` and raises `TypeError` when `git` is absent. The skeleton server still does not import `laia`. It copies only the contract module and this skeleton package. It does not copy model files, and it does not copy `check_model.py`. A read-only model mount is future work for the image command, and the image does not read one yet. The smoke below passes that mount only on an explicit `docker run`.
+The image uses Python 3.10 and installs `pylaia==1.1.2`. It also installs `git`, because importing `laia` probes `git` and raises `TypeError` when `git` is absent. The skeleton server still does not import `laia`. It copies only the contract module and this skeleton package. It does not copy model files, and it does not copy `check_model.py`. A read-only model mount is future work for the image command, and the image does not read one yet. The smoke below passes that mount only on an explicit `docker run` or the optional smoke Compose file.
 
-The prototype image command is `python -m ai.external_engines.pylaia.server --host 0.0.0.0 --port 8766 --allow-container-bind`. That exposes the fake skeleton on the Docker network only when the container is run. The unflagged default remains `127.0.0.1`. The flag allows only `0.0.0.0`. It is still not a recognizer, and Compose does not start it.
+The prototype image command is `python -m ai.external_engines.pylaia.server --host 0.0.0.0 --port 8766 --allow-container-bind`. That exposes the fake skeleton on the Docker network only when the container is run. The unflagged default remains `127.0.0.1`. The flag allows only `0.0.0.0`. It is still not a recognizer, and the default Compose project does not start it.
 
 ## Server modes
 
@@ -114,7 +114,7 @@ docker run --rm --network none \
 
 That example does not publish a host port. The live HTTP smoke below does. If the image was built before this server, also mount the current `ai` package read-only at `/opt/engine/ai`, as in the one-line smoke section. The prototype Dockerfile copies `decoder.py`, which provides `check_model_layout`, and it does not copy `check_model.py`.
 
-`--allow-container-bind` still allows only `0.0.0.0`. Compose does not start this process. Escript AI transcription jobs do not call PyLaia.
+`--allow-container-bind` still allows only `0.0.0.0`. The default Compose project does not start this process. Escript AI transcription jobs do not call PyLaia.
 
 ## Live HTTP decode smoke
 
@@ -167,7 +167,30 @@ docker stop pylaia-http-smoke
 docker rm pylaia-http-smoke
 ```
 
-Compose is not wired to this container. Escript AI transcription jobs are not wired to PyLaia. The default server remains `UnavailablePyLaiaBackend` and is still not a recognizer.
+The default Compose project is not wired to this container. Escript AI transcription jobs are not wired to PyLaia. The default server remains `UnavailablePyLaiaBackend` and is still not a recognizer.
+
+## Optional Compose smoke
+
+`escriptorium/docker-compose.pylaia-smoke.yml` repeats the live HTTP smoke. It is optional and local-only, and it is not loaded by default. `docker compose up` does not read it. Pass `-f docker-compose.pylaia-smoke.yml`. Its project name is `escript-ai-pylaia-smoke`, so it does not join the Escript AI services. Escript AI transcription jobs do not call it.
+
+The service uses the image `escript-ai-pylaia-skeleton:local`. This file does not build that image. Build it from `escriptorium/app/apps/ai` when the local tag is missing, as in the section above. The image command stays the unavailable server. This file replaces that command for the smoke service only.
+
+`PYLAIA_MODEL_DIR` is required. Point it at a model directory outside this repository. The file mounts that directory read-only at `/models/current`. Do not commit `model`, `syms.txt`, or a checkpoint. `PYLAIA_WORK_DIR` defaults to `/tmp/escript-ai-pylaia-work` and is mounted read-write at `/work`. Keep that directory outside the model directory. `PYLAIA_MODEL_ID` defaults to `huginmunin` and is only a label. `PYLAIA_TIMEOUT` defaults to `180` for this smoke. The runner default remains 30 seconds. The host port is `127.0.0.1:8766` only.
+
+Compose interpolates `PYLAIA_MODEL_DIR` on every command, including `down`. Export it for the session and leave it set until the container is removed. From `escriptorium/`:
+
+```bash
+export PYLAIA_MODEL_DIR=/path/to/model
+docker compose -f docker-compose.pylaia-smoke.yml up -d
+```
+
+`/path/to/model` is the bundle outside the repository. `-d` leaves the shell free for the same calls as the live HTTP smoke: `GET /v1/capabilities`, `GET /v1/models`, `GET /v1/models/<model-id>`, and `POST /v1/recognize` with one synthetic grayscale line. The text is process evidence that the HTTP path ran. It is not an accuracy result, so this note does not record it.
+
+Stop and remove the smoke container when the check is done. `down` without `PYLAIA_MODEL_DIR` exits before it can remove the container:
+
+```bash
+docker compose -f docker-compose.pylaia-smoke.yml down
+```
 
 ## One-line decode smoke
 
