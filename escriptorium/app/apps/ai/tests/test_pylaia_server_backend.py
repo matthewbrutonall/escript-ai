@@ -22,6 +22,7 @@ _REQUIRED = "decode backend requires model-dir, model-id, and work-root\n"
 _FLAGS = "decode flags require --backend decode\n"
 _REJECTED = "decode backend was rejected\n"
 _LOOPBACK = "pylaia skeleton binds to loopback only\n"
+_BIND_FAILED = "pylaia skeleton failed to bind\n"
 
 
 def _bundle(root: Path) -> Path:
@@ -291,6 +292,77 @@ class ServerBackendTests(unittest.TestCase):
             server.assert_not_called()
         self.assertEqual(str(caught.exception), "pylaia skeleton binds to loopback only")
         self.assertNotIn("0.0.0.0", str(caught.exception))
+
+    def test_ipv6_loopback_is_refused_without_traceback(self):
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            with mock.patch("ai.external_engines.pylaia.server.HTTPServer") as server:
+                code = main(["--host", "::1"])
+        text = stderr.getvalue()
+        self.assertEqual((code, stdout.getvalue(), text), (2, "", _LOOPBACK))
+        self.assertNotIn("::1", text)
+        self.assertNotIn("Traceback", text)
+        server.assert_not_called()
+
+    def test_bind_oserror_is_a_fixed_message(self):
+        leak = "Address already in use /tmp/secret-model-path"
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            with mock.patch(
+                "ai.external_engines.pylaia.server.HTTPServer",
+                side_effect=OSError(98, leak),
+            ) as server:
+                code = main([])
+        text = stderr.getvalue()
+        self.assertEqual((code, stdout.getvalue(), text), (2, "", _BIND_FAILED))
+        self.assertNotIn(leak, text)
+        self.assertNotIn("Address already in use", text)
+        self.assertNotIn("Traceback", text)
+        self.assertNotIn("Errno", text)
+        server.assert_called_once()
+        with mock.patch(
+            "ai.external_engines.pylaia.server.HTTPServer",
+            side_effect=OSError(98, leak),
+        ):
+            with self.assertRaises(ValueError) as caught:
+                serve()
+        self.assertEqual(str(caught.exception), _BIND_FAILED.strip())
+        self.assertIsNone(caught.exception.__cause__)
+        self.assertTrue(caught.exception.__suppress_context__)
+        self.assertNotIn(leak, str(caught.exception))
+
+    def test_decode_bind_failure_hides_the_model_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            model_dir = _bundle(root)
+            work = root / "work"
+            work.mkdir()
+            leak = f"Address already in use {model_dir}"
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                with mock.patch(
+                    "ai.external_engines.pylaia.server.HTTPServer",
+                    side_effect=OSError(98, leak),
+                ) as server:
+                    code = main(_decode_args(model_dir, work))
+            text = stderr.getvalue()
+            self.assertEqual((code, stdout.getvalue(), text), (2, "", _BIND_FAILED))
+            self.assertNotIn(str(model_dir), text)
+            self.assertNotIn("Traceback", text)
+            self.assertNotIn("Address already in use", text)
+            server.assert_called_once()
+
+            refused = _decode_args(model_dir, work)
+            refused.extend(["--host", "::1"])
+            code, stdout_text, stderr_text, server = _invoke(refused)
+        self.assertEqual((code, stdout_text, stderr_text), (2, "", _LOOPBACK))
+        self.assertNotIn("::1", stderr_text)
+        self.assertNotIn(str(model_dir), stderr_text)
+        self.assertNotIn("Traceback", stderr_text)
+        server.assert_not_called()
 
     def test_environment_does_not_select_decode(self):
         with tempfile.TemporaryDirectory() as tmp:

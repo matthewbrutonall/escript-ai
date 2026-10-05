@@ -3,8 +3,8 @@
 Run it with ``python -m ai.reference_engine.server``. It serves
 ``handle(method, path, body)`` on 127.0.0.1 for local contract tests.
 It is not a recognizer, not for production, and not started by Docker or
-by transcription. It refuses to bind to any host outside the loopback
-range.
+by transcription. It refuses to bind to any host outside the IPv4
+loopback range. ``::1`` is refused because this server is IPv4.
 """
 from __future__ import annotations
 
@@ -54,15 +54,21 @@ def read_body(rfile, content_length) -> bytes:
     return rfile.read(length)
 
 
+_BIND_FAILED = "reference engine server failed to bind"
+
+
 def serve(host: str = _DEFAULT_HOST, port: int = _DEFAULT_PORT) -> None:
     """Bind the fake engine. Raises before listening if the host is not loopback."""
     if not _loopback(host) or isinstance(port, bool) or not isinstance(port, int) or not 0 < port < 65536:
         raise ValueError("reference engine server binds to loopback only")
-    server = HTTPServer((host, port), ReferenceHandler)
     try:
-        server.serve_forever()
-    finally:
-        server.server_close()
+        server = HTTPServer((host, port), ReferenceHandler)
+        try:
+            server.serve_forever()
+        finally:
+            server.server_close()
+    except OSError:
+        raise ValueError(_BIND_FAILED) from None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -128,7 +134,7 @@ def _content_length(value):
 def _loopback(host) -> bool:
     if not isinstance(host, str):
         return False
-    if host in {"localhost", "::1"}:
+    if host == "localhost":
         return True
     parts = host.split(".")
     if len(parts) != 4 or parts[0] != "127":

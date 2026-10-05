@@ -1,9 +1,11 @@
 # External HTR engine contract (v1)
 
 This is the HTTP contract for a process that recognises line images.
-Escript AI does not serve these routes, does not call them, and does not
-ship an engine container. A wrapper, for example a small FastAPI service
-in front of PyLaia or TrOCR, owns the process and the dependencies.
+Escript AI's normal transcription jobs do not serve these routes and do not
+call them. An operator tool or an admin probe may call them explicitly.
+Escript AI does not ship an engine container in the main app image. A wrapper,
+for example a small FastAPI service in front of PyLaia or TrOCR, owns the
+process and the dependencies.
 PyLaia support is currently a skeleton because its runtime belongs in a
 separate engine container.
 

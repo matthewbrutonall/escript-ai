@@ -3,6 +3,7 @@ import ast
 import io
 import json
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -77,6 +78,50 @@ class AdapterTests(unittest.TestCase):
             code = main(["--port", "8765"])
         self.assertEqual(code, 0)
         self.assertEqual(server.call_args.args[0], ("127.0.0.1", 8765))
+
+    def test_ipv6_loopback_is_refused_without_traceback(self):
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            with mock.patch("ai.reference_engine.server.HTTPServer") as server:
+                code = main(["--host", "::1", "--port", "8765"])
+        text = stderr.getvalue()
+        self.assertEqual(code, 2)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertEqual(text, "reference engine server binds to loopback only\n")
+        self.assertNotIn("::1", text)
+        self.assertNotIn("Traceback", text)
+        server.assert_not_called()
+
+    def test_bind_oserror_is_a_fixed_message(self):
+        leak = "Address already in use /tmp/secret-model-path"
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            with mock.patch(
+                "ai.reference_engine.server.HTTPServer",
+                side_effect=OSError(98, leak),
+            ) as server:
+                code = main(["--port", "8765"])
+        text = stderr.getvalue()
+        self.assertEqual(code, 2)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertEqual(text, "reference engine server failed to bind\n")
+        self.assertNotIn(leak, text)
+        self.assertNotIn("Address already in use", text)
+        self.assertNotIn("Traceback", text)
+        self.assertNotIn("Errno", text)
+        server.assert_called_once()
+        with mock.patch(
+            "ai.reference_engine.server.HTTPServer",
+            side_effect=OSError(98, leak),
+        ):
+            with self.assertRaises(ValueError) as caught:
+                serve("127.0.0.1", 8765)
+        self.assertEqual(str(caught.exception), "reference engine server failed to bind")
+        self.assertIsNone(caught.exception.__cause__)
+        self.assertTrue(caught.exception.__suppress_context__)
+        self.assertNotIn(leak, str(caught.exception))
 
 
 class IsolationTests(unittest.TestCase):
