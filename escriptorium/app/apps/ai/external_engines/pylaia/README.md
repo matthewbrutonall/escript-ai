@@ -16,7 +16,7 @@ These notes describe the current Teklia package. This repository does not instal
 
 The PyPI package is `pylaia`. The import name is `laia`. Current `pylaia` 1.1.2 requires Python `>=3.9,<3.11`. It pins `torch>=1.13,<1.14`, with `torchvision` and `torchaudio`. It also pins `pytorch-lightning==1.4.2`. That old Lightning stack is why Python 3.11/3.12 and PyTorch 2.x support should be treated as a major upstream or runtime change, not a simple version bump. The Escript AI app image is Python 3.12, so PyLaia must run in its own external engine container, not inside the main Escript AI Python environment. Escript AI should plan as if PyLaia requires a separate Python 3.10 / torch 1.13 engine container unless upstream changes. The main Escript AI image does not include that stack. A prototype Dockerfile for a separate image is described below. Nothing in this repository builds it.
 
-PyLaia has no HTTP API. The decode entrypoint is `pylaia-htr-decode-ctc`. It reads image files plus `img_list.txt`, `syms.txt`, a model architecture pickle, and a checkpoint (`*.ckpt`). Hugging Face bundles such as `Teklia/pylaia-huginmunin` contain `model`, `weights.ckpt`, and `syms.txt`. CPU decode uses `--trainer.gpus 0`. Line-image height and colour must match the trained model. Known bundles are often 128 pixels high.
+PyLaia has no HTTP API. The decode entrypoint is `pylaia-htr-decode-ctc`. It reads image files plus `img_list.txt`, `syms.txt`, a model architecture pickle, and a checkpoint (`*.ckpt`). Hugging Face bundles such as `Teklia/pylaia-norhand-v1` contain `model`, `weights.ckpt`, and `syms.txt`. `Teklia/pylaia-huginmunin` redirects to that repository. CPU decode uses `--trainer.gpus 0`. Line-image height and colour must match the trained model. Known bundles are often 128 pixels high.
 
 `python -m ai.external_engines.pylaia.check_model MODEL_DIR` checks that directory for `model`, `syms.txt`, and a checkpoint. It prints `OK` or `FAILED:` plus a fixed code. It does not print the path, does not import PyLaia, and does not run decode. `weights.ckpt` is preferred when it is present. Otherwise exactly one regular top-level `*.ckpt` file inside the directory is accepted. A symlink for `model`, `syms.txt`, or `weights.ckpt` that resolves outside the directory is rejected. Compose and the HTTP server do not start this command.
 
@@ -40,9 +40,9 @@ python -m ai.external_engines.pylaia.check_model /opt/escript-ai/models/pylaia/<
 
 That command prints `OK` or `FAILED:` plus a fixed code. It does not print the path, does not import PyLaia, and does not run decode.
 
-`Teklia/pylaia-huginmunin` on Hugging Face is one public example an operator can verify by hand. This note does not download it. Check the model licence before any hosted or client use. A public example is not permission to serve that model.
+`Teklia/pylaia-huginmunin` on Hugging Face redirects to `Teklia/pylaia-norhand-v1`. The model card for `Teklia/pylaia-norhand-v1` is labelled MIT. This note does not download it. Check the model licence before any hosted or client use. A public example is not permission to serve that model.
 
-The future engine container should mount that directory read-only. Compose does not mount it.
+The future engine container should mount that directory read-only. Compose does not mount it. A one-off smoke can mount the same directory for a single process check. That check does not add the mount to Compose.
 
 ## Planned container
 
@@ -66,6 +66,40 @@ The intended later build context is `escriptorium/app/apps/ai`:
 docker build -f external_engines/pylaia/Dockerfile -t escript-ai-pylaia-skeleton .
 ```
 
-The image uses Python 3.10 and installs `pylaia==1.1.2`. It also installs `git`, because importing `laia` probes `git` and raises `TypeError` when `git` is absent. The skeleton server still does not import `laia`. It copies only the contract module and this skeleton package. It does not copy model files. A read-only model mount is future work, and the image does not read one yet.
+The image uses Python 3.10 and installs `pylaia==1.1.2`. It also installs `git`, because importing `laia` probes `git` and raises `TypeError` when `git` is absent. The skeleton server still does not import `laia`. It copies only the contract module and this skeleton package. It does not copy model files, and it does not copy `check_model.py`. A read-only model mount is future work for the image command, and the image does not read one yet. The smoke below passes that mount only on an explicit `docker run`.
 
 The prototype image command is `python -m ai.external_engines.pylaia.server --host 0.0.0.0 --port 8766 --allow-container-bind`. That exposes the fake skeleton on the Docker network only when the container is run. The unflagged default remains `127.0.0.1`. The flag allows only `0.0.0.0`. It is still not a recognizer, and Compose does not start it.
+
+## One-line decode smoke
+
+This is an operator check that one synthetic line can pass through `DecodePyLaiaBackend`. The result is process evidence that the decode command ran. It is not an accuracy result. Compose does not run this check, and Escript AI transcription jobs do not call PyLaia.
+
+Keep the model bundle outside this repository. Do not commit `model`, `syms.txt`, or a checkpoint. The bundle exercised by this check was `Teklia/pylaia-norhand-v1`. `Teklia/pylaia-huginmunin` redirects to that repository. The model card is labelled MIT. That label is not permission to serve the model.
+
+Run the layout check on the host before the container, from `escriptorium/app/apps`. Continue only when it prints `OK`:
+
+```bash
+python -m ai.external_engines.pylaia.check_model /path/to/model
+```
+
+Use one synthetic grayscale line image. Do not use a user document. A successful run returns one parsed line. PyLaia writes that line as `{image file name} {text}`. The text is not an accuracy result, so this note does not record it.
+
+The image tag and every path below are examples. Mount the model directory read-only. Mount an empty temporary work directory read-write. If the image was built before the current `ai` package, also mount that package read-only at `/opt/engine/ai`. The current Dockerfile copies `decoder.py` and does not copy `check_model.py`, so a layout check inside the container still needs this package mount. The host check above does not need the container. Omit the package mount only when the image already contains the same adapter files, including `check_model.py`.
+
+The smoke replaces the image entrypoint for one command. The skeleton server still does not import `laia`. The same container can import `laia` in that one-off command, because the image installs `git`.
+
+```bash
+docker run --rm --network none \
+  --entrypoint python \
+  -v "/path/to/model:/models/<model-name>:ro" \
+  -v "/tmp/pylaia-smoke-work:/work" \
+  -v "/path/to/escriptorium/app/apps/ai:/opt/engine/ai:ro" \
+  escript-ai-pylaia-skeleton:local \
+  /work/smoke.py
+```
+
+`/path/to/model` is the bundle outside the repository. `/tmp/pylaia-smoke-work` is the empty temporary work directory. `/path/to/escriptorium/app/apps/ai` is the current package. `/work/smoke.py` is a one-off program placed in that work directory. This repository does not include that program. It should run `check_model` on the mounted model directory, build one synthetic line image, and call `DecodePyLaiaBackend` once. The adapter removes its own child directory under the work mount.
+
+The runner timeout defaults to 30 seconds. Loading a checkpoint can take longer, so the one-off call may pass a longer timeout. That longer value is only for this smoke.
+
+Compose is not wired to this container. Escript AI transcription jobs are not wired to PyLaia. The default server remains `UnavailablePyLaiaBackend` and is still not a recognizer.
