@@ -22,6 +22,28 @@ PyLaia has no HTTP API. The decode entrypoint is `pylaia-htr-decode-ctc`. It rea
 
 `decoder.py` checks the model directory, writes temporary PNG line images and `img_list.txt`, and builds the argument list for `pylaia-htr-decode-ctc`. `DecodeRunner` can run that list with `shell=False`. With `--decode.include_img_ids true`, each stdout line is `{image file name} {text}`, for example `0001.png hello`. Text may contain spaces. `0001.png ` (the file name, one space, and nothing after it) is a successful empty transcription. `0001.png` with no space is malformed and rejected. The runner maps those ids back to contract line order. A mismatch, a nonzero exit, or a timeout is a fixed error and does not include the text or stderr. The HTTP server does not construct `DecodePyLaiaBackend` and does not call the runner.
 
+## Model files
+
+This repository does not include a PyLaia model bundle. Keep `model`, `syms.txt`, and checkpoint files outside git. Do not commit them.
+
+A directory the checker can accept has these top-level names:
+
+- `model`
+- `weights.ckpt`, or exactly one other `*.ckpt` when `weights.ckpt` is absent
+- `syms.txt`
+
+Put the directory outside this repository, for example `/opt/escript-ai/models/pylaia/<model-name>` or `~/.cache/escript-ai/pylaia/<model-name>`. From `escriptorium/app/apps`, check it with:
+
+```bash
+python -m ai.external_engines.pylaia.check_model /opt/escript-ai/models/pylaia/<model-name>
+```
+
+That command prints `OK` or `FAILED:` plus a fixed code. It does not print the path, does not import PyLaia, and does not run decode.
+
+`Teklia/pylaia-huginmunin` on Hugging Face is one public example an operator can verify by hand. This note does not download it. Check the model licence before any hosted or client use. A public example is not permission to serve that model.
+
+The future engine container should mount that directory read-only. Compose does not mount it.
+
 ## Planned container
 
 This is the planned shape of a separate engine container. Compose does not start it, and the main Escript AI image does not install PyLaia.
