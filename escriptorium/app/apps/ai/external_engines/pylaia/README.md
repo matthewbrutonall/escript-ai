@@ -192,6 +192,8 @@ Stop and remove the smoke container when the check is done. `down` without `PYLA
 docker compose -f docker-compose.pylaia-smoke.yml down
 ```
 
+This optional path has been exercised with a model bundle kept outside the repository. `GET /v1/capabilities`, `GET /v1/models`, `GET /v1/models/<model-id>`, and `POST /v1/recognize` each returned a successful HTTP response. The recognize call used one synthetic grayscale line. Its text is process evidence only, not an accuracy result, so this note does not record it. `docker compose -f docker-compose.pylaia-smoke.yml down` removed the service while `PYLAIA_MODEL_DIR` stayed set. The default Compose project and Escript AI transcription jobs remain unwired. `/tmp/escript-ai-pylaia-work` may remain as an empty host bind directory. It is not a leftover decode directory, and it can be removed manually.
+
 ## One-line decode smoke
 
 This is an operator check that one synthetic line can pass through `DecodePyLaiaBackend`. The result is process evidence that the decode command ran. It is not an accuracy result. Compose does not run this check, and Escript AI transcription jobs do not call PyLaia.
