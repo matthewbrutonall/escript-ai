@@ -1,6 +1,7 @@
 # Prototype image for a separate PyLaia engine.
 # Compose does not reference this file. Nothing in this repository builds it.
-# It is not a recognizer. The skeleton server still returns unavailable.
+# It is not a recognizer. The default command still returns unavailable.
+# --backend decode is not part of this command.
 #
 # Intended later build, from escriptorium/app/apps/ai:
 #   docker build -f external_engines/pylaia/Dockerfile -t escript-ai-pylaia-skeleton .
@@ -11,8 +12,9 @@
 # The flag allows only 0.0.0.0. Compose does not start this image.
 # It is still not a recognizer.
 #
-# Model files are not copied. A read-only model mount is future work.
-# This image does not read one. No API keys or secrets are copied in.
+# Model files are not copied. The default command does not read a model mount.
+# A process reads one only when started with --backend decode, and that
+# directory should be mounted read-only. No API keys or secrets are copied in.
 #
 # laia/__init__.py runs git during import. which("git") is None on this
 # base image, and that raises TypeError. git lets the probe fail softly.

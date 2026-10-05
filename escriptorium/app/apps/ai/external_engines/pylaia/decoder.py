@@ -2,7 +2,9 @@
 
 This module prepares the file layout and argument list for
 ``pylaia-htr-decode-ctc``. ``DecodeRunner`` can start that program from an
-argument list. It does not load a model. The HTTP server does not call it.
+argument list. It does not load a model. The HTTP server does not call
+``prepare_decode`` or ``DecodeRunner``. ``--backend decode`` calls
+``check_model_layout`` before listening.
 Stdout lines are ``{image file name} {text}``. An empty transcription is the
 file name, a space, and no further characters. A line with no space is rejected.
 """

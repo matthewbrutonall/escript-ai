@@ -255,11 +255,15 @@ class DecodeAdapterTests(unittest.TestCase):
             run.assert_not_called()
         self.assertEqual(caught.exception.code, "output")
         self.assertNotIn("pylaia-htr-decode-ctc", str(caught.exception))
-        for name in ("__init__.py", "engine.py", "server.py"):
-            text = (AI_DIR / "external_engines" / "pylaia" / name).read_text()
+        package = AI_DIR / "external_engines" / "pylaia"
+        for name in ("__init__.py", "engine.py"):
+            text = (package / name).read_text()
             self.assertNotIn("decoder", text, name)
             self.assertNotIn("prepare_decode", text, name)
             self.assertNotIn("DecodePyLaiaBackend", text, name)
+        server = (package / "server.py").read_text()
+        self.assertNotIn("prepare_decode", server)
+        self.assertNotIn("DecodeRunner", server)
         status, body = handle(
             "POST",
             "/v1/recognize",

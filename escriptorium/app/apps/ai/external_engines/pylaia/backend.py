@@ -70,8 +70,8 @@ class UnavailablePyLaiaBackend:
 class DecodePyLaiaBackend:
     """Recognize through ``DecodeRunner`` when this object is selected.
 
-    The HTTP server does not construct this class. ``model_id`` selects the
-    configured model and is not joined onto ``model_dir``.
+    The HTTP server constructs this class only for ``--backend decode``.
+    ``model_id`` selects the configured model and is not joined onto ``model_dir``.
     """
 
     def __init__(
