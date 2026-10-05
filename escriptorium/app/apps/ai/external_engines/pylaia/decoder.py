@@ -304,14 +304,85 @@ def _checked_file(root: Path, path, code: str) -> Path:
     return resolved
 
 
-def _checkpoint(root: Path) -> Path:
+@dataclass(frozen=True)
+class ModelLayout:
+    """Whether a model directory can be used. The code does not include a path."""
+
+    ok: bool
+    code: str
+    checkpoint_name: str | None = None
+
+
+def check_model_layout(model_dir: Path) -> ModelLayout:
+    """Check ``model``, ``syms.txt``, and a checkpoint. This does not run decode."""
+    if (
+        not isinstance(model_dir, Path)
+        or not model_dir.is_absolute()
+        or ".." in model_dir.parts
+    ):
+        return ModelLayout(False, "unsafe_path")
+    try:
+        root = _resolved_dir(model_dir, "unsafe_path")
+        for name, missing in (
+            (_MODEL_NAME, "missing_model"),
+            (_SYMS_NAME, "missing_syms"),
+        ):
+            problem = _layout_named(root, name, missing)
+            if problem is not None:
+                return ModelLayout(False, problem)
+        problem, checkpoint_name = _layout_checkpoint(root)
+        if problem is not None:
+            return ModelLayout(False, problem)
+        return ModelLayout(True, "ok", checkpoint_name)
+    except (DecodeLayoutError, OSError, RuntimeError):
+        return ModelLayout(False, "unsafe_path")
+
+
+def _layout_named(root: Path, name: str, missing: str) -> str | None:
+    path = root / name
+    try:
+        link = path.is_symlink()
+        exists = path.exists()
+    except (OSError, RuntimeError):
+        return "unsafe_path"
+    if not link and not exists:
+        return missing
+    try:
+        _file_inside(root, name, missing)
+    except (DecodeLayoutError, OSError, RuntimeError):
+        return "unsafe_path"
+    return None
+
+
+def _layout_checkpoint(root: Path) -> tuple[str | None, str | None]:
     preferred = root / _PREFERRED_CHECKPOINT
     try:
-        preferred_exists = preferred.exists() or preferred.is_symlink()
-    except OSError:
-        raise DecodeLayoutError("checkpoint") from None
-    if preferred_exists:
-        return _file_inside(root, _PREFERRED_CHECKPOINT, "checkpoint")
+        preferred_present = preferred.exists() or preferred.is_symlink()
+    except (OSError, RuntimeError):
+        return "unsafe_path", None
+    if preferred_present:
+        try:
+            _file_inside(root, _PREFERRED_CHECKPOINT, "checkpoint")
+        except (DecodeLayoutError, OSError, RuntimeError):
+            return "unsafe_path", None
+        return None, _PREFERRED_CHECKPOINT
+    try:
+        found = _checkpoint_files(root)
+    except DecodeLayoutError:
+        return "unsafe_path", None
+    if len(found) == 0:
+        return "missing_checkpoint", None
+    if len(found) > 1:
+        return "multiple_checkpoints", None
+    return None, found[0].name
+
+
+def _checkpoint_files(root: Path) -> list[Path]:
+    """Top-level checkpoint files decode would use.
+
+    An entry that resolves outside ``root``, or that is not a regular file,
+    is not counted. ``OSError`` becomes ``DecodeLayoutError``.
+    """
     found = []
     try:
         children = list(root.iterdir())
@@ -326,6 +397,18 @@ def _checkpoint(root: Path) -> Path:
             raise DecodeLayoutError("checkpoint") from None
         if _is_inside(root, resolved) and resolved.is_file():
             found.append(resolved)
+    return found
+
+
+def _checkpoint(root: Path) -> Path:
+    preferred = root / _PREFERRED_CHECKPOINT
+    try:
+        preferred_exists = preferred.exists() or preferred.is_symlink()
+    except OSError:
+        raise DecodeLayoutError("checkpoint") from None
+    if preferred_exists:
+        return _file_inside(root, _PREFERRED_CHECKPOINT, "checkpoint")
+    found = _checkpoint_files(root)
     if len(found) != 1:
         raise DecodeLayoutError("checkpoint")
     return found[0]
