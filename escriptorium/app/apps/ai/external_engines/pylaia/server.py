@@ -2,7 +2,8 @@
 
 Run it with ``python -m ai.external_engines.pylaia.server``. The default
 bind is 127.0.0.1 for local contract checks. ``--allow-container-bind``
-allows only ``0.0.0.0``. The default backend is unavailable.
+allows only ``0.0.0.0``. This server is IPv4, so ``::1`` is refused.
+The default backend is unavailable.
 ``--backend decode`` is the only way this process constructs
 ``DecodePyLaiaBackend``. It is not a recognizer, not for production, and
 not started by Compose or by transcription.
@@ -60,6 +61,9 @@ def respond(method, path, body: bytes | None = None, backend=None) -> tuple[int,
     return status, raw
 
 
+_BIND_FAILED = "pylaia skeleton failed to bind"
+
+
 def serve(
     host: str = _DEFAULT_HOST,
     port: int = _DEFAULT_PORT,
@@ -69,11 +73,14 @@ def serve(
     """Bind the skeleton. Raises before listening if the host is not allowed."""
     if not _allowed_host(host, allow_container_bind) or isinstance(port, bool) or not isinstance(port, int) or not 0 < port < 65536:
         raise ValueError("pylaia skeleton binds to loopback only")
-    server = HTTPServer((host, port), _handler(backend))
     try:
-        server.serve_forever()
-    finally:
-        server.server_close()
+        server = HTTPServer((host, port), _handler(backend))
+        try:
+            server.serve_forever()
+        finally:
+            server.server_close()
+    except OSError:
+        raise ValueError(_BIND_FAILED) from None
 
 
 class _StartupRejected(Exception):
@@ -292,7 +299,7 @@ def _allowed_host(host, allow_container_bind) -> bool:
 def _loopback(host) -> bool:
     if not isinstance(host, str):
         return False
-    if host in {"localhost", "::1"}:
+    if host == "localhost":
         return True
     parts = host.split(".")
     if len(parts) != 4 or parts[0] != "127":
