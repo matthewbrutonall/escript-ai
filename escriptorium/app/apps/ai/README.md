@@ -39,6 +39,7 @@ Design: `../../../../ARCHITECTURE.md`. Tests and contribution rules:
 | `docs/external-htr-integration.md` | Planning note for a future explicit external HTR action. Not implemented. Transcription jobs do not use it |
 | `external_htr_request.py` | Builds a `/v1/recognize` body from line geometry. Does not call an engine, read an engine config, or write a transcription |
 | `external_htr_plan.py` | Plans an external HTR request. Does not call an engine or write a transcription |
+| `external_htr_apply_plan.py` | Plans applying an external HTR response. Does not write a transcription |
 | `reference_engine/` | Fake contract-test engine. Returns `LINE {line_id}`. Optional loopback server: `python -m ai.reference_engine.server`. Not a recognizer, not for production, and not used by transcription jobs |
 | `htr_engine_contract_check.py` | Operator check: capabilities, models, one model, one synthetic recognize. Not used by transcription jobs |
 | `management/commands/check_external_htr_engine.py` | CLI for that check: `check_external_htr_engine <config_id>`. Not used by transcription jobs |
