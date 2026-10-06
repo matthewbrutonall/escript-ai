@@ -248,13 +248,14 @@ class IsolationTests(unittest.TestCase):
         ):
             self.assertNotIn(banned, text, banned)
 
-    def test_stage1_and_the_dry_run_command_do_not_import_the_helper(self):
+    def test_stage1_does_not_import_the_helper(self):
         command = (AI_DIR / "management" / "commands" / "plan_external_htr.py").read_text()
         planner = (AI_DIR / "external_htr_plan_command.py").read_text()
         self.assertIn("no_line_image", command)
         self.assertIn("encode_line=no_line_image", command)
+        self.assertIn("--encode-images", command)
         self.assertNotIn("external_htr_image", command)
-        self.assertNotIn("external_htr_image", planner)
+        self.assertIn("encode_line_image", planner)
         for name in RUNTIME:
             text = (AI_DIR / name).read_text()
             self.assertNotIn("external_htr_image", text, name)

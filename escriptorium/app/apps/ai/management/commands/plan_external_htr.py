@@ -2,10 +2,12 @@
 
 This does not call an engine or write a transcription. Output is one line
 and does not include the service address, stored options, a document
-name, or an image.
+name, or an image. ``--encode-images`` opens the part image and crops
+lines for this dry run. The default does not open an image.
 """
 import sys
 
+from PIL import Image
 from django.core.management.base import BaseCommand
 
 from ai.external_htr_plan_command import (
@@ -22,7 +24,8 @@ from core.models import DocumentPart
 class Command(BaseCommand):
     help = (
         "Plan an external HTR dry run and store the audit row. "
-        "This does not call an engine or write a transcription."
+        "This does not call an engine or write a transcription. "
+        "--encode-images is opt-in and still does not call an engine."
     )
 
     def add_arguments(self, parser):
@@ -30,6 +33,14 @@ class Command(BaseCommand):
         parser.add_argument("document_part_id", type=int)
         parser.add_argument("--model-id", required=True)
         parser.add_argument("--engine", required=True)
+        parser.add_argument(
+            "--encode-images",
+            action="store_true",
+            help=(
+                "Encode line images for this dry run. "
+                "This still does not call an engine or write a transcription."
+            ),
+        )
 
     def handle(self, *args, **options):
         try:
@@ -42,6 +53,8 @@ class Command(BaseCommand):
                 fetch_part=_load_part,
                 run=run_external_htr_dry_run,
                 encode_line=no_line_image,
+                encode_images=options["encode_images"],
+                open_image=_open_part_image,
                 dry_run=True,
             )
         except Exception:
@@ -64,3 +77,8 @@ def _load_part(part_id):
     except DocumentPart.DoesNotExist:
         raise PartNotFound from None
     return part, list(part.lines.order_by("order", "pk"))
+
+
+def _open_part_image(part):
+    # The caller closes the image. It has to stay open until the crops are read.
+    return Image.open(part.image.path)

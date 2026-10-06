@@ -1,10 +1,16 @@
 """Operator dry-run plan command. No Django, no network, no transcription write."""
 import ast
+import base64
+import io
 import unittest
 from pathlib import Path
 
+from PIL import Image
+
+from ai.external_htr_plan import plan_external_htr
 from ai.external_htr_plan_command import (
     CODE_CONFIG,
+    CODE_IMAGE,
     CODE_INTERNAL,
     CODE_LIVE,
     CODE_PART,
@@ -150,6 +156,31 @@ def _stored(world, line):
     return "\n".join(parts)
 
 
+def _dump(world):
+    parts = []
+    for job in world.jobs.objects.rows:
+        parts.append(repr(vars(job)))
+    for row in world.lines.objects.rows:
+        parts.append(repr(vars(row)))
+    return "\n".join(parts)
+
+
+def _page(width=40, height=30):
+    image = Image.new("RGB", (width, height), (255, 255, 255))
+    image.filename = SECRET_PATH
+    return image
+
+
+def _rect(x0, y0, x1, y1):
+    return [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
+
+
+def _png(payload):
+    opened = Image.open(io.BytesIO(base64.standard_b64decode(payload)))
+    opened.load()
+    return opened
+
+
 class CommandResultTests(unittest.TestCase):
     def test_success_exits_zero(self):
         world = _World()
@@ -260,6 +291,202 @@ class CommandResultTests(unittest.TestCase):
         self.assertEqual(world.jobs.objects.rows, [])
         self._assert_clean(world, line)
 
+    def test_default_does_not_open_an_image(self):
+        world = _World()
+        world.page = [_Line(10)]
+        opened = []
+
+        def open_image(part):
+            opened.append(part)
+            return _page()
+
+        code, line = world.run(encode_line=None, open_image=open_image)
+        self.assertEqual(code, 1)
+        self.assertEqual(line, "FAILED: external HTR dry run nothing_to_send")
+        self.assertEqual(opened, [])
+        self.assertEqual(
+            [(row.line_id, row.code, row.text) for row in world.lines.objects.rows],
+            [("10", "no_image", "")],
+        )
+        self._assert_clean(world, line)
+
+    def test_encode_images_plans_a_cropped_line(self):
+        world = _World()
+        page = _page()
+        page.putpixel((0, 0), (1, 2, 3))
+        page.putpixel((39, 29), (9, 9, 9))
+        world.page = [
+            _Line(10),
+            _Line(20, mask=_rect(-80, -40, -40, -20), baseline=[[-70, -30], [-50, -30]]),
+        ]
+        opened = []
+        used = []
+        holder = {}
+
+        def open_image(part):
+            opened.append(part)
+            return page
+
+        def decoy(line):
+            used.append(line.pk)
+            return IMAGE
+
+        def spy(config, lines, **kwargs):
+            holder["plan"] = plan_external_htr(
+                config,
+                lines,
+                document_id=kwargs["document"].pk,
+                part_id=kwargs["part"].pk,
+                engine=kwargs["engine"],
+                model_id=kwargs["model_id"],
+                encode_line=kwargs["encode_line"],
+            )
+            return run_external_htr_dry_run(config, lines, **kwargs)
+
+        code, line = world.run(
+            encode_line=decoy,
+            encode_images=True,
+            open_image=open_image,
+            run=spy,
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            line,
+            "OK: external HTR dry run planned job 1 (planned, included=1, skipped=1)",
+        )
+        self.assertEqual(opened, [world.part])
+        self.assertEqual(used, [])
+        payload = holder["plan"].request["lines"][0]["image"]
+        self.assertFalse(payload.startswith("data:"))
+        self.assertEqual([item["line_id"] for item in holder["plan"].request["lines"]], ["10"])
+        opened_image = _png(payload)
+        self.assertEqual(opened_image.size, (10, 4))
+        self.assertEqual(opened_image.getpixel((0, 0)), (1, 2, 3))
+        self.assertNotEqual(opened_image.size, page.size)
+        self.assertEqual(
+            [(row.line_id, row.code, row.text) for row in world.lines.objects.rows],
+            [("20", "no_image", "")],
+        )
+        self.assertNotIn(payload, line)
+        self.assertNotIn(payload, _dump(world))
+        self.assertNotIn("request", vars(world.jobs.objects.rows[0]))
+        self._assert_clean(world, line)
+        self.assertNotIn(SECRET_PATH, payload)
+        self.assertNotIn(TITLE, payload)
+
+    def test_invalid_geometry_is_skipped_without_a_page_image(self):
+        world = _World()
+        opened = []
+
+        def open_image(part):
+            opened.append(part)
+            return _page()
+
+        world.page = [_Line(10, mask=[[5, 5], [5, 5], [5, 5]])]
+        code, line = world.run(encode_images=True, open_image=open_image)
+        self.assertEqual(code, 1)
+        self.assertEqual(line, "FAILED: external HTR dry run nothing_to_send")
+        self.assertEqual(
+            [(row.line_id, row.code, row.text) for row in world.lines.objects.rows],
+            [("10", "no_mask", "")],
+        )
+        self.assertEqual(len(opened), 1)
+        self._assert_clean(world, line)
+
+        world = _World()
+        holder = {}
+
+        def spy(config, lines, **kwargs):
+            holder["plan"] = plan_external_htr(
+                config,
+                lines,
+                document_id=kwargs["document"].pk,
+                part_id=kwargs["part"].pk,
+                engine=kwargs["engine"],
+                model_id=kwargs["model_id"],
+                encode_line=kwargs["encode_line"],
+            )
+            return run_external_htr_dry_run(config, lines, **kwargs)
+
+        world.page = [_Line(
+            10,
+            mask=_rect(-80, -40, -40, -20),
+            baseline=[[-70, -30], [-50, -30]],
+        )]
+        code, line = world.run(encode_images=True, open_image=open_image, run=spy)
+        self.assertEqual(code, 1)
+        self.assertEqual(line, "FAILED: external HTR dry run nothing_to_send")
+        self.assertIsNone(holder["plan"].request)
+        self.assertEqual(
+            [(row.line_id, row.code, row.text) for row in world.lines.objects.rows],
+            [("10", "no_image", "")],
+        )
+        self._assert_clean(world, line)
+
+    def test_image_open_failure_is_a_fixed_line(self):
+        world = _World()
+
+        def explode(part):
+            raise RuntimeError(SECRET_PATH + " decoder exploded")
+
+        def run(*args, **kwargs):
+            raise AssertionError("dry run was called")
+
+        code, line = world.run(encode_images=True, open_image=explode, run=run)
+        self.assertEqual(code, 1)
+        self.assertEqual(line, "FAILED: external HTR dry run " + CODE_IMAGE)
+        self.assertEqual(world.jobs.objects.rows, [])
+        self.assertNotIn(SECRET_PATH, line)
+        self.assertNotIn("decoder exploded", line)
+        self._assert_clean(world, line)
+
+        def give_path(part):
+            return SECRET_PATH
+
+        code, line = world.run(encode_images=True, open_image=give_path, run=run)
+        self.assertEqual(line, "FAILED: external HTR dry run " + CODE_IMAGE)
+        self.assertNotIn(SECRET_PATH, line)
+        self.assertEqual(world.jobs.objects.rows, [])
+
+    def test_disabled_encode_images_does_not_open_the_page(self):
+        world = _World(enabled=False)
+        opened = []
+
+        def open_image(part):
+            opened.append(part)
+            return _page()
+
+        code, line = world.run(encode_images=True, open_image=open_image)
+        self.assertEqual(code, 1)
+        self.assertEqual(line, "FAILED: external HTR dry run disabled")
+        self.assertEqual(opened, [])
+        self.assertEqual(world.calls, [])
+        self._assert_clean(world, line)
+
+    def test_live_refusal_does_not_open_an_image(self):
+        world = _World()
+        opened = []
+
+        def open_image(part):
+            opened.append(part)
+            return _page()
+
+        def run(*args, **kwargs):
+            raise AssertionError("dry run was called")
+
+        code, line = world.run(
+            dry_run=False,
+            encode_images=True,
+            open_image=open_image,
+            run=run,
+        )
+        self.assertEqual(code, 1)
+        self.assertEqual(line, "FAILED: external HTR dry run " + CODE_LIVE)
+        self.assertEqual(opened, [])
+        self.assertEqual(world.fetched_config, 0)
+        self.assertEqual(world.jobs.objects.rows, [])
+        self._assert_clean(world, line)
+
     def _assert_clean(self, world, line):
         self.assertNotIn("\n", line)
         text = _stored(world, line)
@@ -274,6 +501,14 @@ class IsolationTests(unittest.TestCase):
         self.assertIn("run_external_htr_dry_run", text)
         self.assertIn("dry_run=True", text)
         self.assertIn("no_line_image", text)
+        self.assertIn("encode_line=no_line_image", text)
+        self.assertIn('encode_images=options["encode_images"]', text)
+        self.assertIn("open_image=_open_part_image", text)
+        self.assertIn("Image.open(part.image.path)", text)
+        self.assertIn("--encode-images", text)
+        self.assertIn('action="store_true"', text)
+        self.assertNotIn("encode_images=True", text)
+        self.assertNotIn("Image.open", helper)
         self.assertIn("stdout.write", text)
         self.assertIn("sys.exit", text)
         for banned in (
@@ -303,13 +538,18 @@ class IsolationTests(unittest.TestCase):
                     arguments.append(arg.value)
         self.assertEqual(arguments, [
             "config_id", "document_part_id", "--model-id", "--engine",
+            "--encode-images",
         ])
         top = []
         helper_tree = ast.parse(helper)
         for node in helper_tree.body:
             if isinstance(node, ast.ImportFrom) and node.module:
                 top.append(node.module)
-        self.assertEqual(top, ["__future__", "ai.external_htr_service"])
+        self.assertEqual(top, [
+            "__future__",
+            "ai.external_htr_image",
+            "ai.external_htr_service",
+        ])
 
     def test_stage1_modules_do_not_import_the_command(self):
         for name in RUNTIME:
