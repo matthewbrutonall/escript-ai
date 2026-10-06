@@ -43,6 +43,7 @@ Design: `../../../../ARCHITECTURE.md`. Tests and contribution rules:
 | `ExternalHTRJob` / `ExternalHTRLineResult` | Audit and provenance rows for a future external HTR action. Not used by current transcription jobs |
 | `external_htr_audit.py` | Writes external HTR audit and provenance rows only. Does not write transcription output |
 | `external_htr_service.py` | Runs a dry-run external HTR audit flow. Does not call an engine or write transcription output |
+| `management/commands/plan_external_htr.py` | Operator dry-run audit only: `plan_external_htr <config_id> <document_part_id> --model-id <id> --engine <engine>`. Does not call an engine or write transcription output. Does not encode a page image |
 | `reference_engine/` | Fake contract-test engine. Returns `LINE {line_id}`. Optional loopback server: `python -m ai.reference_engine.server`. Not a recognizer, not for production, and not used by transcription jobs |
 | `htr_engine_contract_check.py` | Operator check: capabilities, models, one model, one synthetic recognize. Not used by transcription jobs |
 | `management/commands/check_external_htr_engine.py` | CLI for that check: `check_external_htr_engine <config_id>`. Not used by transcription jobs |
