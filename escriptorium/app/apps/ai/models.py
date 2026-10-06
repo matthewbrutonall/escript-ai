@@ -364,3 +364,116 @@ class ExternalHTREngineConfig(models.Model):
         super().clean()
         if not isinstance(self.metadata, dict):
             raise ValidationError({"metadata": _("metadata must be a JSON object.")})
+
+
+class ExternalHTRJob(models.Model):
+    """Audit row for a future external HTR action.
+
+    Transcription jobs do not read this table. Saving a row does not call
+    an engine and does not write a transcription layer. Do not store API
+    keys, endpoint URLs, document paths, base64 images, or raw responses.
+    """
+    STATUS_PLANNED = "planned"
+    STATUS_SENT = "sent"
+    STATUS_COMPLETED = "completed"
+    STATUS_FAILED = "failed"
+    STATUS_CANCELLED = "cancelled"
+    STATUS_CHOICES = (
+        (STATUS_PLANNED, "planned"),
+        (STATUS_SENT, "sent"),
+        (STATUS_COMPLETED, "completed"),
+        (STATUS_FAILED, "failed"),
+        (STATUS_CANCELLED, "cancelled"),
+    )
+
+    document = models.ForeignKey(
+        "core.Document", on_delete=models.CASCADE, related_name="external_htr_jobs")
+    part = models.ForeignKey(
+        "core.DocumentPart", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="external_htr_jobs")
+    config = models.ForeignKey(
+        ExternalHTREngineConfig, on_delete=models.PROTECT, related_name="jobs")
+    model_id = models.CharField(
+        max_length=256, blank=True, default="",
+        help_text=_("Contract model id. Not a file path."))
+    status = models.CharField(
+        max_length=16, choices=STATUS_CHOICES, default=STATUS_PLANNED)
+    layer_source = models.CharField(
+        max_length=128, null=True, blank=True,
+        help_text=_("version_source stamp. Empty until a response is planned."))
+    engine = models.CharField(max_length=256, blank=True, default="")
+    model_version = models.CharField(max_length=256, blank=True, default="")
+    api_version = models.CharField(max_length=16, blank=True, default="")
+    requested_line_count = models.PositiveIntegerField(default=0)
+    skipped_line_count = models.PositiveIntegerField(default=0)
+    result_count = models.PositiveIntegerField(default=0)
+    warning_count = models.PositiveIntegerField(default=0)
+    empty_text_count = models.PositiveIntegerField(default=0)
+    code = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text=_("Fixed status code. Do not store an endpoint, a path, or a response body."))
+    message = models.CharField(
+        max_length=256, blank=True, default="",
+        help_text=_("Fixed status text. Do not store API keys, endpoints, document paths, or raw responses."))
+    created_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="external_htr_jobs")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "external HTR job"
+
+    def __str__(self):
+        return f"ExternalHTRJob#{self.pk} {self.status}"
+
+
+class ExternalHTRLineResult(models.Model):
+    """One planned line outcome. Not a LineTranscription.
+
+    Do not store API keys, base64 images, or raw response bodies.
+    """
+    STATUS_INCLUDED = "included"
+    STATUS_SKIPPED = "skipped"
+    STATUS_FAILED = "failed"
+    STATUS_CHOICES = (
+        (STATUS_INCLUDED, "included"),
+        (STATUS_SKIPPED, "skipped"),
+        (STATUS_FAILED, "failed"),
+    )
+
+    job = models.ForeignKey(
+        ExternalHTRJob, on_delete=models.CASCADE, related_name="lines")
+    line_id = models.CharField(max_length=256)
+    position = models.PositiveIntegerField(
+        default=0, help_text=_("Order of this line in the request."))
+    text = models.TextField(
+        blank=True, default="",
+        help_text=_("Recognized text. Empty text is valid. Do not store an image."))
+    confidence = models.FloatField(null=True, blank=True)
+    timing_ms = models.PositiveIntegerField(default=0)
+    warnings = models.JSONField(
+        default=list, blank=True,
+        help_text=_("Short warning strings. Do not store API keys or raw images."))
+    status = models.CharField(
+        max_length=16, choices=STATUS_CHOICES, default=STATUS_INCLUDED)
+    code = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text=_("Fixed line code, such as a skip reason."))
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["job_id", "position", "pk"]
+        unique_together = [("job", "line_id")]
+        verbose_name = "external HTR line result"
+
+    def __str__(self):
+        return f"ExternalHTRLineResult {self.line_id}"
+
+    def clean(self):
+        super().clean()
+        warnings = self.warnings
+        if not isinstance(warnings, list) or any(not isinstance(item, str) for item in warnings):
+            raise ValidationError({"warnings": _("warnings must be a list of strings.")})

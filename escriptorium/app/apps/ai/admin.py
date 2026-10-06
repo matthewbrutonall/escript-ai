@@ -12,7 +12,8 @@ from .htr_engine_client import probe_configs
 from .models import (
     AIBackendConfig, AIDocumentPolicy, AIExample, AIJob, AILayerGate,
     AILineDisagreement, AISegSuggestion, AIUsageLedger,
-    AIUserKey, AIUserQuota, ExternalHTREngineConfig,
+    AIUserKey, AIUserQuota, ExternalHTREngineConfig, ExternalHTRJob,
+    ExternalHTRLineResult,
 )
 from .secrets import encrypt_key
 
@@ -70,6 +71,24 @@ class ExternalHTREngineConfigAdmin(admin.ModelAdmin):
         }
         for level, text in probe_configs(queryset):
             self.message_user(request, text, levels[level])
+
+
+@admin.register(ExternalHTRJob)
+class ExternalHTRJobAdmin(admin.ModelAdmin):
+    list_display = (
+        "pk", "status", "document", "model_id", "requested_line_count",
+        "result_count", "created_at",
+    )
+    list_filter = ("status",)
+    search_fields = ("model_id", "engine")
+    raw_id_fields = ("document", "part", "config", "created_by")
+
+
+@admin.register(ExternalHTRLineResult)
+class ExternalHTRLineResultAdmin(admin.ModelAdmin):
+    list_display = ("pk", "job", "line_id", "status", "position", "timing_ms")
+    list_filter = ("status",)
+    raw_id_fields = ("job",)
 
 
 @admin.register(AIBackendConfig)
