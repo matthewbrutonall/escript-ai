@@ -37,6 +37,7 @@ Design: `../../../../ARCHITECTURE.md`. Tests and contribution rules:
 | `htr_engine_client.py` | GET capabilities and models, plus `recognize_lines` (`POST /v1/recognize`). Not imported by transcription jobs |
 | `docs/htr-engine-contract.md` | Wrapper-facing examples for that contract. Not a running service |
 | `docs/external-htr-integration.md` | Planning note for a future explicit external HTR action. Not implemented. Transcription jobs do not use it |
+| `docs/external-htr-operator-workflow.md` | Operator steps to export a request JSON and run a file-based live check. Does not change Transcribe, write a transcription layer, or write audit rows from that live check |
 | `external_htr_request.py` | Builds a `/v1/recognize` body from line geometry. Does not call an engine, read an engine config, or write a transcription |
 | `external_htr_plan.py` | Plans an external HTR request. Does not call an engine or write a transcription |
 | `external_htr_apply_plan.py` | Plans applying an external HTR response. Does not write a transcription |
