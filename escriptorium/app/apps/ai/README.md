@@ -45,7 +45,8 @@ Design: `../../../../ARCHITECTURE.md`. Tests and contribution rules:
 | `external_htr_service.py` | Runs a dry-run external HTR audit flow. Does not call an engine or write transcription output |
 | `management/commands/plan_external_htr.py` | Operator dry-run audit only: `plan_external_htr <config_id> <document_part_id> --model-id <id> --engine <engine>`. `--encode-images` is opt-in and still dry-run only. Does not call an engine or write transcription output. The default does not encode a page image |
 | `external_htr_image.py` | Encodes one line image for a future external HTR action. The dry-run command uses it only with opt-in `--encode-images`. Not wired into current transcription jobs |
-| `external_htr_live.py` | Performs a narrow external HTR live call from an already-built request. Not wired into commands or tasks. Does not write transcription output |
+| `external_htr_live.py` | Performs a narrow external HTR live call from an already-built request. Called by the operator command `check_external_htr_live`. Not wired into tasks. Does not write transcription output |
+| `management/commands/check_external_htr_live.py` | Operator live check from a supplied request JSON file: `check_external_htr_live <config_id> <request_json_path>`. Does not read documents, write audit rows, or write transcription output |
 | `reference_engine/` | Fake contract-test engine. Returns `LINE {line_id}`. Optional loopback server: `python -m ai.reference_engine.server`. Not a recognizer, not for production, and not used by transcription jobs |
 | `htr_engine_contract_check.py` | Operator check: capabilities, models, one model, one synthetic recognize. Not used by transcription jobs |
 | `management/commands/check_external_htr_engine.py` | CLI for that check: `check_external_htr_engine <config_id>`. Not used by transcription jobs |
