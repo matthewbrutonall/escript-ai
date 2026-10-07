@@ -7,6 +7,10 @@ service does not transcribe a document. Existing transcription jobs, views,
 and the Transcribe action do not read that table and do not call these
 routes.
 
+The operator procedure that is available now is
+`external-htr-operator-workflow.md`. It checks an engine. It does not
+implement the action described below.
+
 ## What is already ready
 
 ### ExternalHTREngineConfig
