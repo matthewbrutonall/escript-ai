@@ -5,6 +5,9 @@ application, and it does not add a Transcribe option. The current
 Transcribe action and `ai_transcribe` are unchanged. This check does not
 write a transcription layer and does not write `LineTranscription` rows.
 The request export and the file-based live check do not write audit rows.
+Phase A is the separate command `run_external_htr_audit`. It records
+audit rows only. It does not write a transcription layer, and it is not
+the Transcribe action.
 
 `external-htr-integration.md` describes a future explicit action. That
 action is not implemented. Completing the steps below does not implement
@@ -184,6 +187,48 @@ printed; the code is `invalid_request` instead.
 `plan_external_htr` is a different command. It records a dry-run audit
 and does not call an engine. It is not part of this check, and it has
 no live mode.
+
+## Phase A: audit only
+
+This command is an operator audit. It is not a user-facing workflow and
+it is not Transcribe. `ai_transcribe` is unchanged.
+
+```bash
+python manage.py run_external_htr_audit <config_id> <document_part_id> --engine <engine> --model-id <model_id>
+```
+
+It loads one enabled engine row and one document part, encodes line
+images in memory, calls that engine, and records an audit job. It does
+not write a request file. It does not write a transcription layer or a
+`LineTranscription` row.
+
+A disabled row stops before the page image is opened and before any
+audit row is written. If the page image cannot be opened, the command
+stops before any audit row is written. If no line can be sent, the audit
+job is recorded as failed and the engine is not called. If the engine
+call fails, that job is marked failed. The stored code and message are
+fixed. The failure row does not contain an exception, a raw response,
+the service address, or a line image.
+
+Success prints:
+
+```text
+OK: external HTR audit job <id> completed results=<n> skipped=<n>
+```
+
+Failure prints:
+
+```text
+FAILED: external HTR audit <code>
+```
+
+The printed line does not include the service address, stored options, a
+document name, image data, the raw request, the raw response, or
+exception text.
+
+`check_external_htr_live` remains a separate file-based check and still
+writes no audit rows. `export_external_htr_request` only writes a request
+file. `plan_external_htr` remains a dry run and has no live mode.
 
 ## 7. Stop the smoke service
 
