@@ -32,6 +32,12 @@ from ai.external_htr_plan import (
     ExternalHtrPlan,
     plan_external_htr,
 )
+from ai.external_htr_policy import (
+    CODE_OFFSITE,
+    CODE_POLICY,
+    MESSAGE_OFFSITE,
+    MESSAGE_POLICY,
+)
 
 CODE_CONFIG = "config_not_found"
 CODE_PART = "part_not_found"
@@ -50,6 +56,8 @@ _FAILURE_MESSAGES = frozenset({
     MESSAGE_APPLY,
     PLAN_INVALID,
     MESSAGE_NOTHING,
+    MESSAGE_OFFSITE,
+    MESSAGE_POLICY,
 })
 
 # Printed and stored failure codes. Anything else, including a payload, becomes internal.
@@ -71,6 +79,8 @@ _PUBLIC_CODES = frozenset({
     "busy",
     "already_finalized",
     "invalid_plan",
+    CODE_OFFSITE,
+    CODE_POLICY,
 })
 
 _SKIP_CODES = frozenset({
@@ -106,11 +116,14 @@ def execute_external_htr_audit(
     record_plan=record_external_htr_plan,
     record_apply=record_external_htr_apply,
     run=run_external_htr_live,
+    fetch_policy=None,
 ) -> tuple[int, str]:
     """Audit one document part. A disabled config returns before the page opens.
 
-    Image failure returns before any audit row is written. A live failure
-    marks the planned job failed and does not copy the response.
+    The off-site policy is checked before the page image is opened. Image
+    failure returns before any audit row is written. A later policy
+    rejection marks an existing planned job failed. A live failure does
+    not copy the response.
     """
     try:
         config = fetch_config(config_id)
@@ -133,6 +146,9 @@ def execute_external_htr_audit(
         return _fail(CODE_INVALID)
     if getattr(config, "enabled", None) is not True:
         return _fail(CODE_DISABLED)
+    blocked = _blocked(fetch_policy, document, config)
+    if blocked:
+        return _fail(blocked)
     page = _opened_page(open_image, part)
     if not _usable_page(page):
         _close(page)
@@ -174,6 +190,10 @@ def execute_external_htr_audit(
         if getattr(job, "status", None) == STATUS_PLANNED:
             _store_failure(job, CODE_INVALID, PLAN_INVALID, record_apply)
         return _fail(_public_code(getattr(built, "code", None), CODE_NOTHING))
+    blocked = _blocked(fetch_policy, document, config)
+    if blocked:
+        _store_failure(job, blocked, _policy_message(blocked), record_apply)
+        return _fail(blocked)
     try:
         result = run(config, request)
     except Exception:
@@ -198,6 +218,25 @@ def execute_external_htr_audit(
         _store_failure(job, CODE_INTERNAL, None, record_apply)
         return _fail(CODE_INTERNAL)
     return _ok(job)
+
+
+def _blocked(fetch_policy, document, config):
+    """A fixed code when the document must not be sent, else None."""
+    if not callable(fetch_policy):
+        return CODE_POLICY
+    try:
+        verdict = fetch_policy(document, config)
+    except Exception:
+        return CODE_POLICY
+    if verdict is None:
+        return None
+    return _public_code(verdict, CODE_POLICY)
+
+
+def _policy_message(code: str) -> str:
+    if code == CODE_OFFSITE:
+        return MESSAGE_OFFSITE
+    return MESSAGE_POLICY
 
 
 def _accepted(result, apply_plan) -> bool:

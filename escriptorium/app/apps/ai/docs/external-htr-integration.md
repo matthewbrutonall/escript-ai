@@ -108,10 +108,14 @@ field. The model bundle stays outside the repository and outside the row.
 Apply `AIDocumentPolicy` before the first request, in the task, not only
 in the UI. `never_send_offsite` already blocks a remote hosted backend.
 This action is not that backend, so the new task must perform its own
-check. Treat `localhost` and `127.0.0.0/8` as local. Treat any other host
-as off-site and refuse it when the document forbids off-site sends. A
-missing policy row stays allowed, which is the rule the hosted path
-already uses. Do not weaken that rule for hosted backends.
+check. Treat `localhost`, `127.0.0.0/8`, and the literal address `::1`
+as local. Treat any other host as off-site, including private LAN
+addresses and Docker service names, and do not use DNS to decide. Refuse
+the call when the document forbids off-site sends. A missing policy row
+stays allowed, which is the rule the hosted path already uses. Do not
+weaken that rule for hosted backends. The operator commands
+`check_external_htr_live` and `run_external_htr_audit` already apply
+this check before they call an engine.
 
 The monthly USD cap and `AIUsageLedger` record hosted VLM spend. A local
 engine has no API price. This action must not invent a token charge and

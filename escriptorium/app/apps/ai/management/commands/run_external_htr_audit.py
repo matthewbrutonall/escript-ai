@@ -14,6 +14,7 @@ from ai.external_htr_audit_command import (
     PartNotFound,
     execute_external_htr_audit,
 )
+from ai.external_htr_policy import review_document_endpoint
 from ai.models import ExternalHTREngineConfig
 from core.models import DocumentPart
 
@@ -40,6 +41,7 @@ class Command(BaseCommand):
                 fetch_config=_load_config,
                 fetch_part=_load_part,
                 open_image=_open_part_image,
+                fetch_policy=review_document_endpoint,
             )
         except Exception:
             code, line = 1, "FAILED: external HTR audit internal"
