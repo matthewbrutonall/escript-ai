@@ -36,11 +36,12 @@ Design: `../../../../ARCHITECTURE.md`. Tests and contribution rules:
 | `htr_engine_contract.py` | External HTR engine contract, v1. Not imported by existing transcription jobs, views, or adapters |
 | `htr_engine_client.py` | GET capabilities and models, plus `recognize_lines` (`POST /v1/recognize`). Not imported by transcription jobs |
 | `docs/htr-engine-contract.md` | Wrapper-facing examples for that contract. Not a running service |
-| `docs/external-htr-integration.md` | Planning note for a future explicit external HTR action. Not implemented. Transcription jobs do not use it |
+| `docs/external-htr-integration.md` | Distinguishes the writeback planner from the future write. The write is not implemented. Transcription jobs do not use it |
 | `docs/external-htr-operator-workflow.md` | Operator steps to export a request JSON and run a file-based live check. Does not change Transcribe, write a transcription layer, or write audit rows from that live check |
 | `external_htr_request.py` | Builds a `/v1/recognize` body from line geometry. Does not call an engine, read an engine config, or write a transcription |
 | `external_htr_plan.py` | Plans an external HTR request. Does not call an engine or write a transcription |
 | `external_htr_apply_plan.py` | Plans applying an external HTR response. Does not write a transcription |
+| `external_htr_writeback_plan.py` | Plans a new transcription layer from a completed external HTR audit. Does not call an engine, open an image, change the audit, or write transcription output |
 | `ExternalHTRJob` / `ExternalHTRLineResult` | Audit and provenance rows for a future external HTR action. Not used by current transcription jobs |
 | `external_htr_audit.py` | Writes external HTR audit and provenance rows only. Does not write transcription output |
 | `external_htr_service.py` | Runs a dry-run external HTR audit flow. Does not call an engine or write transcription output |
