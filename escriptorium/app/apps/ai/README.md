@@ -42,7 +42,7 @@ Design: `../../../../ARCHITECTURE.md`. Tests and contribution rules:
 | `external_htr_plan.py` | Plans an external HTR request. Does not call an engine or write a transcription |
 | `external_htr_apply_plan.py` | Plans applying an external HTR response. Does not write a transcription |
 | `external_htr_writeback_plan.py` | Plans a new transcription layer from a completed external HTR audit. Does not call an engine, open an image, change the audit, or write transcription output |
-| `external_htr_writeback.py` | Creates one new transcription layer from a completed external HTR audit. Callable from code and tests only. Does not call an engine, open an image, or add a command, task, or API. Does not change Transcribe. The new layer has no `AILayerGate`, so existing rules treat it as trainable. It is not marked training-eligible, and training is not blocked |
+| `external_htr_writeback.py` | Creates one new transcription layer from a completed external HTR audit, plus a raw `AILayerGate` on that layer. Callable from code and tests only. Does not call an engine, open an image, choose a sample, or add a command, task, or API. Does not change Transcribe. Training checks refuse the layer while the gate is raw. Manual and kraken layers with no gate stay trainable. Recording the review sample is still a separate step |
 | `ExternalHTRJob` / `ExternalHTRLineResult` | Audit and provenance rows for a future external HTR action. Not used by current transcription jobs |
 | `external_htr_audit.py` | Writes external HTR audit and provenance rows only. Does not write transcription output |
 | `external_htr_service.py` | Runs a dry-run external HTR audit flow. Does not call an engine or write transcription output |

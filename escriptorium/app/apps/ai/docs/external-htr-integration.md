@@ -109,9 +109,9 @@ tests can call it. No command, task, or page calls it.
 
 The audit status stays `completed`. `imported` records that the import
 finished, and `imported_transcription` points at the new layer. Both are
-set only after every line row has been created. `imported` stays true if
-that layer is later removed. The link is then cleared, and another import
-of the same audit still creates nothing.
+set only after every line row and the raw gate have been created.
+`imported` stays true if that layer is later removed. The link is then
+cleared, and another import of the same audit still creates nothing.
 
 Line text is stored as planned, including an empty string. Text longer
 than 2048 characters is refused and is not shortened. Each line's
@@ -127,10 +127,26 @@ import of the same audit creates one layer only.
 The helper does not call an engine, open a page image, crop a line, or
 read a request file. It does not change Transcribe or `ai_transcribe`.
 
-The helper does not create an `AILayerGate`. A layer with no gate is
-trainable under the existing rule for manual and kraken layers. The helper
-does not mark that layer training-eligible. Training stays available.
-This note does not add a gate.
+The same transaction creates one `AILayerGate` in state `raw`. The gate's
+transcription is the new layer, so the document is that layer's document.
+`job` stays empty because that field points at an `AIJob`, and this audit
+is not one. `comparison` stays empty. The helper does not acknowledge a
+sample or mark the layer training-eligible. Training checks refuse the
+layer while the gate is raw. A manual or kraken layer with no gate keeps
+the existing trainable rule.
+
+The import does not choose `sample_line_pks`. `acknowledge_sample` refuses
+a gate with an empty sample. The existing `ai_transcribe` task is what
+records a sample, and this helper does not run that task or a Kraken
+comparison. A later action can store a sample with `build_gate_sample`
+and no comparison layer. The existing acknowledge and mark-eligible steps
+can then make the layer training-eligible. That action is not part of
+this helper, so creating the raw gate does not by itself open the review.
+
+Archivists can read and correct the imported line text. The gate does not
+block those edits. A later correction can be stored as an `AIExample` by
+the existing correction signal. That record does not mark the layer
+training-eligible.
 
 The operator action in the next section is still not implemented.
 
@@ -171,10 +187,10 @@ response provenance. A response whose provenance does not match its header
 is not written. `confidence` stays engine-specific and is not a rank.
 `timing_ms` of 0 means the engine did not measure that interval.
 
-The layer starts as draft text. If a later action records a quality gate,
-that gate starts at `raw` and is not marked training-eligible. The
-code-only helper does not record one, so its layer stays trainable under
-the existing rule.
+The layer starts as draft text. The code-only helper records a raw gate
+for a layer it creates from an audit that is already stored. That gate is
+not marked training-eligible. The operator task in this section does not
+exist yet and does not add another gate.
 
 ## Safety
 

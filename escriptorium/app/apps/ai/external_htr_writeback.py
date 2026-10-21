@@ -3,7 +3,7 @@
 Callable from code and tests. No command, task, or view imports this module.
 The audit status stays completed. ``imported`` is the durable marker, and
 ``imported_transcription`` is the layer link. The marker is set only after
-every line row has been created, in the same transaction.
+the line rows and a raw layer gate have been created, in the same transaction.
 """
 from __future__ import annotations
 
@@ -44,7 +44,7 @@ def import_external_htr_writeback(job_id):
     The job row is locked inside ``transaction.atomic`` and the planner runs
     again against the current part lines. An integrity error is handled
     outside that block so a failed insert rolls back the layer, its line
-    rows, and the import marker.
+    rows, the raw gate, and the import marker.
     """
     if isinstance(job_id, bool) or not isinstance(job_id, int) or job_id < 1:
         return _result(False, CODE_INCOMPLETE, MESSAGE_INCOMPLETE, None, None)
@@ -56,7 +56,7 @@ def import_external_htr_writeback(job_id):
 
 
 def _import_locked(job_id):
-    from ai.models import ExternalHTRJob
+    from ai.models import AILayerGate, ExternalHTRJob
     from core.models import CascadeUpdate, LineTranscription, Transcription
 
     try:
@@ -84,6 +84,11 @@ def _import_locked(job_id):
                 version_source=plan.provenance_stamp,
                 version_author=author,
             )
+    # job stays null: AILayerGate.job is an AIJob, not this audit.
+    AILayerGate.objects.create(
+        transcription=layer,
+        state=AILayerGate.STATE_RAW,
+    )
     job.imported = True
     job.imported_transcription = layer
     job.save(update_fields=["imported", "imported_transcription", "updated_at"])
