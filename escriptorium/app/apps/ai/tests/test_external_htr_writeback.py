@@ -49,7 +49,10 @@ class WritebackSourceTests(unittest.TestCase):
             "external_htr_live",
             "get_or_create",
             "new_version",
-            "AILayerGate",
+            "acknowledge_sample",
+            "mark_training_eligible",
+            "build_gate_sample",
+            "find_comparison_transcription",
             ".image",
         ):
             self.assertNotIn(banned, text, banned)
@@ -58,9 +61,15 @@ class WritebackSourceTests(unittest.TestCase):
             "transaction.atomic",
             "IntegrityError",
             "CascadeUpdate.bypass",
+            "AILayerGate.objects.create",
+            "state=AILayerGate.STATE_RAW",
             'update_fields=["imported", "imported_transcription", "updated_at"]',
         ):
             self.assertIn(required, text, required)
+        self.assertLess(
+            text.index("AILayerGate.objects.create"),
+            text.index("job.imported = True"),
+        )
         tree = ast.parse(text)
         imported = []
         for node in ast.walk(tree):
