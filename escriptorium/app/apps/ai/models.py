@@ -415,6 +415,14 @@ class ExternalHTRJob(models.Model):
     message = models.CharField(
         max_length=256, blank=True, default="",
         help_text=_("Fixed status text. Do not store API keys, endpoints, document paths, or raw responses."))
+    imported = models.BooleanField(
+        default=False,
+        help_text=_("True after a transcription layer has been created from this audit. "
+                    "Stays true if that layer is later removed."))
+    imported_transcription = models.OneToOneField(
+        "core.Transcription", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="external_htr_import",
+        help_text=_("Layer created from this audit. Empty until import succeeds."))
     created_by = models.ForeignKey(
         User, null=True, blank=True, on_delete=models.SET_NULL,
         related_name="external_htr_jobs")

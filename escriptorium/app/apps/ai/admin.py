@@ -82,6 +82,7 @@ class ExternalHTRJobAdmin(admin.ModelAdmin):
     list_filter = ("status",)
     search_fields = ("model_id", "engine")
     raw_id_fields = ("document", "part", "config", "created_by")
+    readonly_fields = ("imported", "imported_transcription")
 
 
 @admin.register(ExternalHTRLineResult)
