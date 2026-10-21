@@ -1,10 +1,12 @@
 """PostgreSQL checks for the external HTR writeback helper.
 
 The helper creates one layer from a stored audit. Engine IO is mocked.
-No production rows are read. Concurrency uses two database connections.
+No production rows are read. The concurrency test uses two database
+connections and records the second waiting on the audit-row lock.
 """
 import os
 import threading
+import time
 import uuid
 from contextlib import contextmanager
 from datetime import timedelta
@@ -12,7 +14,7 @@ from io import BytesIO
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.db import close_old_connections
+from django.db import close_old_connections, connection
 from django.test import TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
 from PIL import Image
@@ -27,6 +29,7 @@ from ai.external_htr_writeback import (
     import_external_htr_writeback,
 )
 from ai.external_htr_writeback_plan import (
+    load_external_htr_writeback_plan,
     CODE_CANCELLED,
     CODE_FAILED as CODE_AUDIT_FAILED,
     CODE_INCOMPLETE,
@@ -384,6 +387,23 @@ class _WritebackFixture:
         self.assertEqual(Transcription.objects.count(), layers)
         self.assertFalse(Transcription.objects.filter(pk=layer_id).exists())
 
+    def test_document_delete_removes_the_imported_audit_and_layer(self):
+        job = self._audit(result_count=1)
+        self._result(job, str(self.line.pk), "kept", position=0)
+        with _no_io():
+            result = import_external_htr_writeback(job.pk)
+        self.assertTrue(result.imported)
+        layer_id = result.transcription_id
+        job_id = job.pk
+        document_id = self.document.pk
+        with patch("core.models.send_event"):
+            self.document.delete()
+        self.assertFalse(Document.objects.filter(pk=document_id).exists())
+        self.assertFalse(ExternalHTRJob.objects.filter(pk=job_id).exists())
+        self.assertFalse(Transcription.objects.filter(pk=layer_id).exists())
+        self.assertFalse(ExternalHTRLineResult.objects.filter(job_id=job_id).exists())
+        self.assertFalse(LineTranscription.objects.filter(transcription_id=layer_id).exists())
+
     def _assert_unchanged(self, job, code, message):
         old = timezone.now() - timedelta(days=1)
         ExternalHTRJob.objects.filter(pk=job.pk).update(updated_at=old)
@@ -489,7 +509,7 @@ class ExternalHtrWritebackConcurrencyTests(TransactionTestCase):
     A TestCase transaction would hide those rows from the second connection.
     """
 
-    def test_two_connections_create_one_layer(self):
+    def test_second_import_waits_on_the_held_audit_lock(self):
         host = ExternalHtrWritebackOrmTests(
             "test_import_preserves_text_order_and_provenance",
         )
@@ -504,15 +524,49 @@ class ExternalHtrWritebackConcurrencyTests(TransactionTestCase):
                 "pk", flat=True,
             )
         )
-        barrier = threading.Barrier(2)
+        held = threading.Event()
+        release = threading.Event()
+        second_started = threading.Event()
         outcomes = []
         errors = []
+        observed = {}
         guard = threading.Lock()
 
-        def run():
+        def blocking_plan(plan_job_id):
+            # The helper calls this only after select_for_update. The first
+            # caller still owns that transaction, so the second import waits
+            # on the audit row until release is set.
+            if not held.is_set():
+                held.set()
+                if not release.wait(timeout=15):
+                    raise TimeoutError("audit lock was not released")
+            return load_external_htr_writeback_plan(plan_job_id)
+
+        def _session(name):
             close_old_connections()
+            connection.ensure_connection()
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT set_config('application_name', %s, false)", [name])
+
+        def first():
             try:
-                barrier.wait(timeout=15)
+                _session("htr-writeback-holder")
+                result = import_external_htr_writeback(job_id)
+                with guard:
+                    outcomes.append(result)
+            except Exception as exc:
+                with guard:
+                    errors.append(type(exc).__name__)
+            finally:
+                release.set()
+                close_old_connections()
+
+        def second():
+            try:
+                if not held.wait(timeout=15):
+                    raise TimeoutError("holder did not take the audit lock")
+                _session("htr-writeback-waiter")
+                second_started.set()
                 result = import_external_htr_writeback(job_id)
                 with guard:
                     outcomes.append(result)
@@ -522,15 +576,63 @@ class ExternalHtrWritebackConcurrencyTests(TransactionTestCase):
             finally:
                 close_old_connections()
 
-        with _no_io():
-            threads = [threading.Thread(target=run), threading.Thread(target=run)]
+        def watch():
+            try:
+                if not second_started.wait(timeout=15):
+                    return
+                close_old_connections()
+                connection.ensure_connection()
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline:
+                    row = _audit_lock_wait()
+                    if row is not None:
+                        with guard:
+                            observed.update(row)
+                        return
+                    if release.wait(0.05):
+                        return
+            except Exception as exc:
+                with guard:
+                    errors.append(type(exc).__name__)
+            finally:
+                release.set()
+                close_old_connections()
+
+        threads = [
+            threading.Thread(target=first),
+            threading.Thread(target=second),
+            threading.Thread(target=watch),
+        ]
+        try:
+            with _no_io(), patch(
+                "ai.external_htr_writeback.load_external_htr_writeback_plan",
+                blocking_plan,
+            ):
+                for thread in threads:
+                    thread.start()
+                for thread in threads:
+                    thread.join(timeout=20)
+                    self.assertFalse(thread.is_alive())
+        finally:
+            release.set()
+            held.set()
             for thread in threads:
-                thread.start()
-            for thread in threads:
-                thread.join(timeout=30)
-                self.assertFalse(thread.is_alive())
+                thread.join(timeout=5)
 
         self.assertEqual(errors, [])
+        self.assertFalse(any(thread.is_alive() for thread in threads))
+        self.assertEqual(
+            (
+                observed.get("wait_event_type"),
+                observed.get("wait_event"),
+                observed.get("locktype"),
+                observed.get("granted"),
+            ),
+            ("Lock", "transactionid", "transactionid", False),
+            observed,
+        )
+        self.assertNotEqual(observed.get("waiter_pid"), observed.get("holder_pid"))
+        self.assertEqual(observed.get("holder_relation"), "ai_externalhtrjob")
         self.assertEqual(
             sorted(item.code for item in outcomes),
             [CODE_ALREADY, CODE_IMPORTED],
@@ -552,10 +654,58 @@ class ExternalHtrWritebackConcurrencyTests(TransactionTestCase):
                 "pk", flat=True,
             )
         ) - before
-        self.assertEqual(created, {imported[0].transcription_id, job.imported_transcription_id})
         self.assertEqual(len(created), 1)
+        self.assertEqual(created, {job.imported_transcription_id})
         rows = list(
             LineTranscription.objects.filter(transcription_id=job.imported_transcription_id)
         )
         self.assertEqual([(row.line_id, row.content) for row in rows], [(line_id, "same")])
         self.assertEqual(LineTranscription.objects.filter(line_id=line_id).count(), 1)
+
+
+def _audit_lock_wait():
+    """Return the waiter while another session holds the audit-job row lock."""
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT waiter.pid,
+                   waiter.wait_event_type,
+                   waiter.wait_event,
+                   blocked.locktype,
+                   blocked.granted,
+                   holder.pid,
+                   holder_class.relname
+            FROM pg_stat_activity waiter
+            JOIN pg_locks blocked
+              ON blocked.pid = waiter.pid
+             AND NOT blocked.granted
+            JOIN pg_stat_activity holder
+              ON holder.application_name = 'htr-writeback-holder'
+             AND holder.datname = waiter.datname
+             AND holder.pid <> waiter.pid
+            JOIN pg_locks held
+              ON held.pid = holder.pid
+             AND held.granted
+            JOIN pg_class holder_class
+              ON holder_class.oid = held.relation
+             AND holder_class.relname = 'ai_externalhtrjob'
+            WHERE waiter.application_name = 'htr-writeback-waiter'
+              AND waiter.datname = current_database()
+              AND waiter.wait_event_type = 'Lock'
+              AND waiter.wait_event = 'transactionid'
+              AND blocked.locktype = 'transactionid'
+            LIMIT 1
+            """
+        )
+        row = cursor.fetchone()
+    if row is None:
+        return None
+    return {
+        "waiter_pid": row[0],
+        "wait_event_type": row[1],
+        "wait_event": row[2],
+        "locktype": row[3],
+        "granted": row[4],
+        "holder_pid": row[5],
+        "holder_relation": row[6],
+    }

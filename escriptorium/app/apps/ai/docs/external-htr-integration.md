@@ -127,6 +127,11 @@ import of the same audit creates one layer only.
 The helper does not call an engine, open a page image, crop a line, or
 read a request file. It does not change Transcribe or `ai_transcribe`.
 
+The helper does not create an `AILayerGate`. A layer with no gate is
+trainable under the existing rule for manual and kraken layers. The helper
+does not mark that layer training-eligible. Training stays available.
+This note does not add a gate.
+
 The operator action in the next section is still not implemented.
 
 ## Proposed first integration
@@ -166,8 +171,10 @@ response provenance. A response whose provenance does not match its header
 is not written. `confidence` stays engine-specific and is not a rank.
 `timing_ms` of 0 means the engine did not measure that interval.
 
-The layer starts as draft text. Its quality gate, if recorded, starts at
-`raw`. This action does not mark the layer training-eligible.
+The layer starts as draft text. If a later action records a quality gate,
+that gate starts at `raw` and is not marked training-eligible. The
+code-only helper does not record one, so its layer stays trainable under
+the existing rule.
 
 ## Safety
 
