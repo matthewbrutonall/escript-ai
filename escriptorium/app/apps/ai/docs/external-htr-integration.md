@@ -71,13 +71,16 @@ do not need the database.
 
 It accepts only a completed audit whose document and part are present, whose
 part belongs to that document, and whose stored provenance, result count,
-warning count, and empty-text count match the included rows. The request's
-original line totals are not compared again. Each included `line_id` must
-be the current primary key of a line on that part, as a decimal string.
-`external_id` is not an identifier. Duplicate, missing, foreign, deleted, and malformed
-included ids are rejected. Skipped rows are left out. Empty text stays in
-the plan. Planned, sent, failed, cancelled, and incomplete audits are
-refused with a fixed code and message. The message does not include an
+warning count, and empty-text count match the included rows.
+`requested_line_count` and `skipped_line_count` are not compared again. A
+successful apply rewrites a skipped row in place and does not change those
+two totals. Each included `line_id` must be the current primary key of a
+line on that part, as a decimal string. `external_id` is not an identifier.
+Duplicate, missing, foreign, deleted, and malformed included ids are
+rejected. Skipped rows are left out. Empty text stays in the plan. Included
+text longer than 2048 characters, the `LineTranscription.content` limit, is
+refused and is not shortened. Planned, sent, failed, cancelled, and
+incomplete audits are refused with a fixed code and message. The message does not include an
 endpoint, metadata, an image, a response body, or an exception.
 
 The plan proposes a new layer name and a provenance stamp. The stamp is
@@ -85,7 +88,10 @@ The plan proposes a new layer name and a provenance stamp. The stamp is
 carries the audit job id, because that stamp is not unique. The full
 engine, model id, model version, and API version stay on the plan beside
 the stamp. The plan does not look up an existing layer and it does not
-overwrite one.
+overwrite one. The proposed name may already exist. A lookup here would
+not reserve it. The future writer must insert the layer and check
+`(name, document)` in one transaction, and must leave the existing row
+unchanged when that name is taken.
 
 Planning reads stored audit text only. It does not call an engine, open a
 page image, crop a line, or read a request file. It does not change the

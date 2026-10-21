@@ -12,8 +12,10 @@ from dataclasses import dataclass
 # version_source holds 128 characters. This is the same limit as
 # external_htr_apply_plan.VERSION_SOURCE_LIMIT. Transcription.name holds 512.
 # A truncated stamp is not a unique job or layer id.
+# The transcription content field holds 2048 characters. Django counts them with len().
 VERSION_SOURCE_LIMIT = 128
 LAYER_NAME_LIMIT = 512
+CONTENT_LIMIT = 2048
 LAYER_SOURCE_PREFIX = "external-htr"
 LINE_ID_LIMIT = 256
 
@@ -42,6 +44,8 @@ CODE_MALFORMED = "malformed_line"
 MESSAGE_MALFORMED = "included line id is malformed"
 CODE_LINE = "line_not_on_part"
 MESSAGE_LINE = "included line is not on the part"
+CODE_TEXT = "line_text_too_long"
+MESSAGE_TEXT = "included line text is too long"
 
 _STATUS_FAILURES = {
     "planned": (CODE_PLANNED, MESSAGE_PLANNED),
@@ -145,6 +149,8 @@ def plan_external_htr_writeback(job, results, part_line_ids, *, part_document_id
     texts, empty_text_count, warning_count = _included_payload(included)
     if texts is None:
         return _reject(CODE_INCOMPLETE, MESSAGE_INCOMPLETE, job_id, document_id, part_id)
+    if any(len(text) > CONTENT_LIMIT for text in texts):
+        return _reject(CODE_TEXT, MESSAGE_TEXT, job_id, document_id, part_id)
     if (
         _stored_count(job, "result_count") != len(included)
         or _stored_count(job, "empty_text_count") != empty_text_count

@@ -20,12 +20,15 @@ from ai.external_htr_writeback_plan import (
     CODE_PART,
     CODE_PLANNED,
     CODE_READY,
+    CODE_TEXT,
+    CONTENT_LIMIT,
     MESSAGE_INCOMPLETE,
     MESSAGE_LINE,
     MESSAGE_MALFORMED,
     MESSAGE_PART,
     MESSAGE_PLANNED,
     MESSAGE_READY,
+    MESSAGE_TEXT,
     load_external_htr_writeback_plan,
 )
 from ai.models import ExternalHTREngineConfig, ExternalHTRJob, ExternalHTRLineResult
@@ -206,6 +209,26 @@ class ExternalHtrWritebackPlanOrmTests(TestCase):
         self.assertEqual(ExternalHTRJob.objects.count(), before_jobs)
         self.assertEqual(Transcription.objects.count(), before_layers)
         self.assertEqual(LineTranscription.objects.count(), before_lines)
+
+    def test_content_limit_matches_the_transcription_field(self):
+        limit = LineTranscription._meta.get_field("content").max_length
+        self.assertEqual(CONTENT_LIMIT, limit)
+        self.assertEqual(limit, 2048)
+        kept = "é" * limit
+        refused_text = kept + "é"
+        fit = self._audit(self.document, self.part, result_count=1)
+        self._result(fit, str(self.line.pk), kept, position=0)
+        plan = self._load(fit.pk)
+        self.assertTrue(plan.allowed)
+        self.assertEqual(plan.lines[0].text, kept)
+        self.assertEqual(len(plan.lines[0].text), limit)
+        self.assertEqual(LineTranscription.objects.count(), 0)
+
+        over = self._audit(self.document, self.part, result_count=1)
+        self._result(over, str(self.line.pk), refused_text, position=1)
+        blocked = self._assert_blocked(over, CODE_TEXT, MESSAGE_TEXT)
+        self.assertNotIn(refused_text[:12], blocked.message)
+        self.assertEqual(over.lines.get().text, refused_text)
 
     def test_long_provenance_keeps_the_stored_engine_beside_the_stamp(self):
         engine = "e" * 80

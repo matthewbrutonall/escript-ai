@@ -26,6 +26,8 @@ from ai.external_htr_writeback_plan import (
     CODE_PLANNED,
     CODE_READY,
     CODE_SENT,
+    CODE_TEXT,
+    CONTENT_LIMIT,
     LAYER_NAME_LIMIT,
     LAYER_SOURCE_PREFIX,
     MESSAGE_CANCELLED,
@@ -38,6 +40,7 @@ from ai.external_htr_writeback_plan import (
     MESSAGE_PLANNED,
     MESSAGE_READY,
     MESSAGE_SENT,
+    MESSAGE_TEXT,
     VERSION_SOURCE_LIMIT,
     plan_external_htr_writeback,
 )
@@ -164,6 +167,35 @@ class WritebackPlanTests(unittest.TestCase):
         self.assertEqual(plan.skipped_count, 1)
         self.assertEqual(plan.empty_text_count, 1)
         self.assertNotIn("not-imported", plan.message)
+
+    def test_text_at_the_content_limit_is_kept_and_one_more_character_is_refused(self):
+        self.assertEqual(CONTENT_LIMIT, 2048)
+        for character in ("a", "é", "𠀋"):
+            with self.subTest(character=character):
+                kept = character * CONTENT_LIMIT
+                self.assertEqual(len(kept), CONTENT_LIMIT)
+                plan = _plan(_job(result_count=1), [_row("4", kept)], [4])
+                self.assertTrue(plan.allowed)
+                self.assertEqual(plan.lines[0].text, kept)
+                self.assertEqual(len(plan.lines[0].text), CONTENT_LIMIT)
+                too_long = kept + character
+                refused = _plan(
+                    _job(result_count=1, message=SECRET_URL),
+                    [_row("4", too_long)],
+                    [4],
+                )
+                self._assert_refused(refused, CODE_TEXT, MESSAGE_TEXT)
+                self._assert_silent(refused)
+                self.assertNotIn(too_long[:8], refused.message)
+                self.assertNotIn(too_long[:8], refused.code)
+        skipped = "é" * (CONTENT_LIMIT + 40)
+        plan = _plan(
+            _job(result_count=1),
+            [_row("4", "kept"), _row("8", skipped, status="skipped")],
+            [4],
+        )
+        self.assertTrue(plan.allowed)
+        self.assertEqual([(item.line_id, item.text) for item in plan.lines], [("4", "kept")])
 
     def test_request_totals_need_not_match_the_remaining_rows(self):
         job = _job(
