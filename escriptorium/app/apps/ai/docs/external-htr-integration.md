@@ -1,15 +1,19 @@
 # External HTR transcription integration
 
 This note describes a future action that would send selected document lines
-to an `ExternalHTREngineConfig`. It is not implemented. Saving an engine
-row, running the contract check, or starting the optional PyLaia smoke
-service does not transcribe a document. Existing transcription jobs, views,
-and the Transcribe action do not read that table and do not call these
-routes.
+to an `ExternalHTREngineConfig` and write a new transcription layer. That
+send and that write are not implemented. Saving an engine row, running the
+contract check, or starting the optional PyLaia smoke service does not
+transcribe a document. Existing transcription jobs, views, and the
+Transcribe action do not read that table and do not call these routes.
 
 The operator procedure that is available now is
 `external-htr-operator-workflow.md`. It checks an engine. It does not
 implement the action described below.
+
+`external_htr_writeback_plan.py` is separate from that action. It can plan
+a new layer from a completed audit. It does not send a request, create the
+layer, or write `LineTranscription` rows.
 
 ## What is already ready
 
@@ -58,6 +62,40 @@ the app network. App containers cannot use the name `pylaia-smoke` today.
 `http://127.0.0.1:8766` is reachable from host `manage.py` only while that
 published port is open. The main app image does not install PyLaia.
 
+## Writeback plan
+
+`plan_external_htr_writeback` reads a completed audit, its stored line
+results, and the current line primary keys on that part.
+`load_external_htr_writeback_plan` loads those rows. The checks themselves
+do not need the database.
+
+It accepts only a completed audit whose document and part are present, whose
+part belongs to that document, and whose stored provenance, result count,
+warning count, and empty-text count match the included rows. The request's
+original line totals are not compared again. Each included `line_id` must
+be the current primary key of a line on that part, as a decimal string.
+`external_id` is not an identifier. Duplicate, missing, foreign, deleted, and malformed
+included ids are rejected. Skipped rows are left out. Empty text stays in
+the plan. Planned, sent, failed, cancelled, and incomplete audits are
+refused with a fixed code and message. The message does not include an
+endpoint, metadata, an image, a response body, or an exception.
+
+The plan proposes a new layer name and a provenance stamp. The stamp is
+`external-htr:<engine>:<model_id>` cut to 128 characters. The name also
+carries the audit job id, because that stamp is not unique. The full
+engine, model id, model version, and API version stay on the plan beside
+the stamp. The plan does not look up an existing layer and it does not
+overwrite one.
+
+Planning reads stored audit text only. It does not call an engine, open a
+page image, crop a line, or read a request file. It does not change the
+audit. `check_external_htr_live` and `run_external_htr_audit` still apply
+`never_send_offsite` before they call an engine. The plan does not send
+anything, so it does not add another off-site check and it does not remove
+theirs.
+
+The write described in the next section is still not implemented.
+
 ## Proposed first integration
 
 Add a new explicit task. Do not change `ai_transcribe` or the current
@@ -83,7 +121,8 @@ existing body cap.
 
 Write the text into a new `core.Transcription` layer created for this run.
 Do not append it to the layer used by the existing Transcribe action, and
-do not overwrite a kraken layer. Stamp each written line with
+do not overwrite a kraken layer. The writeback plan above only proposes
+that layer. It does not create it. Stamp each written line with
 
 `external-htr:<engine>:<model_id>`
 
