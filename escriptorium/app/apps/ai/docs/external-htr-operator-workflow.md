@@ -156,6 +156,18 @@ engine. It does not open the document again. It does not write an audit
 row. It does not write a transcription layer or a `LineTranscription`
 row.
 
+Before that send, it loads the document part named in the file and checks
+that every line id belongs to that part. The ids in the file are not
+trusted on their own. It then applies `AIDocumentPolicy.never_send_offsite`.
+A missing policy row still allows the call. A stored boolean false also
+allows the call. A value that is not a boolean fails closed. When the
+flag is exactly true, the endpoint host must be the literal name
+`localhost` or a literal loopback address: `127.0.0.0/8` or `::1`.
+Private network addresses, `0.0.0.0`, Docker service names, IPv4-mapped
+addresses, and any other host are off-site. The
+check does not use DNS. An unreadable policy, a missing part, or a line
+that belongs to another part fails before the engine is called.
+
 A missing config, a disabled config, an unreadable file, or a file that
 is not one JSON object fails before the engine is called. A disabled
 config also fails before the file is read.
@@ -203,12 +215,19 @@ not write a request file. It does not write a transcription layer or a
 `LineTranscription` row.
 
 A disabled row stops before the page image is opened and before any
-audit row is written. If the page image cannot be opened, the command
-stops before any audit row is written. If no line can be sent, the audit
-job is recorded as failed and the engine is not called. If the engine
-call fails, that job is marked failed. The stored code and message are
-fixed. The failure row does not contain an exception, a raw response,
-the service address, or a line image.
+audit row is written. The same off-site rule as the file check is
+applied before the image is opened. A restricted document is sent only
+to literal `localhost` or a literal loopback address, with no DNS
+lookup. A policy rejection prints `offsite_forbidden` or
+`policy_unreadable` and does not include the service address or the
+document. If a planned audit job already exists when that rejection
+happens, the job is marked failed with that fixed code. If the page
+image cannot be opened, the command stops before any audit row is
+written. If no line can be sent, the audit job is recorded as failed
+and the engine is not called. If the engine call fails, that job is
+marked failed. The stored code and message are fixed. The failure row
+does not contain an exception, a raw response, the service address, or
+a line image.
 
 Success prints:
 

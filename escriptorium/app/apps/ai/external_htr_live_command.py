@@ -38,12 +38,15 @@ def execute_external_htr_live_check(
     fetch_config,
     read_request,
     run=run_external_htr_live,
+    review_request=None,
 ) -> tuple[int, str]:
     """Load one config, read one request, and return one line.
 
     A missing or disabled config returns before the request is read and
-    before ``run`` is called. The line does not include the service
-    address, stored options, the request path, images, or exception text.
+    before ``run`` is called. ``review_request`` then checks stored
+    ownership and the off-site policy before ``run``. The line does not
+    include the service address, stored options, the request path,
+    images, or exception text.
     """
     try:
         config = fetch_config(config_id)
@@ -65,11 +68,35 @@ def execute_external_htr_live_check(
         return _fail(CODE_INTERNAL)
     if not isinstance(request, dict):
         return _fail(CODE_INVALID)
+    blocked = _reviewed(review_request, config, request)
+    if blocked:
+        return _fail(blocked)
     try:
         result = run(config, request)
     except Exception:
         return _fail(CODE_INTERNAL)
     return _summary(result)
+
+
+_REVIEW_CODES = frozenset({
+    CODE_INVALID,
+    "offsite_forbidden",
+    "policy_unreadable",
+})
+
+
+def _reviewed(review_request, config, request):
+    if not callable(review_request):
+        return "policy_unreadable"
+    try:
+        verdict = review_request(config, request)
+    except Exception:
+        return "policy_unreadable"
+    if verdict is None:
+        return None
+    if isinstance(verdict, str) and verdict in _REVIEW_CODES:
+        return verdict
+    return "policy_unreadable"
 
 
 def _summary(result) -> tuple[int, str]:

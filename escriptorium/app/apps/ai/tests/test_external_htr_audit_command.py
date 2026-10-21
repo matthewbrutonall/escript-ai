@@ -2,6 +2,7 @@
 import ast
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from PIL import Image
 
@@ -30,6 +31,12 @@ from ai.external_htr_audit_command import (
 )
 from ai.external_htr_live import MESSAGE_CLIENT, ExternalHtrLiveResult
 from ai.external_htr_plan import MESSAGE_NOTHING, ExternalHtrPlan
+from ai.external_htr_policy import (
+    CODE_OFFSITE,
+    CODE_POLICY,
+    MESSAGE_OFFSITE,
+    policy_verdict,
+)
 from ai.external_htr_request import SkippedLine
 
 AI_DIR = Path(__file__).resolve().parents[1]
@@ -241,6 +248,7 @@ class _World:
             "fetch_config": self.fetch_config,
             "fetch_part": self.fetch_part,
             "open_image": self.open_image,
+            "fetch_policy": lambda document, config: None,
             "record_plan": self.record_plan,
             "record_apply": self.record_apply,
             "run": self.run_live,
@@ -453,6 +461,102 @@ class AuditCommandTests(unittest.TestCase):
         self.assertEqual([row.text for row in stored], [""])
         self._assert_clean(line, job, stored, payload)
 
+    def test_restricted_remote_stops_before_the_image(self):
+        world = _World()
+        remote = "http://10.0.0.8:9/secret-lan"
+        world.config.endpoint_url = remote
+        code, line = world.execute(
+            fetch_policy=_flag(True),
+            open_image=self._forbidden,
+            run=self._forbidden,
+        )
+        self.assertEqual((code, line), (1, "FAILED: external HTR audit " + CODE_OFFSITE))
+        self.assertEqual(world.opened, [])
+        self.assertEqual(world.calls, [])
+        self.assertEqual(world.jobs.objects.rows, [])
+        self.assertNotIn(remote, line)
+        self._assert_clean(line, None, [], "")
+
+    def test_restricted_loopback_and_localhost_pass_the_policy_check(self):
+        for endpoint in ("http://127.0.0.1:8766", "http://localhost:8766", "http://[::1]:8766"):
+            world = _World()
+            world.config.endpoint_url = endpoint
+            code, line = world.execute(fetch_policy=_flag(True))
+            self.assertEqual(code, 0, endpoint)
+            self.assertEqual(len(world.calls), 1, endpoint)
+            self.assertNotIn(endpoint, line)
+
+    def test_unrestricted_and_missing_policy_keep_the_remote_endpoint(self):
+        for flag in (False, None):
+            world = _World()
+            world.config.endpoint_url = "http://192.168.1.9:9/secret-lan"
+            code, line = world.execute(fetch_policy=_flag(flag))
+            self.assertEqual(code, 0, flag)
+            self.assertEqual(len(world.calls), 1, flag)
+
+    def test_non_bool_policy_stops_before_the_image(self):
+        world = _World()
+        code, line = world.execute(
+            fetch_policy=_flag(1),
+            open_image=self._forbidden,
+            run=self._forbidden,
+        )
+        self.assertEqual((code, line), (1, "FAILED: external HTR audit " + CODE_POLICY))
+        self.assertEqual(world.opened, [])
+        self.assertEqual(world.calls, [])
+        self.assertEqual(world.jobs.objects.rows, [])
+
+    def test_policy_lookup_failure_stops_before_the_image(self):
+        world = _World()
+
+        def fetch(document, config):
+            raise RuntimeError(ENDPOINT + SECRET_PATH + "policy row")
+
+        code, line = world.execute(
+            fetch_policy=fetch,
+            open_image=self._forbidden,
+            run=self._forbidden,
+        )
+        self.assertEqual((code, line), (1, "FAILED: external HTR audit " + CODE_POLICY))
+        self.assertEqual(world.jobs.objects.rows, [])
+        self._assert_clean(line, None, [], "")
+
+    def test_disabled_config_does_not_read_the_policy(self):
+        world = _World()
+        world.config.enabled = False
+
+        def fetch(document, config):
+            raise AssertionError("policy was read")
+
+        code, line = world.execute(
+            fetch_policy=fetch,
+            open_image=self._forbidden,
+            run=self._forbidden,
+        )
+        self.assertEqual((code, line), (1, "FAILED: external HTR audit " + CODE_DISABLED))
+        self._assert_clean(line, None, [], "")
+
+    def test_later_policy_rejection_fails_the_planned_job(self):
+        world = _World()
+        seen = {"n": 0}
+
+        def fetch(document, config):
+            seen["n"] += 1
+            if seen["n"] == 1:
+                return None
+            return CODE_OFFSITE
+
+        code, line = world.execute(fetch_policy=fetch, run=self._forbidden)
+        job = world.jobs.objects.rows[0]
+        self.assertEqual((code, line), (1, "FAILED: external HTR audit " + CODE_OFFSITE))
+        self.assertEqual(job.status, STATUS_FAILED)
+        self.assertEqual(job.code, CODE_OFFSITE)
+        self.assertEqual(job.message, MESSAGE_OFFSITE)
+        self.assertEqual(job.result_count, 0)
+        self.assertEqual(world.calls, [])
+        self.assertEqual([row.text for row in world.lines.objects.rows], [])
+        self._assert_clean(line, job, world.lines.objects.rows, "")
+
     def test_record_exception_is_a_fixed_line(self):
         world = _World()
 
@@ -476,6 +580,14 @@ class AuditCommandTests(unittest.TestCase):
                 self.assertNotIn(secret, blob)
 
 
+def _flag(flag):
+    def fetch(document, config):
+        policy = None if flag is None else SimpleNamespace(never_send_offsite=flag)
+        return policy_verdict(policy, config.endpoint_url)
+
+    return fetch
+
+
 class IsolationTests(unittest.TestCase):
     def test_helper_reaches_the_engine_only_through_the_live_helper(self):
         text = (AI_DIR / "external_htr_audit_command.py").read_text()
@@ -490,6 +602,7 @@ class IsolationTests(unittest.TestCase):
             "ai.external_htr_image",
             "ai.external_htr_live",
             "ai.external_htr_plan",
+            "ai.external_htr_policy",
         ])
         for banned in (
             "htr_engine_client",
@@ -511,6 +624,7 @@ class IsolationTests(unittest.TestCase):
     def test_command_is_an_audit_and_other_entry_points_stay_separate(self):
         text = COMMAND.read_text()
         self.assertIn("Image.open(part.image.path)", text)
+        self.assertIn("fetch_policy=review_document_endpoint", text)
         self.assertIn("audit", text)
         self.assertIn("does not write transcription output", text)
         self.assertNotIn("recognize_lines", text)

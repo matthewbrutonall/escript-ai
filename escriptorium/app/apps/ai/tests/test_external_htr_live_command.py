@@ -2,9 +2,11 @@
 import ast
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from ai.external_htr_apply_plan import ExternalHtrApplyPlan, PlannedLine
 from ai.external_htr_live import ExternalHtrLiveResult
+from ai.external_htr_policy import CODE_OFFSITE, CODE_POLICY, review_loaded
 from ai.external_htr_live_command import (
     CODE_CONFIG,
     CODE_DISABLED,
@@ -101,6 +103,50 @@ def _secrets():
     return (IMAGE, ENDPOINT, TOKEN, TITLE, SECRET_PATH, RAW, PARSER)
 
 
+def _allow(config, request):
+    return None
+
+
+def _foreign_request():
+    payload = _request()
+    payload["lines"] = list(payload["lines"]) + [{
+        "line_id": "11",
+        "image": IMAGE,
+    }]
+    return payload
+
+
+def _owners(flag, *, document_pk=7, part_pk=8, line_pks=(10,), missing=False, policy_error=False, request=None):
+    payload = _request() if request is None else request
+
+    def review(config, body):
+        def load_part(part_id):
+            if missing:
+                raise LookupError(SECRET_PATH)
+            return SimpleNamespace(pk=part_pk, document_id=document_pk)
+
+        def load_lines(part):
+            return line_pks
+
+        def load_policy(part):
+            if policy_error:
+                raise RuntimeError(ENDPOINT + SECRET_PATH)
+            if flag is None:
+                return None
+            return SimpleNamespace(never_send_offsite=flag)
+
+        return review_loaded(
+            config,
+            body,
+            load_part=load_part,
+            load_line_pks=load_lines,
+            load_policy=load_policy,
+        )
+
+    review.request = payload
+    return review
+
+
 class LiveCheckTests(unittest.TestCase):
     def test_success_prints_one_ok_line(self):
         request = _request()
@@ -120,6 +166,7 @@ class LiveCheckTests(unittest.TestCase):
             SECRET_PATH,
             fetch_config=lambda config_id: config,
             read_request=read_request,
+            review_request=_allow,
             run=run,
         )
         self.assertEqual(code, 0)
@@ -208,6 +255,7 @@ class LiveCheckTests(unittest.TestCase):
             SECRET_PATH,
             fetch_config=lambda config_id: _Config(),
             read_request=lambda path: _request(),
+            review_request=_allow,
             run=run,
         )
         self.assertEqual((code, line), (1, "FAILED: external HTR live check http_error"))
@@ -238,6 +286,7 @@ class LiveCheckTests(unittest.TestCase):
             SECRET_PATH,
             fetch_config=lambda config_id: _Config(),
             read_request=lambda path: _request(),
+            review_request=_allow,
             run=unsafe,
         )
         self.assertEqual((code, line), (1, "FAILED: external HTR live check " + CODE_INVALID))
@@ -251,10 +300,102 @@ class LiveCheckTests(unittest.TestCase):
             SECRET_PATH,
             fetch_config=lambda config_id: _Config(),
             read_request=lambda path: _request(),
+            review_request=_allow,
             run=bad_code,
         )
         self.assertEqual((code, line), (1, "FAILED: external HTR live check " + CODE_INTERNAL))
         self._assert_clean(line)
+
+    def test_restricted_remote_is_blocked_before_the_live_helper(self):
+        config = _Config()
+        config.endpoint_url = "http://192.168.1.9:9/secret-lan"
+        code, line = execute_external_htr_live_check(
+            4,
+            SECRET_PATH,
+            fetch_config=lambda config_id: config,
+            read_request=lambda path: _request(),
+            review_request=_owners(True),
+            run=self._unused_run,
+        )
+        self.assertEqual((code, line), (1, "FAILED: external HTR live check " + CODE_OFFSITE))
+        self._assert_clean(line)
+        self.assertNotIn("192.168.1.9", line)
+
+    def test_restricted_loopback_and_localhost_reach_the_live_helper(self):
+        for endpoint in ("http://127.0.0.1:8766", "http://localhost:8766", "http://[::1]:8766"):
+            seen = []
+            config = _Config()
+            config.endpoint_url = endpoint
+
+            def run(config, payload, seen=seen):
+                seen.append(payload)
+                return ExternalHtrLiveResult(True, None, "ready", _plan())
+
+            code, line = execute_external_htr_live_check(
+                4,
+                SECRET_PATH,
+                fetch_config=lambda config_id, config=config: config,
+                read_request=lambda path: _request(),
+                review_request=_owners(True),
+                run=run,
+            )
+            self.assertEqual(code, 0, endpoint)
+            self.assertEqual(len(seen), 1, endpoint)
+            self.assertNotIn(endpoint, line)
+
+    def test_unrestricted_remote_still_calls_the_live_helper(self):
+        for flag in (False, None):
+            seen = []
+            config = _Config()
+            config.endpoint_url = "http://10.1.2.3:9/secret-lan"
+
+            def run(config, payload, seen=seen):
+                seen.append(config)
+                return ExternalHtrLiveResult(True, None, "ready", _plan())
+
+            code, line = execute_external_htr_live_check(
+                4,
+                SECRET_PATH,
+                fetch_config=lambda config_id, config=config: config,
+                read_request=lambda path: _request(),
+                review_request=_owners(flag),
+                run=run,
+            )
+            self.assertEqual(code, 0, flag)
+            self.assertEqual(len(seen), 1, flag)
+            self._assert_clean(line)
+
+    def test_non_bool_policy_stops_before_the_live_helper(self):
+        code, line = execute_external_htr_live_check(
+            4,
+            SECRET_PATH,
+            fetch_config=lambda config_id: _Config(),
+            read_request=lambda path: _request(),
+            review_request=_owners(1),
+            run=self._unused_run,
+        )
+        self.assertEqual((code, line), (1, "FAILED: external HTR live check " + CODE_POLICY))
+        self._assert_clean(line)
+
+    def test_bad_ownership_and_policy_lookup_stop_before_the_live_helper(self):
+        cases = (
+            (_owners(True, document_pk=99), CODE_INVALID),
+            (_owners(True, line_pks=(11,)), CODE_INVALID),
+            (_owners(True, missing=True), CODE_INVALID),
+            (_owners(True, policy_error=True), CODE_POLICY),
+            (_owners(True, request=_foreign_request()), CODE_INVALID),
+        )
+        for review, expected in cases:
+            code, line = execute_external_htr_live_check(
+                4,
+                SECRET_PATH,
+                fetch_config=lambda config_id: _Config(),
+                read_request=lambda path, review=review: review.request,
+                review_request=review,
+                run=self._unused_run,
+            )
+            self.assertEqual((code, line), (1, "FAILED: external HTR live check " + expected))
+            self._assert_clean(line)
 
     def test_loader_exception_text_is_not_printed(self):
         def fetch_config(config_id):
@@ -314,6 +455,7 @@ class IsolationTests(unittest.TestCase):
     def test_command_calls_the_live_helper_only(self):
         text = COMMAND.read_text()
         self.assertIn("run_external_htr_live", text)
+        self.assertIn("review_request=review_live_request", text)
         self.assertIn("stdout.write", text)
         self.assertIn("sys.exit", text)
         self.assertIn("raise ConfigNotFound from None", text)
