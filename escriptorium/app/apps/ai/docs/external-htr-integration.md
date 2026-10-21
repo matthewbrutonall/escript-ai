@@ -112,7 +112,8 @@ check. Treat `localhost`, `127.0.0.0/8`, and the literal address `::1`
 as local. Treat any other host as off-site, including private LAN
 addresses and Docker service names, and do not use DNS to decide. Refuse
 the call when the document forbids off-site sends. A missing policy row
-stays allowed, which is the rule the hosted path already uses. Do not
+stays allowed, and boolean false stays allowed. A non-boolean fails
+closed. The missing-row rule is the one the hosted path already uses. Do not
 weaken that rule for hosted backends. The operator commands
 `check_external_htr_live` and `run_external_htr_audit` already apply
 this check before they call an engine.

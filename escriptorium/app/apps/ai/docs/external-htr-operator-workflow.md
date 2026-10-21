@@ -159,10 +159,12 @@ row.
 Before that send, it loads the document part named in the file and checks
 that every line id belongs to that part. The ids in the file are not
 trusted on their own. It then applies `AIDocumentPolicy.never_send_offsite`.
-A missing policy row still allows the call. When the flag is exactly
-true, the endpoint host must be the literal name `localhost` or a literal
-loopback address: `127.0.0.0/8` or `::1`. Private network addresses,
-`0.0.0.0`, Docker service names, and any other host are off-site. The
+A missing policy row still allows the call. A stored boolean false also
+allows the call. A value that is not a boolean fails closed. When the
+flag is exactly true, the endpoint host must be the literal name
+`localhost` or a literal loopback address: `127.0.0.0/8` or `::1`.
+Private network addresses, `0.0.0.0`, Docker service names, IPv4-mapped
+addresses, and any other host are off-site. The
 check does not use DNS. An unreadable policy, a missing part, or a line
 that belongs to another part fails before the engine is called.
 

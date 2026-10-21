@@ -34,6 +34,10 @@ def literal_local(endpoint_url) -> bool:
         address = ipaddress.ip_address(host)
     except ValueError:
         return False
+    # Python 3.12.15 reports an IPv4-mapped loopback as is_loopback.
+    # A mapped address is still off-site.
+    if getattr(address, "ipv4_mapped", None) is not None:
+        return False
     return address.is_loopback is True
 
 

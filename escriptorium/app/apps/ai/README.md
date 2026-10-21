@@ -46,7 +46,7 @@ Design: `../../../../ARCHITECTURE.md`. Tests and contribution rules:
 | `external_htr_service.py` | Runs a dry-run external HTR audit flow. Does not call an engine or write transcription output |
 | `management/commands/plan_external_htr.py` | Operator dry-run audit only: `plan_external_htr <config_id> <document_part_id> --model-id <id> --engine <engine>`. `--encode-images` is opt-in and still dry-run only. Does not call an engine or write transcription output. The default does not encode a page image |
 | `external_htr_image.py` | Encodes one line image for an external HTR request. The dry-run command uses it only with opt-in `--encode-images`. The export command uses it to build a request file. Not wired into current transcription jobs |
-| `external_htr_policy.py` | Decides whether a document may be sent to an external HTR endpoint. A missing policy row is allowed. `never_send_offsite` allows only literal localhost or a literal loopback address, with no DNS lookup. Does not call an engine or write transcription output |
+| `external_htr_policy.py` | Decides whether a document may be sent to an external HTR endpoint. A missing policy row and boolean false are allowed. Boolean true allows only literal localhost or a literal loopback address, with no DNS lookup. A non-boolean fails closed. Does not call an engine or write transcription output |
 | `external_htr_live.py` | Performs a narrow external HTR live call from an already-built request. Called by the operator commands `check_external_htr_live` and `run_external_htr_audit`. Not wired into tasks. Does not write transcription output |
 | `management/commands/check_external_htr_live.py` | Operator live check from a supplied request JSON file: `check_external_htr_live <config_id> <request_json_path>`. Checks stored document, part, and line ownership and `never_send_offsite` before the call. Does not open the page image, write audit rows, or write transcription output |
 | `management/commands/export_external_htr_request.py` | Exports a request JSON file for an operator live check: `export_external_htr_request <config_id> <document_part_id> --model-id <id> --engine <engine> --output <path>`. Does not call an engine or write transcription output |
@@ -63,7 +63,14 @@ cd escriptorium/app/apps
 python3 -m unittest ai.tests -v
 ```
 
-Do not add tests that call Gemini, Anthropic, or OpenAI. Mock `requests.post`.
+That command does not boot Django. ORM checks for the off-site policy are in `ai.django_integration_tests` and run with Django's test runner against a disposable database:
+
+```bash
+cd escriptorium/app
+python manage.py test ai.django_integration_tests
+```
+
+Do not add tests that call Gemini, Anthropic, or OpenAI. Mock `requests.post`. The ORM checks mock the engine client.
 
 ## Keys
 

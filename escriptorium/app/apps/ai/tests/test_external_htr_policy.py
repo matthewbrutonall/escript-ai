@@ -2,8 +2,8 @@
 
 The decision tests call ``review_loaded`` with fake loaders. They do not
 boot the ORM. ``review_live_request`` and ``review_document_endpoint`` are
-the Django adapters; this environment has no Django, so those functions
-are checked from source and are not executed here.
+executed in ``ai.django_integration_tests`` when Django and a database
+are available.
 """
 import ast
 import unittest
@@ -64,6 +64,8 @@ class LocalTests(unittest.TestCase):
             "http://pylaia-smoke:8766",
             "http://0.0.0.0:8766",
             "http://[::ffff:127.0.0.1]/",
+            "http://[::ffff:7f00:1]/",
+            "http://[0:0:0:0:0:ffff:127.0.0.1]/",
             "http://localhost.example.com/",
             "http://127.0.0.1.nip.io/",
             "http://user:pass@127.0.0.1/",
@@ -199,14 +201,19 @@ class ReviewLoadedTests(unittest.TestCase):
 
 class AdapterSourceTests(unittest.TestCase):
     def test_django_adapters_are_not_executed_without_django(self):
+        orm = AI_DIR / "django_integration_tests" / "test_external_htr_policy_orm.py"
         try:
             import django  # noqa: F401
         except ModuleNotFoundError:
             self.skipTest(
-                "Django is not installed. ORM lookups are not executed; "
-                "fake review_loaded tests cover the decision."
+                "Django is not installed. ORM lookups run in "
+                "ai.django_integration_tests.test_external_htr_policy_orm."
             )
-        self.fail("Django is installed; add an ORM test instead of skipping")
+        self.assertTrue(orm.is_file())
+        text = orm.read_text()
+        self.assertIn("review_live_request", text)
+        self.assertIn("review_document_endpoint", text)
+        self.assertIn("execute_external_htr_audit", text)
 
     def test_adapters_query_trusted_rows_and_commands_use_them(self):
         text = POLICY.read_text()
