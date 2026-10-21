@@ -89,9 +89,9 @@ carries the audit job id, because that stamp is not unique. The full
 engine, model id, model version, and API version stay on the plan beside
 the stamp. The plan does not look up an existing layer and it does not
 overwrite one. The proposed name may already exist. A lookup here would
-not reserve it. The future writer must insert the layer and check
-`(name, document)` in one transaction, and must leave the existing row
-unchanged when that name is taken.
+not reserve it. `import_external_htr_writeback` inserts the layer and
+checks `(name, document)` in one transaction, and leaves the existing
+row unchanged when that name is taken.
 
 Planning reads stored audit text only. It does not call an engine, open a
 page image, crop a line, or read a request file. It does not change the
@@ -100,7 +100,39 @@ audit. `check_external_htr_live` and `run_external_htr_audit` still apply
 anything, so it does not add another off-site check and it does not remove
 theirs.
 
-The write described in the next section is still not implemented.
+## Writeback helper
+
+`import_external_htr_writeback` takes one stored audit job id. It locks
+that job, runs the planner again against the current lines, and creates
+one new transcription layer plus one row for each included line. Code and
+tests can call it. No command, task, or page calls it.
+
+The audit status stays `completed`. `imported` records that the import
+finished, and `imported_transcription` points at the new layer. Both are
+set only after every line row has been created. `imported` stays true if
+that layer is later removed. The link is then cleared, and another import
+of the same audit still creates nothing.
+
+Line text is stored as planned, including an empty string. Text longer
+than 2048 characters is refused and is not shortened. Each line's
+`version_source` is the provenance stamp. `version_author` is the audit
+user's name when that name fits the field. Confidence, timing, and
+warnings stay on the audit rows.
+
+The helper inserts the layer and checks `(name, document)` by that
+insert. When the name is already taken, the existing layer is left
+unchanged and the audit is not marked imported. A repeated or overlapping
+import of the same audit creates one layer only.
+
+The helper does not call an engine, open a page image, crop a line, or
+read a request file. It does not change Transcribe or `ai_transcribe`.
+
+The helper does not create an `AILayerGate`. A layer with no gate is
+trainable under the existing rule for manual and kraken layers. The helper
+does not mark that layer training-eligible. Training stays available.
+This note does not add a gate.
+
+The operator action in the next section is still not implemented.
 
 ## Proposed first integration
 
@@ -127,8 +159,9 @@ existing body cap.
 
 Write the text into a new `core.Transcription` layer created for this run.
 Do not append it to the layer used by the existing Transcribe action, and
-do not overwrite a kraken layer. The writeback plan above only proposes
-that layer. It does not create it. Stamp each written line with
+do not overwrite a kraken layer. The planner only proposes that layer.
+`import_external_htr_writeback` can create it from an audit that is
+already stored. This task does not exist yet. Stamp each written line with
 
 `external-htr:<engine>:<model_id>`
 
@@ -138,8 +171,10 @@ response provenance. A response whose provenance does not match its header
 is not written. `confidence` stays engine-specific and is not a rank.
 `timing_ms` of 0 means the engine did not measure that interval.
 
-The layer starts as draft text. Its quality gate, if recorded, starts at
-`raw`. This action does not mark the layer training-eligible.
+The layer starts as draft text. If a later action records a quality gate,
+that gate starts at `raw` and is not marked training-eligible. The
+code-only helper does not record one, so its layer stays trainable under
+the existing rule.
 
 ## Safety
 
