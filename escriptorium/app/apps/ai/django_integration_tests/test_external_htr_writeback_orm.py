@@ -24,10 +24,12 @@ from ai.external_htr_writeback import (
     CODE_COLLISION,
     CODE_FAILED,
     CODE_IMPORTED,
+    CODE_SAMPLE,
     MESSAGE_ALREADY,
     MESSAGE_COLLISION,
     MESSAGE_FAILED,
     MESSAGE_IMPORTED,
+    MESSAGE_SAMPLE,
     import_external_htr_writeback,
 )
 from ai.gate import (
@@ -58,6 +60,7 @@ from ai.external_htr_writeback_plan import (
 )
 from ai.models import (
     AILayerGate,
+    AILineDisagreement,
     ExternalHTREngineConfig,
     ExternalHTRJob,
     ExternalHTRLineResult,
@@ -181,7 +184,7 @@ class _WritebackFixture:
         self.assertEqual(stored.timing_ms, 15)
         self.assertEqual(stored.warnings, ["soft"])
         self.assertEqual(stored.text, kept)
-        self._assert_raw_gate(layer)
+        self._assert_raw_gate(layer, [second.pk, self.line.pk, third.pk])
         self.assertNotIn(ENDPOINT, result.message)
         self.assertNotIn(kept[:8], result.message)
 
@@ -358,26 +361,73 @@ class _WritebackFixture:
             job.refresh_from_db()
             self.assertEqual(job.status, status)
 
-    def test_completed_audit_with_no_included_lines_creates_an_empty_layer(self):
+    def test_audit_with_no_included_lines_creates_nothing(self):
         job = self._audit(result_count=0, requested_line_count=0)
-        layers_before = Transcription.objects.count()
+        old = timezone.now() - timedelta(days=1)
+        ExternalHTRJob.objects.filter(pk=job.pk).update(updated_at=old)
+        layers = set(Transcription.objects.values_list("pk", flat=True))
         with _no_io():
             result = import_external_htr_writeback(job.pk)
         job.refresh_from_db()
-        self.assertTrue(result.imported)
-        self.assertEqual(result.code, CODE_IMPORTED)
-        self.assertEqual(result.message, MESSAGE_IMPORTED)
-        self.assertEqual(result.transcription_id, job.imported_transcription_id)
-        self.assertEqual(Transcription.objects.count(), layers_before + 1)
-        self.assertEqual(
-            LineTranscription.objects.filter(
-                transcription_id=result.transcription_id,
-            ).count(),
-            0,
-        )
+        self.assertFalse(result.imported)
+        self.assertEqual(result.code, CODE_SAMPLE)
+        self.assertEqual(result.message, MESSAGE_SAMPLE)
+        self.assertEqual(result.job_id, job.pk)
+        self.assertIsNone(result.transcription_id)
+        self.assertFalse(job.imported)
+        self.assertIsNone(job.imported_transcription_id)
         self.assertEqual(job.status, ExternalHTRJob.STATUS_COMPLETED)
-        self.assertFalse(job.code)
-        self._assert_raw_gate(job.imported_transcription)
+        self.assertEqual(job.updated_at, old)
+        self.assertEqual(set(Transcription.objects.values_list("pk", flat=True)), layers)
+        self.assertEqual(LineTranscription.objects.count(), 0)
+        self.assertEqual(AILayerGate.objects.count(), 0)
+
+    def test_sample_size_follows_the_existing_rule(self):
+        lines = [self._line(self.part) for _ in range(51)]
+        job = self._audit(result_count=51, requested_line_count=51)
+        for position, line in enumerate(lines):
+            self._result(job, str(line.pk), "line-%s" % position, position=position)
+        written = [line.pk for line in lines]
+        before = set(Transcription.objects.values_list("pk", flat=True))
+        with _no_io():
+            result = import_external_htr_writeback(job.pk)
+        self.assertTrue(result.imported)
+        layer = Transcription.objects.get(pk=result.transcription_id)
+        gate = self._assert_raw_gate(layer, written)
+        self.assertEqual(len(gate.sample_line_pks), 50)
+        self.assertTrue(set(gate.sample_line_pks).issubset(set(written)))
+        self.assertNotIn(self.line.pk, gate.sample_line_pks)
+        self.assertEqual(
+            set(Transcription.objects.values_list("pk", flat=True)),
+            before | {layer.pk},
+        )
+        with self.assertRaises(LayerNotEligible):
+            assert_training_eligible(layer)
+
+    def test_sample_creation_failure_rolls_back_the_import(self):
+        job = self._audit(result_count=1)
+        self._result(job, str(self.line.pk), "kept", position=0)
+        old = timezone.now() - timedelta(days=1)
+        ExternalHTRJob.objects.filter(pk=job.pk).update(updated_at=old)
+        layers = set(Transcription.objects.values_list("pk", flat=True))
+
+        def fail_sample(*args, **kwargs):
+            raise RuntimeError("forced-sample")
+
+        with _no_io(), patch(
+            "ai.external_htr_writeback.build_gate_sample", fail_sample,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "forced-sample"):
+                import_external_htr_writeback(job.pk)
+
+        job.refresh_from_db()
+        self.assertFalse(job.imported)
+        self.assertIsNone(job.imported_transcription_id)
+        self.assertEqual(job.updated_at, old)
+        self.assertEqual(set(Transcription.objects.values_list("pk", flat=True)), layers)
+        self.assertEqual(LineTranscription.objects.count(), 0)
+        self.assertEqual(AILayerGate.objects.count(), 0)
+        self.assertEqual(job.lines.get().text, "kept")
 
     def test_gate_creation_failure_rolls_back_the_import(self):
         job = self._audit(result_count=1)
@@ -428,7 +478,7 @@ class _WritebackFixture:
         with _no_io():
             result = import_external_htr_writeback(job.pk)
         layer = Transcription.objects.get(pk=result.transcription_id)
-        gate = self._assert_raw_gate(layer)
+        gate = self._assert_raw_gate(layer, [self.line.pk])
         with self.assertRaises(LayerNotEligible):
             assert_training_eligible(layer)
         assert_training_eligible(manual)
@@ -445,24 +495,21 @@ class _WritebackFixture:
         self.assertEqual(row.content, "corrected")
         gate.refresh_from_db()
         self.assertEqual(gate.state, AILayerGate.STATE_RAW)
+        self.assertEqual(gate.sample_line_pks, [self.line.pk])
         with self.assertRaises(LayerNotEligible):
             assert_training_eligible(layer)
+        with self.assertRaises(LayerNotEligible):
+            mark_training_eligible(gate)
         with self.assertRaises(ValueError):
-            acknowledge_sample(gate, phrase=ACK_PHRASE)
-
-        summary = build_gate_sample(
-            [], written_pks=[self.line.pk], comparison=None, min_n=50, pct=0.02,
-        )
-        self.assertEqual(summary["sample_line_pks"], [self.line.pk])
-        self.assertIsNone(summary["mean_cer"])
-        self.assertFalse(summary["write_disagreements"])
-        gate.sample_line_pks = summary["sample_line_pks"]
-        gate.save(update_fields=["sample_line_pks", "updated_at"])
+            acknowledge_sample(gate, phrase="not the phrase")
+        self.assertEqual(gate.state, AILayerGate.STATE_RAW)
         acknowledge_sample(
             gate, user=self.owner, phrase=ACK_PHRASE, now=timezone.now(),
         )
         gate.save()
         self.assertEqual(gate.state, AILayerGate.STATE_SAMPLED)
+        with self.assertRaises(LayerNotEligible):
+            assert_training_eligible(Transcription.objects.get(pk=layer.pk))
         mark_training_eligible(gate)
         gate.save()
         self.assertEqual(gate.state, AILayerGate.STATE_TRAINING_ELIGIBLE)
@@ -609,19 +656,29 @@ class _WritebackFixture:
             line.save(update_fields=["external_id"])
         return line
 
-    def _assert_raw_gate(self, layer):
+    def _assert_raw_gate(self, layer, written_pks):
         gates = list(AILayerGate.objects.filter(transcription=layer))
         self.assertEqual(len(gates), 1)
         gate = gates[0]
+        summary = build_gate_sample([], written_pks=list(written_pks), comparison=None)
+        imported_ids = set(
+            LineTranscription.objects.filter(transcription=layer).values_list(
+                "line_id", flat=True,
+            )
+        )
         self.assertEqual(gate.state, AILayerGate.STATE_RAW)
         self.assertEqual(gate.transcription_id, layer.pk)
         self.assertEqual(gate.transcription.document_id, layer.document_id)
         self.assertIsNone(gate.job_id)
         self.assertIsNone(gate.comparison_id)
-        self.assertEqual(gate.sample_line_pks, [])
+        self.assertEqual(gate.sample_line_pks, summary["sample_line_pks"])
+        self.assertTrue(gate.sample_line_pks)
+        self.assertTrue(set(gate.sample_line_pks).issubset(imported_ids))
+        self.assertEqual(gate.mean_cer, summary["mean_cer"])
+        self.assertEqual(gate.held_out_part_pks, [])
+        self.assertEqual(AILineDisagreement.objects.filter(gate=gate).count(), 0)
         self.assertIsNone(gate.acknowledged_at)
         self.assertIsNone(gate.acknowledged_by_id)
-        self.assertIsNone(gate.mean_cer)
         return gate
 
 
@@ -793,6 +850,9 @@ class ExternalHtrWritebackConcurrencyTests(TransactionTestCase):
         gates = list(AILayerGate.objects.filter(transcription_id=job.imported_transcription_id))
         self.assertEqual(len(gates), 1)
         self.assertEqual(gates[0].state, AILayerGate.STATE_RAW)
+        self.assertEqual(gates[0].sample_line_pks, [line_id])
+        self.assertIsNone(gates[0].comparison_id)
+        self.assertIsNone(gates[0].mean_cer)
         self.assertEqual(AILayerGate.objects.count(), 1)
 
 

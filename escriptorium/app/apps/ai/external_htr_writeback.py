@@ -3,7 +3,8 @@
 Callable from code and tests. No command, task, or view imports this module.
 The audit status stays completed. ``imported`` is the durable marker, and
 ``imported_transcription`` is the layer link. The marker is set only after
-the line rows and a raw layer gate have been created, in the same transaction.
+the line rows, the raw gate, and its review sample have been created, in
+the same transaction.
 """
 from __future__ import annotations
 
@@ -16,6 +17,7 @@ from ai.external_htr_writeback_plan import (
     MESSAGE_INCOMPLETE,
     load_external_htr_writeback_plan,
 )
+from ai.gate import build_gate_sample
 
 CODE_IMPORTED = "writeback_imported"
 MESSAGE_IMPORTED = "new transcription layer was created"
@@ -25,6 +27,12 @@ CODE_COLLISION = "layer_name_taken"
 MESSAGE_COLLISION = "transcription layer name is taken"
 CODE_FAILED = "writeback_failed"
 MESSAGE_FAILED = "transcription layer was not created"
+CODE_SAMPLE = "review_sample_empty"
+MESSAGE_SAMPLE = "review sample was not created"
+
+
+class _NoReviewSample(Exception):
+    """Raised inside the import transaction when the sample has no lines."""
 
 
 @dataclass(frozen=True)
@@ -42,9 +50,9 @@ def import_external_htr_writeback(job_id):
     """Create a new layer for one completed audit, or refuse with a fixed code.
 
     The job row is locked inside ``transaction.atomic`` and the planner runs
-    again against the current part lines. An integrity error is handled
-    outside that block so a failed insert rolls back the layer, its line
-    rows, the raw gate, and the import marker.
+    again against the current part lines. An integrity error, and an empty
+    review sample, are handled outside that block so the layer, its line
+    rows, the gate, and the import marker roll back together.
     """
     if isinstance(job_id, bool) or not isinstance(job_id, int) or job_id < 1:
         return _result(False, CODE_INCOMPLETE, MESSAGE_INCOMPLETE, None, None)
@@ -53,6 +61,8 @@ def import_external_htr_writeback(job_id):
             return _import_locked(job_id)
     except IntegrityError:
         return _integrity_result(job_id)
+    except _NoReviewSample:
+        return _result(False, CODE_SAMPLE, MESSAGE_SAMPLE, job_id, None)
 
 
 def _import_locked(job_id):
@@ -75,19 +85,28 @@ def _import_locked(job_id):
     layer.save()
     # LineTranscription.save updates the line and then the part. This import
     # only adds rows on the new layer.
+    written_pks = []
     with CascadeUpdate.bypass():
         for item in plan.lines:
-            LineTranscription.objects.create(
+            row = LineTranscription.objects.create(
                 transcription=layer,
                 line_id=int(item.line_id),
                 content=item.text,
                 version_source=plan.provenance_stamp,
                 version_author=author,
             )
+            written_pks.append(row.line_id)
+    # No comparison layer: build_gate_sample keeps the default size rule
+    # and does not change gate state. Acknowledgement sets sampled.
+    summary = build_gate_sample([], written_pks=written_pks, comparison=None)
+    if not summary["sample_line_pks"]:
+        raise _NoReviewSample()
     # job stays null: AILayerGate.job is an AIJob, not this audit.
     AILayerGate.objects.create(
         transcription=layer,
         state=AILayerGate.STATE_RAW,
+        sample_line_pks=summary["sample_line_pks"],
+        mean_cer=summary["mean_cer"],
     )
     job.imported = True
     job.imported_transcription = layer

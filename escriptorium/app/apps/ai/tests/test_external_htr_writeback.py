@@ -51,8 +51,9 @@ class WritebackSourceTests(unittest.TestCase):
             "new_version",
             "acknowledge_sample",
             "mark_training_eligible",
-            "build_gate_sample",
             "find_comparison_transcription",
+            "min_n",
+            "pct=",
             ".image",
         ):
             self.assertNotIn(banned, text, banned)
@@ -61,11 +62,19 @@ class WritebackSourceTests(unittest.TestCase):
             "transaction.atomic",
             "IntegrityError",
             "CascadeUpdate.bypass",
+            "build_gate_sample(",
+            "comparison=None",
+            "sample_line_pks=summary[\"sample_line_pks\"]",
+            "mean_cer=summary[\"mean_cer\"]",
             "AILayerGate.objects.create",
             "state=AILayerGate.STATE_RAW",
             'update_fields=["imported", "imported_transcription", "updated_at"]',
         ):
             self.assertIn(required, text, required)
+        self.assertLess(
+            text.index("build_gate_sample("),
+            text.index("AILayerGate.objects.create"),
+        )
         self.assertLess(
             text.index("AILayerGate.objects.create"),
             text.index("job.imported = True"),
@@ -81,6 +90,7 @@ class WritebackSourceTests(unittest.TestCase):
         for banned in ("htr_engine_client", "external_htr_live", "urllib", "requests", "socket"):
             self.assertNotIn(banned, joined, banned)
         self.assertIn("ai.external_htr_writeback_plan", joined)
+        self.assertIn("ai.gate", joined)
         self.assertNotIn("import_external_htr_writeback", PLANNER.read_text(encoding="utf-8"))
 
     def test_stage1_and_commands_do_not_call_the_writer(self):
