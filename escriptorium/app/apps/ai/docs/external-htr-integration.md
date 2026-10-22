@@ -2,14 +2,16 @@
 
 This note describes a future action that would send selected document lines
 to an `ExternalHTREngineConfig` and write a new transcription layer. That
-send and that write are not implemented. Saving an engine row, running the
-contract check, or starting the optional PyLaia smoke service does not
-transcribe a document. Existing transcription jobs, views, and the
-Transcribe action do not read that table and do not call these routes.
+send is not implemented. Writing a layer from an audit that is already
+stored is the operator command `import_external_htr_audit`. Saving an
+engine row, running the contract check, or starting the optional PyLaia
+smoke service does not transcribe a document. Existing transcription jobs,
+views, and the Transcribe action do not read that table and do not call
+these routes.
 
 The operator procedure that is available now is
-`external-htr-operator-workflow.md`. It checks an engine. It does not
-implement the action described below.
+`external-htr-operator-workflow.md`. It checks an engine and can import a
+completed audit. It does not implement the send described below.
 
 `external_htr_writeback_plan.py` is separate from that action. It can plan
 a new layer from a completed audit. It does not send a request, create the
@@ -153,7 +155,9 @@ block those edits. A later correction can be stored as an `AIExample` by
 the existing correction signal. That record does not mark the layer
 training-eligible.
 
-The operator action in the next section is still not implemented.
+`import_external_htr_audit` previews that import, or applies it with
+`--apply`. The engine-calling task in the next section is still not
+implemented.
 
 ## Proposed first integration
 
@@ -192,11 +196,11 @@ response provenance. A response whose provenance does not match its header
 is not written. `confidence` stays engine-specific and is not a rank.
 `timing_ms` of 0 means the engine did not measure that interval.
 
-The layer starts as draft text. The code-only helper records a raw gate
-and its review sample for a layer it creates from an audit that is already
-stored. A person still has to acknowledge that sample and mark the layer
-training-eligible. The operator task in this section does not exist yet
-and does not add another gate.
+The layer starts as draft text. `import_external_htr_audit --apply`
+records a raw gate and its review sample for a layer it creates from an
+audit that is already stored. A person still has to acknowledge that
+sample and mark the layer training-eligible. The operator task in this
+section does not exist yet and does not add another gate.
 
 ## Safety
 

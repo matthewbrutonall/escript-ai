@@ -1,6 +1,7 @@
 """Create one transcription layer from a completed external HTR audit.
 
-Callable from code and tests. No command, task, or view imports this module.
+``import_external_htr_audit --apply`` calls this. Preview does not.
+No task, view, or other command imports this module.
 The audit status stays completed. ``imported`` is the durable marker, and
 ``imported_transcription`` is the layer link. The marker is set only after
 the line rows, the raw gate, and its review sample have been created, in
