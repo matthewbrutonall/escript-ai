@@ -109,7 +109,9 @@ tests can call it. No command, task, or page calls it.
 
 The audit status stays `completed`. `imported` records that the import
 finished, and `imported_transcription` points at the new layer. Both are
-set only after every line row and the raw gate have been created.
+set only after every line row, the raw gate, and its review sample
+have been created. An audit with no included lines has no sample, so
+the import creates nothing.
 `imported` stays true if that layer is later removed. The link is then
 cleared, and another import of the same audit still creates nothing.
 
@@ -130,18 +132,21 @@ read a request file. It does not change Transcribe or `ai_transcribe`.
 The same transaction creates one `AILayerGate` in state `raw`. The gate's
 transcription is the new layer, so the document is that layer's document.
 `job` stays empty because that field points at an `AIJob`, and this audit
-is not one. `comparison` stays empty. The helper does not acknowledge a
-sample or mark the layer training-eligible. Training checks refuse the
-layer while the gate is raw. A manual or kraken layer with no gate keeps
-the existing trainable rule.
+is not one. `comparison` stays empty. No comparison layer is created.
 
-The import does not choose `sample_line_pks`. `acknowledge_sample` refuses
-a gate with an empty sample. The existing `ai_transcribe` task is what
-records a sample, and this helper does not run that task or a Kraken
-comparison. A later action can store a sample with `build_gate_sample`
-and no comparison layer. The existing acknowledge and mark-eligible steps
-can then make the layer training-eligible. That action is not part of
-this helper, so creating the raw gate does not by itself open the review.
+The sample comes from `build_gate_sample` and the imported line primary
+keys. That helper's size rule is unchanged: every line when there are 50
+or fewer, otherwise `max(50, 2%)`. The gate stores `sample_line_pks` and
+`mean_cer` from that result. With no comparison, `mean_cer` is empty and
+no disagreement rows are written. `build_gate_sample` does not change
+gate state, so the gate stays `raw`.
+
+The helper does not acknowledge the sample or mark the layer
+training-eligible. `acknowledge_sample` is the step that sets `sampled`,
+and `mark_training_eligible` runs only after that. Training checks refuse
+the layer until both have happened. A manual or kraken layer with no gate
+keeps the existing trainable rule. An empty sample rolls the import back
+and returns `review_sample_empty`.
 
 Archivists can read and correct the imported line text. The gate does not
 block those edits. A later correction can be stored as an `AIExample` by
@@ -188,9 +193,10 @@ is not written. `confidence` stays engine-specific and is not a rank.
 `timing_ms` of 0 means the engine did not measure that interval.
 
 The layer starts as draft text. The code-only helper records a raw gate
-for a layer it creates from an audit that is already stored. That gate is
-not marked training-eligible. The operator task in this section does not
-exist yet and does not add another gate.
+and its review sample for a layer it creates from an audit that is already
+stored. A person still has to acknowledge that sample and mark the layer
+training-eligible. The operator task in this section does not exist yet
+and does not add another gate.
 
 ## Safety
 
