@@ -175,6 +175,7 @@ def _get_json(url):
 @override_settings(MEDIA_ROOT=MEDIA)
 class PyLaiaOperatorSmokeTests(TestCase):
     def setUp(self):
+        self.addCleanup(shutil.rmtree, MEDIA, ignore_errors=True)
         if os.path.isdir(MEDIA):
             shutil.rmtree(MEDIA)
         os.makedirs(MEDIA)
