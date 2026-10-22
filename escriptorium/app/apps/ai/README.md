@@ -76,6 +76,8 @@ python manage.py test ai.django_integration_tests
 
 Do not add tests that call Gemini, Anthropic, or OpenAI. Mock `requests.post`. The ORM checks mock the engine client.
 
+`ai.pylaia_operator_smoke` is not part of either command above. It skips unless `PYLAIA_OPERATOR_SMOKE=1`, and then it calls a local PyLaia decode service that you start yourself. Empty recognized text is valid. It is process evidence, not an accuracy result. See `docs/external-htr-operator-workflow.md`.
+
 ## Keys
 
 Hosted backends read `os.environ[config.key_ref]` (typically `GEMINI_API_KEY`,
