@@ -2,16 +2,23 @@
 
 This is a manual check for an operator. It is not a workflow in the
 application, and it does not add a Transcribe option. The current
-Transcribe action and `ai_transcribe` are unchanged. This check does not
-write a transcription layer and does not write `LineTranscription` rows.
-The request export and the file-based live check do not write audit rows.
-Phase A is the separate command `run_external_htr_audit`. It records
-audit rows only. It does not write a transcription layer, and it is not
-the Transcribe action.
+Transcribe action and `ai_transcribe` are unchanged.
 
-`external-htr-integration.md` describes a future explicit action. That
-action is not implemented. Completing the steps below does not implement
-it.
+The engine check, the request export, the file-based live check, and
+`run_external_htr_audit` do not write a transcription layer. The audit
+command records audit rows only. It does not write a transcription layer,
+and it is not the Transcribe action. The request export and the file-based
+live check do not write audit rows.
+
+`import_external_htr_audit` is a separate command. Preview is the default
+and writes nothing. `--apply` creates one new layer from a completed
+audit. That command does not call an engine, and it is not the Transcribe
+action. A person still has to acknowledge the review sample and mark the
+layer eligible before training.
+
+`external-htr-integration.md` describes a future action that would send
+lines to an engine and write a layer in the same task. That send is not
+implemented. Completing the steps below does not implement it.
 
 Run `manage.py` from `escriptorium/app`. `<config_id>` is the numeric id
 of an `ExternalHTREngineConfig` row, not its name.
@@ -248,6 +255,67 @@ exception text.
 `check_external_htr_live` remains a separate file-based check and still
 writes no audit rows. `export_external_htr_request` only writes a request
 file. `plan_external_htr` remains a dry run and has no live mode.
+
+## Import a completed audit
+
+This command reads one stored audit job. `<job_id>` is the positive
+integer primary key of that job. It does not call an engine, open a page
+image, crop a line, or read a request file. It does not change Transcribe.
+
+Preview is the default. It uses the writeback planner and does not create
+or modify a layer, a line row, a gate, or the import marker.
+
+```bash
+python manage.py import_external_htr_audit <job_id>
+```
+
+Success prints one line and exits 0:
+
+```text
+OK: external HTR import preview job=<id> lines=<n>
+```
+
+`<n>` is the number of included lines in the plan. An audit that is
+already imported prints `already_imported`, including when the planner
+would still accept that audit. Preview does not authorize the write.
+
+Apply runs only with `--apply`. It calls the import helper, which locks
+the audit and checks the current lines again. Do not treat a successful
+preview as permission to skip that check.
+
+```bash
+python manage.py import_external_htr_audit <job_id> --apply
+```
+
+Success creates one new transcription layer, one row for each included
+line, a raw gate with its no-comparison review sample, and the import
+marker. A repeated apply creates nothing else. If that layer name is
+already taken, the existing layer is left unchanged and the audit is not
+marked imported. Success prints one line and exits 0:
+
+```text
+OK: external HTR import applied job=<id> layer=<id> lines=<n>
+```
+
+`<n>` is the number of line rows written on the new layer.
+
+Failure prints one line and exits 1:
+
+```text
+FAILED: external HTR import <code>
+```
+
+The line does not include recognized text, warnings, the layer name, the
+endpoint, a document title or path, image data, or exception text. An
+unexpected failure prints `import_internal` and does not leave a partial
+layer.
+
+The gate stays `raw`. The command does not acknowledge the sample or mark
+the layer training-eligible. Training stays blocked until a person
+acknowledges the sample and then marks the layer eligible. Reading and
+correcting the imported text stays available. An audit with no included
+lines is refused with `no_included_lines`. Preview and apply both write
+nothing. An included line whose text is empty remains valid.
 
 ## 7. Stop the smoke service
 

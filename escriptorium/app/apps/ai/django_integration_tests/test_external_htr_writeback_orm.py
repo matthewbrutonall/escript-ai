@@ -24,12 +24,10 @@ from ai.external_htr_writeback import (
     CODE_COLLISION,
     CODE_FAILED,
     CODE_IMPORTED,
-    CODE_SAMPLE,
     MESSAGE_ALREADY,
     MESSAGE_COLLISION,
     MESSAGE_FAILED,
     MESSAGE_IMPORTED,
-    MESSAGE_SAMPLE,
     import_external_htr_writeback,
 )
 from ai.gate import (
@@ -43,6 +41,8 @@ from ai.gate import (
 from ai.external_htr_writeback_plan import (
     load_external_htr_writeback_plan,
     CODE_CANCELLED,
+    CODE_EMPTY,
+    MESSAGE_EMPTY,
     CODE_FAILED as CODE_AUDIT_FAILED,
     CODE_INCOMPLETE,
     CODE_LINE,
@@ -370,8 +370,8 @@ class _WritebackFixture:
             result = import_external_htr_writeback(job.pk)
         job.refresh_from_db()
         self.assertFalse(result.imported)
-        self.assertEqual(result.code, CODE_SAMPLE)
-        self.assertEqual(result.message, MESSAGE_SAMPLE)
+        self.assertEqual(result.code, CODE_EMPTY)
+        self.assertEqual(result.message, MESSAGE_EMPTY)
         self.assertEqual(result.job_id, job.pk)
         self.assertIsNone(result.transcription_id)
         self.assertFalse(job.imported)
