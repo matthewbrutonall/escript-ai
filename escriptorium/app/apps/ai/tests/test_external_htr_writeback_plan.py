@@ -18,6 +18,7 @@ from ai.external_htr_apply_plan import (
 from ai.external_htr_writeback_plan import (
     CODE_CANCELLED,
     CODE_DUPLICATE,
+    CODE_EMPTY,
     CODE_FAILED,
     CODE_INCOMPLETE,
     CODE_LINE,
@@ -32,6 +33,7 @@ from ai.external_htr_writeback_plan import (
     LAYER_SOURCE_PREFIX,
     MESSAGE_CANCELLED,
     MESSAGE_DUPLICATE,
+    MESSAGE_EMPTY,
     MESSAGE_FAILED,
     MESSAGE_INCOMPLETE,
     MESSAGE_LINE,
@@ -167,6 +169,31 @@ class WritebackPlanTests(unittest.TestCase):
         self.assertEqual(plan.skipped_count, 1)
         self.assertEqual(plan.empty_text_count, 1)
         self.assertNotIn("not-imported", plan.message)
+
+    def test_no_included_lines_are_refused_and_one_blank_line_is_kept(self):
+        for rows in ((), [_row("4", "not-imported", status="skipped")]):
+            with self.subTest(rows=len(rows)):
+                plan = _plan(
+                    _job(result_count=0, empty_text_count=0),
+                    rows,
+                    [4],
+                )
+                self._assert_refused(plan, CODE_EMPTY, MESSAGE_EMPTY)
+                self.assertEqual(plan.job_id, 7)
+                self._assert_silent(plan)
+        blank = _plan(
+            _job(result_count=1, empty_text_count=1),
+            [_row("4", "")],
+            [4],
+        )
+        self.assertTrue(blank.allowed)
+        self.assertEqual(blank.code, CODE_READY)
+        self.assertEqual(
+            [(item.line_id, item.text) for item in blank.lines],
+            [("4", "")],
+        )
+        self.assertEqual(blank.included_count, 1)
+        self.assertEqual(blank.empty_text_count, 1)
 
     def test_text_at_the_content_limit_is_kept_and_one_more_character_is_refused(self):
         self.assertEqual(CONTENT_LIMIT, 2048)

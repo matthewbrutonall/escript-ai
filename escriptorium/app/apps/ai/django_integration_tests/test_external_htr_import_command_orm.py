@@ -17,7 +17,10 @@ from ai.django_integration_tests.test_external_htr_writeback_orm import (
     _WritebackFixture,
     _no_io,
 )
-from ai.external_htr_writeback_plan import load_external_htr_writeback_plan
+from ai.external_htr_writeback_plan import (
+    CODE_EMPTY,
+    load_external_htr_writeback_plan,
+)
 from ai.gate import LayerNotEligible, assert_training_eligible
 from ai.models import AILayerGate, ExternalHTRJob
 from core.models import Document, LineTranscription, Transcription
@@ -258,26 +261,69 @@ class ExternalHtrImportCommandOrmTests(TestCase):
         self.assertEqual(LineTranscription.objects.count(), 0)
         self.assertEqual(AILayerGate.objects.count(), 0)
 
-    def test_audit_with_no_included_lines_previews_and_apply_rolls_back(self):
+    def test_zero_included_lines_are_refused_without_writes(self):
         job = self._audit(result_count=0, requested_line_count=0)
+        self._result(job, "900000001", "skipped-secret", position=0, status="skipped")
+        old = timezone.now() - timedelta(days=1)
+        ExternalHTRJob.objects.filter(pk=job.pk).update(updated_at=old)
         layers = set(Transcription.objects.values_list("pk", flat=True))
+        plan = load_external_htr_writeback_plan(job.pk)
+        self.assertFalse(plan.allowed)
+        self.assertEqual(plan.code, CODE_EMPTY)
+        self.assertEqual(plan.lines, ())
         with _no_io():
             preview, preview_out, preview_err = _run(str(job.pk))
             applied, applied_out, applied_err = _run(str(job.pk), "--apply")
         job.refresh_from_db()
-        self.assertEqual(preview, 0)
-        self.assertEqual(
-            preview_out,
-            "OK: external HTR import preview job=%s lines=0\n" % job.pk,
-        )
+        refused = "FAILED: external HTR import %s\n" % CODE_EMPTY
+        self.assertEqual(preview, 1)
         self.assertEqual(applied, 1)
-        self.assertEqual(applied_out, "FAILED: external HTR import review_sample_empty\n")
-        self._assert_quiet(preview_out, preview_err)
-        self._assert_quiet(applied_out, applied_err)
+        self.assertEqual(preview_out, refused)
+        self.assertEqual(applied_out, refused)
+        self._assert_quiet(preview_out, preview_err, "skipped-secret")
+        self._assert_quiet(applied_out, applied_err, "skipped-secret")
         self.assertFalse(job.imported)
+        self.assertIsNone(job.imported_transcription_id)
+        self.assertEqual(job.updated_at, old)
         self.assertEqual(set(Transcription.objects.values_list("pk", flat=True)), layers)
         self.assertEqual(LineTranscription.objects.count(), 0)
         self.assertEqual(AILayerGate.objects.count(), 0)
+
+    def test_blank_included_text_previews_and_imports(self):
+        job = self._audit(result_count=1, empty_text_count=1)
+        self._result(job, str(self.line.pk), "", position=0)
+        plan = load_external_htr_writeback_plan(job.pk)
+        self.assertTrue(plan.allowed)
+        self.assertEqual(plan.lines[0].text, "")
+        before = set(Transcription.objects.values_list("pk", flat=True))
+        with _no_io():
+            preview, preview_out, preview_err = _run(str(job.pk))
+            applied, applied_out, applied_err = _run(str(job.pk), "--apply")
+        job.refresh_from_db()
+        layer = job.imported_transcription
+        self.assertEqual(preview, 0, preview_out)
+        self.assertEqual(
+            preview_out,
+            "OK: external HTR import preview job=%s lines=1\n" % job.pk,
+        )
+        self.assertEqual(applied, 0, applied_out)
+        self.assertEqual(
+            applied_out,
+            "OK: external HTR import applied job=%s layer=%s lines=1\n" % (job.pk, layer.pk),
+        )
+        self._assert_quiet(preview_out, preview_err)
+        self._assert_quiet(applied_out, applied_err)
+        self.assertEqual(
+            set(Transcription.objects.values_list("pk", flat=True)),
+            before | {layer.pk},
+        )
+        row = LineTranscription.objects.get(transcription=layer)
+        self.assertEqual(row.line_id, self.line.pk)
+        self.assertEqual(row.content, "")
+        gate = self._assert_raw_gate(layer, [self.line.pk])
+        self.assertEqual(gate.sample_line_pks, [self.line.pk])
+        with self.assertRaises(LayerNotEligible):
+            assert_training_eligible(Transcription.objects.get(pk=layer.pk))
 
     def _assert_quiet(self, stdout, stderr, *extra):
         blob = stdout + stderr

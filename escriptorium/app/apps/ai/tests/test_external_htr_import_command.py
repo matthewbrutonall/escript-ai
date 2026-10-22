@@ -179,6 +179,32 @@ class ImportCommandHelperTests(unittest.TestCase):
         self.assertNotIn("http", line)
         self.assertNotIn("recognized", line)
 
+    def test_no_included_lines_are_refused_and_blank_text_is_previewed(self):
+        code, line = execute_external_htr_import(
+            7,
+            apply=False,
+            load_plan=lambda job_id: _Plan(False, "no_included_lines", 7, ()),
+            import_writeback=_refuse,
+            fetch_job=lambda job_id: _Job(),
+            count_lines=_refuse,
+        )
+        self.assertEqual((code, line), (1, "FAILED: external HTR import no_included_lines"))
+
+        class Blank:
+            text = ""
+
+        code, line = execute_external_htr_import(
+            7,
+            apply=False,
+            load_plan=lambda job_id: _Plan(True, "writeback_planned", 7, (Blank(),)),
+            import_writeback=_refuse,
+            fetch_job=lambda job_id: _Job(),
+            count_lines=_refuse,
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(line, "OK: external HTR import preview job=7 lines=1")
+        self.assertNotIn("Blank", line)
+
     def test_writer_exception_does_not_leak(self):
         def write(job_id):
             raise RuntimeError("Traceback endpoint http://secret recognized text")

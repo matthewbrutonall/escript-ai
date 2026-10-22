@@ -11,6 +11,7 @@ from ai.external_htr_writeback_plan import (
     CODE_DUPLICATE,
     CODE_FAILED,
     CODE_INCOMPLETE,
+    CODE_EMPTY,
     CODE_LINE,
     CODE_MALFORMED,
     CODE_PART,
@@ -41,6 +42,7 @@ _PUBLIC_CODES = frozenset({
     CODE_MALFORMED,
     CODE_LINE,
     CODE_TEXT,
+    CODE_EMPTY,
 })
 
 

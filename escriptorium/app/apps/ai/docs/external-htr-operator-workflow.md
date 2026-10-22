@@ -314,8 +314,8 @@ The gate stays `raw`. The command does not acknowledge the sample or mark
 the layer training-eligible. Training stays blocked until a person
 acknowledges the sample and then marks the layer eligible. Reading and
 correcting the imported text stays available. An audit with no included
-lines can preview as `lines=0`; apply then refuses it and writes nothing,
-because there is no review sample.
+lines is refused with `no_included_lines`. Preview and apply both write
+nothing. An included line whose text is empty remains valid.
 
 ## 7. Stop the smoke service
 

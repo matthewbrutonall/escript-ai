@@ -46,6 +46,8 @@ CODE_LINE = "line_not_on_part"
 MESSAGE_LINE = "included line is not on the part"
 CODE_TEXT = "line_text_too_long"
 MESSAGE_TEXT = "included line text is too long"
+CODE_EMPTY = "no_included_lines"
+MESSAGE_EMPTY = "audit has no included lines"
 
 _STATUS_FAILURES = {
     "planned": (CODE_PLANNED, MESSAGE_PLANNED),
@@ -162,6 +164,8 @@ def plan_external_htr_writeback(job, results, part_line_ids, *, part_document_id
     if problem is not None:
         code, message = problem
         return _reject(code, message, job_id, document_id, part_id)
+    if not lines:
+        return _reject(CODE_EMPTY, MESSAGE_EMPTY, job_id, document_id, part_id)
     return ExternalHtrWritebackPlan(
         allowed=True,
         code=CODE_READY,

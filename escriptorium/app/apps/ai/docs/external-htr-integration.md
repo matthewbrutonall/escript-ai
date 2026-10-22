@@ -106,14 +106,15 @@ theirs.
 
 `import_external_htr_writeback` takes one stored audit job id. It locks
 that job, runs the planner again against the current lines, and creates
-one new transcription layer plus one row for each included line. Code and
-tests can call it. No command, task, or page calls it.
+one new transcription layer plus one row for each included line.
+`import_external_htr_audit --apply` calls it. Tasks, pages, and the other
+commands do not.
 
 The audit status stays `completed`. `imported` records that the import
 finished, and `imported_transcription` points at the new layer. Both are
 set only after every line row, the raw gate, and its review sample
-have been created. An audit with no included lines has no sample, so
-the import creates nothing.
+have been created. An audit with no included lines is refused by the
+planner with `no_included_lines`, so preview and apply both write nothing.
 `imported` stays true if that layer is later removed. The link is then
 cleared, and another import of the same audit still creates nothing.
 
@@ -147,8 +148,9 @@ The helper does not acknowledge the sample or mark the layer
 training-eligible. `acknowledge_sample` is the step that sets `sampled`,
 and `mark_training_eligible` runs only after that. Training checks refuse
 the layer until both have happened. A manual or kraken layer with no gate
-keeps the existing trainable rule. An empty sample rolls the import back
-and returns `review_sample_empty`.
+keeps the existing trainable rule. An included line whose text is empty
+is still imported. If the planner accepts the audit and the sample is
+still empty, the import rolls back and returns `review_sample_empty`.
 
 Archivists can read and correct the imported line text. The gate does not
 block those edits. A later correction can be stored as an `AIExample` by
