@@ -224,6 +224,8 @@ python manage.py check_external_htr_engine <config_id>
 
 The recognize call sends one synthetic line. That image is not a user document and it is not a PNG. Decode mode rejects a non-PNG image, so the command can report a recognize failure while the smoke service is up. It prints one `OK:` or `FAILED:` line and does not print recognized text. This does not transcribe a document and does not add a Transcribe option. The default Compose project and Escript AI transcription jobs remain unwired.
 
+`ai.pylaia_operator_smoke` is a separate optional check for a synthetic document part. It is not part of `python3 -m unittest ai.tests` or `python manage.py test ai.django_integration_tests`. `docs/external-htr-operator-workflow.md` describes it. It is not an accuracy benchmark.
+
 ## One-line decode smoke
 
 This is an operator check that one synthetic line can pass through `DecodePyLaiaBackend`. The result is process evidence that the decode command ran. It is not an accuracy result. Compose does not run this check, and Escript AI transcription jobs do not call PyLaia.

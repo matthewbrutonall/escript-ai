@@ -317,6 +317,44 @@ correcting the imported text stays available. An audit with no included
 lines is refused with `no_included_lines`. Preview and apply both write
 nothing. An included line whose text is empty remains valid.
 
+## Optional PyLaia process check
+
+This check is optional. It is not part of `python3 -m unittest ai.tests`
+or `python manage.py test ai.django_integration_tests`. It does not start
+the engine, download a model, or install PyLaia. It is process evidence
+that a local decode service can complete the audit, preview, import, and
+review gate. It is not an accuracy benchmark. Empty recognized text is a
+valid result. The check does not print that text and it does not run
+training.
+
+Start the smoke service in section 1 first. Run `manage.py` where it can
+open the published loopback port, against a database you can discard.
+From `escriptorium/app`:
+
+```bash
+PYLAIA_OPERATOR_SMOKE=1 python manage.py test ai.pylaia_operator_smoke -v 2
+```
+
+The module skips unless `PYLAIA_OPERATOR_SMOKE` is `1`.
+`PYLAIA_SMOKE_ENDPOINT` defaults to `http://127.0.0.1:8766`.
+`PYLAIA_SMOKE_MODEL_ID` defaults to `huginmunin`. That value is the label
+configured when the server starts. It is not a file path, and it is not a
+verified model-card identifier.
+
+The running service reports `licence` as `unspecified`, `source` as
+`configured`, and `model_version` as the decode backend's configured
+constant `0`. Those are configured labels. This check does not read a
+licence file from the model directory. The public model card for
+`Teklia/pylaia-norhand-v1` is labelled MIT, and
+`Teklia/pylaia-huginmunin` redirects to that repository. This check does
+not verify that card.
+
+The check builds a synthetic page with line geometry. It does not read an
+archival image. It creates its own engine row in Django's test database,
+clears that row's enabled flag before the test method returns, and does
+not modify the application database. Stop the smoke service as in the next
+section, and set the operator's own engine row back to disabled.
+
 ## 7. Stop the smoke service
 
 If step 1 used the optional PyLaia file, stop that project when the
