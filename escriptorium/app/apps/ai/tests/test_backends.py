@@ -1,5 +1,8 @@
 """Backend helpers — no Django, no network."""
+import threading
 import unittest
+from contextlib import contextmanager
+from pathlib import Path
 from types import SimpleNamespace
 
 from ai.backends import MockBackend, get_backend, parse_json_by_key
@@ -56,8 +59,9 @@ class GetBackendTests(unittest.TestCase):
         )
         captured = {}
 
-        def fake_post(url, headers=None, json=None, timeout=None):
+        def fake_post(url, headers=None, json=None, timeout=None, **kwargs):
             captured["json"] = json
+            captured["allow_redirects"] = kwargs.get("allow_redirects")
             resp = MagicMock()
             resp.ok = True
             resp.raise_for_status = lambda: None
@@ -75,6 +79,7 @@ class GetBackendTests(unittest.TestCase):
         self.assertNotIn("top_p", captured["json"])
         self.assertEqual(captured["json"]["max_tokens"], 2048)
         self.assertEqual(captured["json"]["model"], "claude-sonnet-5")
+        self.assertIs(captured["allow_redirects"], False)
 
     def test_openai_maps_to_openai_backend(self):
         from ai.backends import OpenAIBackend
@@ -97,10 +102,11 @@ class GetBackendTests(unittest.TestCase):
         )
         captured = {}
 
-        def fake_post(url, headers=None, json=None, timeout=None):
+        def fake_post(url, headers=None, json=None, timeout=None, **kwargs):
             captured["url"] = url
             captured["headers"] = headers
             captured["json"] = json
+            captured["allow_redirects"] = kwargs.get("allow_redirects")
             resp = MagicMock()
             resp.ok = True
             resp.raise_for_status = lambda: None
@@ -123,6 +129,7 @@ class GetBackendTests(unittest.TestCase):
         self.assertEqual(content[1]["type"], "input_image")
         self.assertTrue(content[1]["image_url"].startswith("data:image/png;base64,"))
         self.assertEqual(result.text_by_key, {"red": "x"})
+        self.assertIs(captured["allow_redirects"], False)
 
     def test_local_maps_to_local_backend(self):
         from ai.backends import LocalOpenAIBackend
@@ -150,6 +157,376 @@ class GetBackendTests(unittest.TestCase):
         with self.assertRaises(RuntimeError) as ctx:
             AzureOpenAIBackend(cfg, api_key="k").transcribe_region(img, ["red"], "p")
         self.assertIn("endpoint", str(ctx.exception))
+
+
+class _ManagedLoopbackServer:
+    """One bound server and, once started, its serve_forever thread.
+
+    BaseServer.shutdown waits until serve_forever sets its done event.
+    Calling it before that thread has started waits forever, so a later
+    server_close never runs. Shutdown is therefore skipped unless start
+    has returned. The listening socket is closed either way.
+    """
+
+    def __init__(self, server):
+        self.server = server
+        self.thread = None
+
+    def start(self):
+        thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        thread.start()
+        self.thread = thread
+
+    def close(self, join_timeout):
+        thread = self.thread
+        try:
+            if thread is not None:
+                self.server.shutdown()
+        finally:
+            try:
+                self.server.server_close()
+            finally:
+                if thread is not None:
+                    thread.join(timeout=join_timeout)
+                    if thread.is_alive():
+                        raise AssertionError(
+                            "serve_forever thread did not stop within "
+                            f"{join_timeout}s")
+
+
+@contextmanager
+def managed_loopback_servers(factories, join_timeout=5):
+    """Bind each server and register it before the next constructor runs."""
+    managed = []
+    try:
+        for factory in factories:
+            managed.append(_ManagedLoopbackServer(factory()))
+        yield managed
+    finally:
+        errors = []
+        for item in reversed(managed):
+            try:
+                item.close(join_timeout)
+            except Exception as exc:
+                errors.append(exc)
+        if errors:
+            raise errors[0]
+
+
+class LocalRequestTests(unittest.TestCase):
+    def test_provider_posts_disable_redirects(self):
+        text = (Path(__file__).resolve().parents[1] / "backends.py").read_text()
+        self.assertEqual(text.count("requests.post"), 1)
+        self.assertIn('kwargs["allow_redirects"] = False', text)
+
+    def test_local_cost_stays_zero(self):
+        from ai.backends import LocalOpenAIBackend
+        backend = LocalOpenAIBackend(
+            SimpleNamespace(provider="local", model_id="llava"))
+        self.assertEqual(backend.in_usd_per_1m, 0.0)
+        self.assertEqual(backend.out_usd_per_1m, 0.0)
+        self.assertEqual(backend.cost(1_000_000, 1_000_000), 0.0)
+
+    def test_missing_endpoint_posts_to_the_loopback_default(self):
+        from ai.backends import LOCAL_DEFAULT_ENDPOINT, LocalOpenAIBackend
+        from PIL import Image
+        from unittest.mock import patch, MagicMock
+
+        captured = {}
+
+        def fake_post(url, **kwargs):
+            captured["url"] = url
+            captured["allow_redirects"] = kwargs.get("allow_redirects")
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.ok = True
+            resp.json.return_value = {
+                "choices": [{"message": {"content": '{"red": "x"}'}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+            }
+            return resp
+
+        cfg = SimpleNamespace(
+            provider="local", model_id="llava", endpoint=None, max_edge_px=32)
+        img = Image.new("RGB", (8, 8), "white")
+        with patch("requests.post", fake_post), \
+                patch("requests.get", side_effect=AssertionError("get")):
+            result = LocalOpenAIBackend(cfg).transcribe_region(img, ["red"], "p")
+        self.assertEqual(
+            captured["url"], LOCAL_DEFAULT_ENDPOINT.rstrip("/") + "/chat/completions")
+        self.assertEqual(captured["url"], "http://localhost:11434/v1/chat/completions")
+        self.assertIs(captured["allow_redirects"], False)
+        self.assertEqual(result.text_by_key, {"red": "x"})
+
+    def test_whitespace_around_a_loopback_endpoint_is_not_sent(self):
+        from ai.backends import local_request_base, LocalOpenAIBackend
+        from ai.egress import endpoint_is_loopback
+        from PIL import Image
+        from unittest.mock import patch, MagicMock
+
+        raw = " http://127.0.0.1:11434/v1/\n"
+        base = local_request_base(raw)
+        self.assertEqual(base, "http://127.0.0.1:11434/v1")
+        self.assertTrue(endpoint_is_loopback(base))
+        captured = {}
+
+        def fake_post(url, **kwargs):
+            captured["url"] = url
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.ok = True
+            resp.json.return_value = {
+                "choices": [{"message": {"content": '{"red": "x"}'}}],
+                "usage": {},
+            }
+            return resp
+
+        cfg = SimpleNamespace(
+            provider="local", model_id="llava", endpoint=raw, max_edge_px=32)
+        img = Image.new("RGB", (8, 8), "white")
+        with patch("requests.post", fake_post), \
+                patch("requests.get", side_effect=AssertionError("get")):
+            LocalOpenAIBackend(cfg).transcribe_region(img, ["red"], "p")
+        self.assertEqual(captured["url"], base + "/chat/completions")
+        self.assertNotIn(" ", captured["url"])
+        self.assertNotIn("%20", captured["url"])
+        self.assertNotIn("%0A", captured["url"])
+
+    def test_redirect_is_a_fixed_failure_and_is_not_followed(self):
+        from ai.backends import LocalOpenAIBackend
+        from PIL import Image
+        from unittest.mock import patch
+
+        class RedirectResponse:
+            status_code = 302
+            ok = True
+            location = "https://evil.example/collect"
+            body = "collected https://evil.example/collect SECRET-BODY"
+
+            @property
+            def text(self):
+                raise AssertionError("redirect body was read")
+
+            @property
+            def headers(self):
+                raise AssertionError("redirect headers were read")
+
+            def json(self):
+                raise AssertionError("redirect body was parsed")
+
+            def raise_for_status(self):
+                raise AssertionError("redirect was treated as a normal error")
+
+        calls = []
+
+        def fake_post(url, **kwargs):
+            calls.append((url, kwargs))
+            return RedirectResponse()
+
+        cfg = SimpleNamespace(
+            provider="local", model_id="llava",
+            endpoint="http://127.0.0.1:11434/v1", max_edge_px=32)
+        img = Image.new("RGB", (8, 8), "white")
+        with patch("requests.post", fake_post), \
+                patch("requests.get", side_effect=AssertionError("get")):
+            with self.assertRaises(RuntimeError) as ctx:
+                LocalOpenAIBackend(cfg).transcribe_region(img, ["red"], "p")
+        self.assertEqual(str(ctx.exception), "provider redirect refused")
+        self.assertNotIn("evil.example", str(ctx.exception))
+        self.assertNotIn("SECRET-BODY", str(ctx.exception))
+        self.assertNotIn("Location", str(ctx.exception))
+        self.assertEqual(len(calls), 1)
+        url, kwargs = calls[0]
+        self.assertEqual(url, "http://127.0.0.1:11434/v1/chat/completions")
+        self.assertIs(kwargs["allow_redirects"], False)
+        self.assertNotIn("https://evil.example/collect", str(kwargs))
+
+    def test_each_redirect_status_is_refused_without_reading_the_response(self):
+        from ai.backends import _provider_post
+        from unittest.mock import patch
+
+        class RedirectResponse:
+            def __init__(self, status_code):
+                self.status_code = status_code
+
+            @property
+            def text(self):
+                raise AssertionError("body")
+
+            @property
+            def headers(self):
+                raise AssertionError("headers")
+
+        def make_post(status):
+            def fake_post(url, **kwargs):
+                self.assertIs(kwargs["allow_redirects"], False)
+                return RedirectResponse(status)
+            return fake_post
+
+        for status in (301, 302, 303, 307, 308):
+            with patch("requests.post", make_post(status)), \
+                    patch("requests.get", side_effect=AssertionError("get")):
+                with self.assertRaises(RuntimeError) as ctx:
+                    _provider_post("http://127.0.0.1/v1/chat/completions", json={})
+            self.assertEqual(str(ctx.exception), "provider redirect refused", status)
+
+    def test_live_loopback_redirect_reaches_only_the_first_server(self):
+        import os
+        import socket
+        import time
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        from unittest.mock import patch
+        from PIL import Image
+        from ai.backends import LocalOpenAIBackend
+
+        class RedirectHandler(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def do_POST(self):
+                length = int(self.headers.get("Content-Length") or 0)
+                if length:
+                    self.rfile.read(length)
+                self.server.hits.append(self.path)
+                body = b"SECRET-BODY-token"
+                self.send_response(302)
+                self.send_header("Location", self.server.location)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_GET(self):
+                self.server.hits.append("GET " + self.path)
+                self.send_response(204)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+            def log_message(self, fmt, *args):
+                return
+
+        class SinkHandler(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def _record(self):
+                length = int(self.headers.get("Content-Length") or 0)
+                if length:
+                    self.rfile.read(length)
+                self.server.hits.append(self.command + " " + self.path)
+                body = b'{"choices":[{"message":{"content":"sink"}}]}'
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_POST(self):
+                self._record()
+
+            def do_GET(self):
+                self._record()
+
+            def log_message(self, fmt, *args):
+                return
+
+        def wait_until_listening(host, port):
+            last_error = None
+            for _ in range(50):
+                try:
+                    with socket.create_connection((host, port), timeout=0.1):
+                        return
+                except OSError as exc:
+                    last_error = exc
+                    time.sleep(0.02)
+            raise AssertionError(f"{host}:{port} did not listen: {last_error}")
+
+        def make_redirect():
+            return ThreadingHTTPServer(("127.0.0.1", 0), RedirectHandler)
+
+        def make_sink():
+            return ThreadingHTTPServer(("127.0.0.1", 0), SinkHandler)
+
+        with managed_loopback_servers((make_redirect, make_sink)) as managed:
+            redirect_server = managed[0].server
+            sink_server = managed[1].server
+            redirect_server.hits = []
+            sink_server.hits = []
+            sink_host, sink_port = sink_server.server_address
+            redirect_server.location = f"http://{sink_host}:{sink_port}/collect"
+            for item in managed:
+                item.start()
+            wait_until_listening(*redirect_server.server_address)
+            wait_until_listening(*sink_server.server_address)
+            port = redirect_server.server_address[1]
+            cfg = SimpleNamespace(
+                provider="local", model_id="synthetic",
+                endpoint=f"http://127.0.0.1:{port}/v1", max_edge_px=8)
+            cleared = {
+                "HTTP_PROXY": "", "HTTPS_PROXY": "", "ALL_PROXY": "",
+                "http_proxy": "", "https_proxy": "", "all_proxy": "",
+                "NO_PROXY": "*",
+            }
+            with patch.dict(os.environ, cleared, clear=False):
+                with self.assertRaises(RuntimeError) as ctx:
+                    LocalOpenAIBackend(cfg).transcribe_region(
+                        Image.new("RGB", (4, 4), "white"), ["red"], "synthetic")
+            message = str(ctx.exception)
+            self.assertEqual(message, "provider redirect refused")
+            self.assertNotIn("SECRET-BODY-token", message)
+            self.assertNotIn("collect", message)
+            self.assertNotIn(str(sink_port), message)
+            self.assertNotIn("Location", message)
+            self.assertEqual(redirect_server.hits, ["/v1/chat/completions"])
+            self.assertEqual(sink_server.hits, [])
+
+    def test_second_server_construction_failure_releases_the_first_socket(self):
+        import socket
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        class SilentHandler(BaseHTTPRequestHandler):
+            def log_message(self, fmt, *args):
+                return
+
+        held = {}
+
+        def make_first():
+            server = ThreadingHTTPServer(("127.0.0.1", 0), SilentHandler)
+            held["server"] = server
+            held["port"] = server.server_address[1]
+
+            def refuse_shutdown():
+                held["shutdown_called"] = True
+                raise AssertionError("shutdown called before serve_forever started")
+
+            server.shutdown = refuse_shutdown
+            return server
+
+        def make_second():
+            raise OSError("second server was not created")
+
+        outcome = {}
+
+        def exercise():
+            try:
+                with managed_loopback_servers((make_first, make_second)):
+                    outcome["entered"] = True
+            except BaseException as exc:
+                outcome["error"] = exc
+            finally:
+                outcome["finished"] = True
+
+        worker = threading.Thread(target=exercise, daemon=True)
+        worker.start()
+        worker.join(timeout=2)
+        self.assertFalse(
+            worker.is_alive(),
+            "cleanup hung after the second server failed to construct")
+        self.assertTrue(outcome.get("finished"))
+        self.assertNotIn("entered", outcome)
+        self.assertNotIn("shutdown_called", held)
+        self.assertIsInstance(outcome.get("error"), OSError)
+        self.assertEqual(str(outcome["error"]), "second server was not created")
+        self.assertEqual(held["server"].fileno(), -1)
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.bind(("127.0.0.1", held["port"]))
 
 
 if __name__ == "__main__":
