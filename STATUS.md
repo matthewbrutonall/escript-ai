@@ -117,6 +117,20 @@ shows in **non-legacy** UI. RTL beyond `html dir` is unfinished.
    Sanskritizing).
 4. Image few-shot / embedding retrieval for style priming.
 
+## Kraken training limits
+
+Recognition training and both segmentation trainers pass epoch limits from the Kraken training config into `KrakenTrainer`.
+
+A fixed run uses `epochs` as `max_epochs` and passes `min_epochs` through. An early-stopping run uses `max_epochs=-1` and the same `min_epochs`, so the recognition or segmentation model can stop on its own early-stopping callback. Limits are checked before the trainer is created. A quit mode other than fixed or early, a non-integer count, a fixed run below 1 epoch, a fixed run whose minimum is above its maximum, or an early run with a negative lag raises `TrainingLimitError` before fitting starts.
+
+Unconfigured runs keep the Kraken class defaults. PP-OCRv6 recognition is a fixed 100-epoch schedule. BLLA segmentation is a fixed 50-epoch schedule. VGSL recognition uses early stopping, so its trainer cap is `max_epochs=-1`. A caller can pass a shorter fixed schedule. One epoch is only used when that caller sets it.
+
+A new run keeps one checkpoint: the best `val_metric` file. That file is recorded as one model version and is then the conversion source. The checkpoint stays on disk so the version still names a real file. Older version rows and the files they name stay in place. A missing best file is not recorded.
+
+Cancellation revokes the Celery task and sets training off. This application does not resume a fit, so the trainer does not write a last checkpoint for Lightning to pick up later.
+
+Training eligibility gates, held-out page partitioning, progress events, and the CPU/GPU device setting are unchanged. Held-out `ketos` report parsing is unchanged.
+
 ## See also
 
 [README.md](README.md) · [ARCHITECTURE.md](ARCHITECTURE.md) · [CONTRIBUTING.md](CONTRIBUTING.md)
