@@ -1,5 +1,7 @@
 """Backend helpers — no Django, no network."""
+import threading
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -155,6 +157,60 @@ class GetBackendTests(unittest.TestCase):
         with self.assertRaises(RuntimeError) as ctx:
             AzureOpenAIBackend(cfg, api_key="k").transcribe_region(img, ["red"], "p")
         self.assertIn("endpoint", str(ctx.exception))
+
+
+class _ManagedLoopbackServer:
+    """One bound server and, once started, its serve_forever thread.
+
+    BaseServer.shutdown waits until serve_forever sets its done event.
+    Calling it before that thread has started waits forever, so a later
+    server_close never runs. Shutdown is therefore skipped unless start
+    has returned. The listening socket is closed either way.
+    """
+
+    def __init__(self, server):
+        self.server = server
+        self.thread = None
+
+    def start(self):
+        thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        thread.start()
+        self.thread = thread
+
+    def close(self, join_timeout):
+        thread = self.thread
+        try:
+            if thread is not None:
+                self.server.shutdown()
+        finally:
+            try:
+                self.server.server_close()
+            finally:
+                if thread is not None:
+                    thread.join(timeout=join_timeout)
+                    if thread.is_alive():
+                        raise AssertionError(
+                            "serve_forever thread did not stop within "
+                            f"{join_timeout}s")
+
+
+@contextmanager
+def managed_loopback_servers(factories, join_timeout=5):
+    """Bind each server and register it before the next constructor runs."""
+    managed = []
+    try:
+        for factory in factories:
+            managed.append(_ManagedLoopbackServer(factory()))
+        yield managed
+    finally:
+        errors = []
+        for item in reversed(managed):
+            try:
+                item.close(join_timeout)
+            except Exception as exc:
+                errors.append(exc)
+        if errors:
+            raise errors[0]
 
 
 class LocalRequestTests(unittest.TestCase):
@@ -317,7 +373,6 @@ class LocalRequestTests(unittest.TestCase):
     def test_live_loopback_redirect_reaches_only_the_first_server(self):
         import os
         import socket
-        import threading
         import time
         from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
         from unittest.mock import patch
@@ -383,23 +438,24 @@ class LocalRequestTests(unittest.TestCase):
                     time.sleep(0.02)
             raise AssertionError(f"{host}:{port} did not listen: {last_error}")
 
-        redirect_server = None
-        sink_server = None
-        threads = []
-        try:
-            redirect_server = ThreadingHTTPServer(("127.0.0.1", 0), RedirectHandler)
-            sink_server = ThreadingHTTPServer(("127.0.0.1", 0), SinkHandler)
+        def make_redirect():
+            return ThreadingHTTPServer(("127.0.0.1", 0), RedirectHandler)
+
+        def make_sink():
+            return ThreadingHTTPServer(("127.0.0.1", 0), SinkHandler)
+
+        with managed_loopback_servers((make_redirect, make_sink)) as managed:
+            redirect_server = managed[0].server
+            sink_server = managed[1].server
             redirect_server.hits = []
             sink_server.hits = []
             sink_host, sink_port = sink_server.server_address
             redirect_server.location = f"http://{sink_host}:{sink_port}/collect"
-            for server in (redirect_server, sink_server):
-                thread = threading.Thread(target=server.serve_forever, daemon=True)
-                thread.start()
-                threads.append(thread)
+            for item in managed:
+                item.start()
             wait_until_listening(*redirect_server.server_address)
             wait_until_listening(*sink_server.server_address)
-            host, port = redirect_server.server_address
+            port = redirect_server.server_address[1]
             cfg = SimpleNamespace(
                 provider="local", model_id="synthetic",
                 endpoint=f"http://127.0.0.1:{port}/v1", max_edge_px=8)
@@ -420,14 +476,57 @@ class LocalRequestTests(unittest.TestCase):
             self.assertNotIn("Location", message)
             self.assertEqual(redirect_server.hits, ["/v1/chat/completions"])
             self.assertEqual(sink_server.hits, [])
-        finally:
-            for server in (redirect_server, sink_server):
-                if server is None:
-                    continue
-                server.shutdown()
-                server.server_close()
-            for thread in threads:
-                thread.join(timeout=5)
+
+    def test_second_server_construction_failure_releases_the_first_socket(self):
+        import socket
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        class SilentHandler(BaseHTTPRequestHandler):
+            def log_message(self, fmt, *args):
+                return
+
+        held = {}
+
+        def make_first():
+            server = ThreadingHTTPServer(("127.0.0.1", 0), SilentHandler)
+            held["server"] = server
+            held["port"] = server.server_address[1]
+
+            def refuse_shutdown():
+                held["shutdown_called"] = True
+                raise AssertionError("shutdown called before serve_forever started")
+
+            server.shutdown = refuse_shutdown
+            return server
+
+        def make_second():
+            raise OSError("second server was not created")
+
+        outcome = {}
+
+        def exercise():
+            try:
+                with managed_loopback_servers((make_first, make_second)):
+                    outcome["entered"] = True
+            except BaseException as exc:
+                outcome["error"] = exc
+            finally:
+                outcome["finished"] = True
+
+        worker = threading.Thread(target=exercise, daemon=True)
+        worker.start()
+        worker.join(timeout=2)
+        self.assertFalse(
+            worker.is_alive(),
+            "cleanup hung after the second server failed to construct")
+        self.assertTrue(outcome.get("finished"))
+        self.assertNotIn("entered", outcome)
+        self.assertNotIn("shutdown_called", held)
+        self.assertIsInstance(outcome.get("error"), OSError)
+        self.assertEqual(str(outcome["error"]), "second server was not created")
+        self.assertEqual(held["server"].fileno(), -1)
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.bind(("127.0.0.1", held["port"]))
 
 
 if __name__ == "__main__":
