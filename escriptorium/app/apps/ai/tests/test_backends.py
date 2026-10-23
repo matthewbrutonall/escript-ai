@@ -202,6 +202,40 @@ class LocalRequestTests(unittest.TestCase):
         self.assertIs(captured["allow_redirects"], False)
         self.assertEqual(result.text_by_key, {"red": "x"})
 
+    def test_whitespace_around_a_loopback_endpoint_is_not_sent(self):
+        from ai.backends import local_request_base, LocalOpenAIBackend
+        from ai.egress import endpoint_is_loopback
+        from PIL import Image
+        from unittest.mock import patch, MagicMock
+
+        raw = " http://127.0.0.1:11434/v1/\n"
+        base = local_request_base(raw)
+        self.assertEqual(base, "http://127.0.0.1:11434/v1")
+        self.assertTrue(endpoint_is_loopback(base))
+        captured = {}
+
+        def fake_post(url, **kwargs):
+            captured["url"] = url
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.ok = True
+            resp.json.return_value = {
+                "choices": [{"message": {"content": '{"red": "x"}'}}],
+                "usage": {},
+            }
+            return resp
+
+        cfg = SimpleNamespace(
+            provider="local", model_id="llava", endpoint=raw, max_edge_px=32)
+        img = Image.new("RGB", (8, 8), "white")
+        with patch("requests.post", fake_post), \
+                patch("requests.get", side_effect=AssertionError("get")):
+            LocalOpenAIBackend(cfg).transcribe_region(img, ["red"], "p")
+        self.assertEqual(captured["url"], base + "/chat/completions")
+        self.assertNotIn(" ", captured["url"])
+        self.assertNotIn("%20", captured["url"])
+        self.assertNotIn("%0A", captured["url"])
+
     def test_redirect_is_a_fixed_failure_and_is_not_followed(self):
         from ai.backends import LocalOpenAIBackend
         from PIL import Image
@@ -279,6 +313,121 @@ class LocalRequestTests(unittest.TestCase):
                 with self.assertRaises(RuntimeError) as ctx:
                     _provider_post("http://127.0.0.1/v1/chat/completions", json={})
             self.assertEqual(str(ctx.exception), "provider redirect refused", status)
+
+    def test_live_loopback_redirect_reaches_only_the_first_server(self):
+        import os
+        import socket
+        import threading
+        import time
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        from unittest.mock import patch
+        from PIL import Image
+        from ai.backends import LocalOpenAIBackend
+
+        class RedirectHandler(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def do_POST(self):
+                length = int(self.headers.get("Content-Length") or 0)
+                if length:
+                    self.rfile.read(length)
+                self.server.hits.append(self.path)
+                body = b"SECRET-BODY-token"
+                self.send_response(302)
+                self.send_header("Location", self.server.location)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_GET(self):
+                self.server.hits.append("GET " + self.path)
+                self.send_response(204)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+            def log_message(self, fmt, *args):
+                return
+
+        class SinkHandler(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def _record(self):
+                length = int(self.headers.get("Content-Length") or 0)
+                if length:
+                    self.rfile.read(length)
+                self.server.hits.append(self.command + " " + self.path)
+                body = b'{"choices":[{"message":{"content":"sink"}}]}'
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_POST(self):
+                self._record()
+
+            def do_GET(self):
+                self._record()
+
+            def log_message(self, fmt, *args):
+                return
+
+        def wait_until_listening(host, port):
+            last_error = None
+            for _ in range(50):
+                try:
+                    with socket.create_connection((host, port), timeout=0.1):
+                        return
+                except OSError as exc:
+                    last_error = exc
+                    time.sleep(0.02)
+            raise AssertionError(f"{host}:{port} did not listen: {last_error}")
+
+        redirect_server = None
+        sink_server = None
+        threads = []
+        try:
+            redirect_server = ThreadingHTTPServer(("127.0.0.1", 0), RedirectHandler)
+            sink_server = ThreadingHTTPServer(("127.0.0.1", 0), SinkHandler)
+            redirect_server.hits = []
+            sink_server.hits = []
+            sink_host, sink_port = sink_server.server_address
+            redirect_server.location = f"http://{sink_host}:{sink_port}/collect"
+            for server in (redirect_server, sink_server):
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                threads.append(thread)
+            wait_until_listening(*redirect_server.server_address)
+            wait_until_listening(*sink_server.server_address)
+            host, port = redirect_server.server_address
+            cfg = SimpleNamespace(
+                provider="local", model_id="synthetic",
+                endpoint=f"http://127.0.0.1:{port}/v1", max_edge_px=8)
+            cleared = {
+                "HTTP_PROXY": "", "HTTPS_PROXY": "", "ALL_PROXY": "",
+                "http_proxy": "", "https_proxy": "", "all_proxy": "",
+                "NO_PROXY": "*",
+            }
+            with patch.dict(os.environ, cleared, clear=False):
+                with self.assertRaises(RuntimeError) as ctx:
+                    LocalOpenAIBackend(cfg).transcribe_region(
+                        Image.new("RGB", (4, 4), "white"), ["red"], "synthetic")
+            message = str(ctx.exception)
+            self.assertEqual(message, "provider redirect refused")
+            self.assertNotIn("SECRET-BODY-token", message)
+            self.assertNotIn("collect", message)
+            self.assertNotIn(str(sink_port), message)
+            self.assertNotIn("Location", message)
+            self.assertEqual(redirect_server.hits, ["/v1/chat/completions"])
+            self.assertEqual(sink_server.hits, [])
+        finally:
+            for server in (redirect_server, sink_server):
+                if server is None:
+                    continue
+                server.shutdown()
+                server.server_close()
+            for thread in threads:
+                thread.join(timeout=5)
 
 
 if __name__ == "__main__":

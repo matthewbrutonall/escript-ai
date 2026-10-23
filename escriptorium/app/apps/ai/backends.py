@@ -65,6 +65,20 @@ def azure_chat_url(endpoint, deployment, api_version="2024-08-01-preview") -> st
 #: Endpoint a local backend uses when its config sets none.
 LOCAL_DEFAULT_ENDPOINT = "http://localhost:11434/v1"
 
+
+def local_request_base(endpoint):
+    """Return the endpoint string classified and then requested.
+
+    None and '' use the default. Any other string loses surrounding
+    whitespace and trailing slashes. A non-string is returned unchanged
+    so the policy check can fail closed.
+    """
+    if endpoint is None or endpoint == "":
+        return LOCAL_DEFAULT_ENDPOINT
+    if not isinstance(endpoint, str):
+        return endpoint
+    return endpoint.strip().rstrip("/")
+
 # Statuses requests would follow. A loopback host can still answer with one
 # of these and a remote Location; the document image must not be sent there.
 _REDIRECT_STATUSES = (301, 302, 303, 307, 308)
@@ -274,7 +288,7 @@ class LocalOpenAIBackend(BaseBackend):
 
     def transcribe_region(self, image, keys, prompt) -> AIResult:
         b64, w, h = _downscale_png_b64(image, self.config.max_edge_px)
-        url = (self.config.endpoint or LOCAL_DEFAULT_ENDPOINT).rstrip("/") + "/chat/completions"
+        url = local_request_base(self.config.endpoint) + "/chat/completions"
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
         raw, u = _chat_completions_vision(
             url, headers, self.config.model_id, prompt, b64)

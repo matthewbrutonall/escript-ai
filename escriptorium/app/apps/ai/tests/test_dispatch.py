@@ -152,7 +152,8 @@ class LocalEgressTests(unittest.TestCase):
     def test_restricted_document_refuses_non_loopback_local_endpoint(self):
         from unittest.mock import patch
         for endpoint in ("http://10.0.0.5:11434/v1", "https://api.example.com/v1",
-                         "http://gpu-box:8000/v1", "http://0.0.0.0:11434/v1"):
+                         "http://gpu-box:8000/v1", "http://0.0.0.0:11434/v1",
+                         " http://10.0.0.5:11434/v1 ", "   "):
             with patch("requests.post", side_effect=AssertionError("post")), \
                     patch("requests.get", side_effect=AssertionError("get")):
                 with self.assertRaises(RemoteAIForbidden, msg=endpoint) as ctx:
@@ -164,7 +165,8 @@ class LocalEgressTests(unittest.TestCase):
     def test_restricted_document_allows_loopback_local_endpoint(self):
         from unittest.mock import patch
         for endpoint in ("http://127.0.0.1:11434/v1", "http://localhost:8000/v1",
-                         "http://[::1]:11434/v1", None):
+                         "http://[::1]:11434/v1", None, "",
+                         " http://127.0.0.1:11434/v1/ "):
             with patch("requests.post", side_effect=AssertionError("post")), \
                     patch("requests.get", side_effect=AssertionError("get")):
                 assert_dispatch_allowed(

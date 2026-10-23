@@ -111,9 +111,9 @@ def assert_dispatch_allowed(document, config, user=None, est_cost=0.0, *,
         # never_send_offsite: the endpoint itself must be literal loopback
         # or localhost. Zero dollar rates stay on the backend. The monthly
         # check below still runs when a user is present.
-        from .backends import LOCAL_DEFAULT_ENDPOINT
+        from .backends import local_request_base
         from .egress import restricted_verdict
-        endpoint = getattr(config, 'endpoint', None) or LOCAL_DEFAULT_ENDPOINT
+        endpoint = local_request_base(getattr(config, 'endpoint', None))
         verdict = restricted_verdict(get_policy(document), endpoint)
         if verdict == 'offsite':
             raise RemoteAIForbidden(
