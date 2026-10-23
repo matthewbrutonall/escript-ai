@@ -100,13 +100,31 @@ def assert_dispatch_allowed(document, config, user=None, est_cost=0.0, *,
     a missing hosted key, or a failed budget check.
     """
     is_local = getattr(config, 'is_local', False) or config.provider == 'local'
-    if not is_local:
-        if get_policy is None:
-            from django.apps import apps
-            Policy = apps.get_model('ai', 'AIDocumentPolicy')
+    if get_policy is None:
+        from django.apps import apps
+        Policy = apps.get_model('ai', 'AIDocumentPolicy')
 
-            def get_policy(doc):
-                return Policy.objects.filter(document=doc).first()
+        def get_policy(doc):
+            return Policy.objects.filter(document=doc).first()
+    if is_local:
+        # The local label skips the hosted API key. It does not bypass
+        # never_send_offsite: the endpoint itself must be literal loopback
+        # or localhost. Zero dollar rates stay on the backend. The monthly
+        # check below still runs when a user is present.
+        from .backends import LOCAL_DEFAULT_ENDPOINT
+        from .egress import restricted_verdict
+        endpoint = getattr(config, 'endpoint', None) or LOCAL_DEFAULT_ENDPOINT
+        verdict = restricted_verdict(get_policy(document), endpoint)
+        if verdict == 'offsite':
+            raise RemoteAIForbidden(
+                f"Document {getattr(document, 'pk', document)} forbids off-site "
+                f"AI; backend {config.provider}:{config.model_id} points at a "
+                "non-loopback endpoint.")
+        if verdict == 'policy':
+            raise RemoteAIForbidden(
+                f"Document {getattr(document, 'pk', document)} policy could "
+                "not be checked; refusing.")
+    else:
         policy = get_policy(document)
         if policy and getattr(policy, 'never_send_offsite', False):
             raise RemoteAIForbidden(

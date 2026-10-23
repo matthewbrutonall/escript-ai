@@ -62,8 +62,30 @@ def azure_chat_url(endpoint, deployment, api_version="2024-08-01-preview") -> st
             f"?api-version={api_version}")
 
 
-def _chat_completions_vision(url, headers, model, prompt, b64, timeout=600):
+#: Endpoint a local backend uses when its config sets none.
+LOCAL_DEFAULT_ENDPOINT = "http://localhost:11434/v1"
+
+# Statuses requests would follow. A loopback host can still answer with one
+# of these and a remote Location; the document image must not be sent there.
+_REDIRECT_STATUSES = (301, 302, 303, 307, 308)
+
+
+def _provider_post(url, **kwargs):
+    """POST and refuse a redirect before the response is read.
+
+    ``allow_redirects`` is forced off. A redirect status becomes a fixed
+    error. The Location header and the body are not read.
+    """
     import requests
+    kwargs["allow_redirects"] = False
+    response = requests.post(url, **kwargs)
+    status_code = getattr(response, "status_code", None)
+    if type(status_code) is int and status_code in _REDIRECT_STATUSES:
+        raise RuntimeError("provider redirect refused")
+    return response
+
+
+def _chat_completions_vision(url, headers, model, prompt, b64, timeout=600):
     payload = {
         "model": model,
         "temperature": 0,
@@ -76,7 +98,7 @@ def _chat_completions_vision(url, headers, model, prompt, b64, timeout=600):
             ],
         }],
     }
-    r = requests.post(url, json=payload, headers=headers, timeout=timeout)
+    r = _provider_post(url, json=payload, headers=headers, timeout=timeout)
     if not r.ok:
         raise RuntimeError(f"chat completions {r.status_code}: {r.text[:800]}")
     data = r.json()
@@ -122,7 +144,6 @@ class GeminiBackend(BaseBackend):
     out_usd_per_1m = 2.50
 
     def transcribe_region(self, image, keys, prompt) -> AIResult:
-        import requests
         if not self.api_key:
             raise RuntimeError("Gemini backend requires an API key (key_ref unresolved).")
         b64, w, h = _downscale_png_b64(image, self.config.max_edge_px)
@@ -132,8 +153,8 @@ class GeminiBackend(BaseBackend):
             {"text": prompt},
             {"inline_data": {"mime_type": "image/png", "data": b64}}]}],
             "generationConfig": {"temperature": self.config.params.get("temperature", 0)}}
-        r = requests.post(url, headers={"x-goog-api-key": self.api_key},
-                          json=payload, timeout=600)
+        r = _provider_post(url, headers={"x-goog-api-key": self.api_key},
+                           json=payload, timeout=600)
         r.raise_for_status()
         data = r.json()
         raw = data["candidates"][0]["content"]["parts"][0]["text"]
@@ -151,7 +172,6 @@ class AnthropicBackend(BaseBackend):
     out_usd_per_1m = 15.00
 
     def transcribe_region(self, image, keys, prompt) -> AIResult:
-        import requests
         if not self.api_key:
             raise RuntimeError("Anthropic backend requires an API key (key_ref unresolved).")
         b64, w, h = _downscale_png_b64(image, self.config.max_edge_px)
@@ -174,7 +194,7 @@ class AnthropicBackend(BaseBackend):
                 ],
             }],
         }
-        r = requests.post(
+        r = _provider_post(
             "https://api.anthropic.com/v1/messages",
             headers={
                 "x-api-key": self.api_key,
@@ -208,7 +228,6 @@ class OpenAIBackend(BaseBackend):
     out_usd_per_1m = 12.00
 
     def transcribe_region(self, image, keys, prompt) -> AIResult:
-        import requests
         if not self.api_key:
             raise RuntimeError("OpenAI backend requires an API key (key_ref unresolved).")
         b64, w, h = _downscale_png_b64(image, self.config.max_edge_px)
@@ -228,7 +247,7 @@ class OpenAIBackend(BaseBackend):
         }
         if "reasoning" in params:
             payload["reasoning"] = params["reasoning"]
-        r = requests.post(
+        r = _provider_post(
             "https://api.openai.com/v1/responses",
             headers={
                 "Authorization": f"Bearer {self.api_key}",
@@ -255,7 +274,7 @@ class LocalOpenAIBackend(BaseBackend):
 
     def transcribe_region(self, image, keys, prompt) -> AIResult:
         b64, w, h = _downscale_png_b64(image, self.config.max_edge_px)
-        url = (self.config.endpoint or "http://localhost:11434/v1").rstrip("/") + "/chat/completions"
+        url = (self.config.endpoint or LOCAL_DEFAULT_ENDPOINT).rstrip("/") + "/chat/completions"
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
         raw, u = _chat_completions_vision(
             url, headers, self.config.model_id, prompt, b64)
