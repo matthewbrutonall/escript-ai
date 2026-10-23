@@ -25,12 +25,6 @@ OUTPUT_LIMIT_PARAM = {
 }
 DEFAULT_OUTPUT_LIMIT = {"openai": 2048}
 DEFAULT_OUTPUT_LIMIT_OTHER = 8192
-#: Gemini thinking tokens are billed as output. Reports differ on whether
-#: maxOutputTokens includes them, so the reservation adds a thinking
-#: allowance: the sent thinkingBudget when the config sets one, otherwise
-#: the largest documented 2.5-series budget (an assumption, not a sent limit).
-GEMINI_THINKING_CEILING = 32768
-PROMPT_OVERHEAD_TOKENS = 64
 
 #: Expected output for the job estimate (not a bound).
 EXPECTED_OUT_BASE = 256
@@ -138,27 +132,6 @@ def price_cost(price, tokens_in, tokens_out) -> Decimal:
         / Decimal(1_000_000))
 
 
-def downscaled_size(w, h, max_edge):
-    """PIL.thumbnail keeps aspect and never upsizes."""
-    w, h = int(w), int(h)
-    if max(w, h) <= max_edge:
-        return w, h
-    scale = max_edge / max(w, h)
-    return max(1, round(w * scale)), max(1, round(h * scale))
-
-
-def image_token_bound(w, h) -> int:
-    """Generous bound across tokenizer schemes. An assumption, not verified."""
-    w, h = max(1, int(w)), max(1, int(h))
-    tiles = max(258, math.ceil(w / 768) * math.ceil(h / 768) * 258)
-    return max(
-        tiles,
-        math.ceil(w / 32) * math.ceil(h / 32),
-        math.ceil(w / 16) * math.ceil(h / 16),
-        math.ceil(w * h / 750),
-    )
-
-
 def sent_output_limit(config) -> int:
     """The output limit placed in the HTTP body for a hosted provider."""
     provider = getattr(config, "provider", "")
@@ -173,64 +146,52 @@ def sent_output_limit(config) -> int:
     return value
 
 
-def gemini_thinking_budget(config):
-    """The thinkingBudget to send, or None to send none."""
-    params = getattr(config, "params", None) or {}
-    value = params.get("thinking_budget")
-    if value is None:
-        return None
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        raise ValueError("params.thinking_budget must be an integer >= 0")
-    return value
+def reserved_input_tokens(profile, config, image_size, prompt) -> int:
+    """Input ceiling for one call: the profile's image tokens for the exact
+    outgoing image, the prompt's UTF-8 bytes (a token is at least one
+    byte), and the profile's request overhead."""
+    w, h = image_size
+    return (profile.image_tokens(w, h, config)
+            + len((prompt or "").encode("utf-8"))
+            + profile.request_overhead_tokens)
 
 
-def output_reserve_tokens(config) -> int:
-    """Output tokens a call can be billed for, from what the request sends."""
-    limit = sent_output_limit(config)
-    if getattr(config, "provider", "") == "gemini":
-        budget = gemini_thinking_budget(config)
-        limit += GEMINI_THINKING_CEILING if budget is None else budget
-    return limit
+def call_bound_usd(price, profile, config, image_size, prompt) -> Decimal:
+    """Reservation for one call. `image_size` is the size actually sent."""
+    return price_cost(
+        price, reserved_input_tokens(profile, config, image_size, prompt),
+        sent_output_limit(config))
 
 
-def call_bound_usd(price, config, image_size, prompt) -> Decimal:
-    max_edge = getattr(config, "max_edge_px", 1024) or 1024
-    w, h = downscaled_size(*image_size, max_edge)
-    tokens_in = (image_token_bound(w, h)
-                 + len((prompt or "").encode("utf-8"))
-                 + PROMPT_OVERHEAD_TOKENS)
-    return price_cost(price, tokens_in, output_reserve_tokens(config))
-
-
-def expected_call_usd(price, config, n_lines=0, *, seg_review=False,
+def expected_call_usd(price, profile, config, n_lines=0, *, seg_review=False,
                       prompt_chars=1200) -> Decimal:
     """Typical cost of one call, for the job estimate only."""
     edge = getattr(config, "max_edge_px", 1024) or 1024
-    from .backends import estimate_image_tokens
-    tokens_in = estimate_image_tokens(edge, edge) + prompt_chars // 4
+    tokens_in = profile.image_tokens(edge, edge, config) + prompt_chars // 4
     if seg_review:
         tokens_out = EXPECTED_OUT_SEG_REVIEW
     else:
         tokens_out = EXPECTED_OUT_BASE + EXPECTED_OUT_PER_LINE * int(n_lines)
-    tokens_out = min(tokens_out, output_reserve_tokens(config))
+    tokens_out = min(tokens_out, sent_output_limit(config))
     return price_cost(price, tokens_in, tokens_out)
 
 
-def estimate_transcribe_usd(price, config, lines_per_part, per_crop) -> Decimal:
+def estimate_transcribe_usd(price, profile, config, lines_per_part,
+                            per_crop) -> Decimal:
     total = ZERO
     per_crop = max(1, int(per_crop))
     for n in lines_per_part:
         n = int(n)
         full, rest = divmod(n, per_crop)
-        total += full * expected_call_usd(price, config, per_crop)
+        total += full * expected_call_usd(price, profile, config, per_crop)
         if rest:
-            total += expected_call_usd(price, config, rest)
+            total += expected_call_usd(price, profile, config, rest)
     return usd(total)
 
 
-def estimate_seg_review_usd(price, config, n_parts) -> Decimal:
+def estimate_seg_review_usd(price, profile, config, n_parts) -> Decimal:
     return usd(int(n_parts) * expected_call_usd(
-        price, config, seg_review=True))
+        price, profile, config, seg_review=True))
 
 
 def http_status(exc):

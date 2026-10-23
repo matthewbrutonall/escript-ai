@@ -20,7 +20,8 @@ from dataclasses import dataclass, field
 
 from PIL import Image
 
-from .billing import gemini_thinking_budget, sent_output_limit
+from .billing import sent_output_limit
+from .profiles import AZURE_API_VERSIONS, openai_detail
 
 
 @dataclass
@@ -32,9 +33,16 @@ class AIResult:
     raw: str = ""
 
 
-def _downscale_png_b64(image: Image.Image, max_edge: int) -> tuple[str, int, int]:
+def outgoing_image(image: Image.Image, max_edge: int) -> Image.Image:
+    """The image exactly as it is encoded into a request. Reservations are
+    sized from this, so they see the same pixels the provider receives."""
     im = image.convert("RGB")
     im.thumbnail((max_edge, max_edge))
+    return im
+
+
+def _downscale_png_b64(image: Image.Image, max_edge: int) -> tuple[str, int, int]:
+    im = outgoing_image(image, max_edge)
     buf = io.BytesIO()
     im.save(buf, format="PNG")
     return base64.b64encode(buf.getvalue()).decode(), im.width, im.height
@@ -58,9 +66,9 @@ def estimate_image_tokens(w: int, h: int) -> int:
     return max(258, tiles * 258)
 
 
-#: Default Azure api-version. It must accept max_completion_tokens, which
-#: replaces the deprecated max_tokens and also bounds reasoning tokens.
-AZURE_API_VERSION = "2024-12-01-preview"
+#: Default Azure api-version: the GA version that implements
+#: max_completion_tokens. Only profiles.AZURE_API_VERSIONS are accepted.
+AZURE_API_VERSION = AZURE_API_VERSIONS[0]
 
 
 def anthropic_input_equivalent(usage):
@@ -102,7 +110,7 @@ PROVIDER_TIMEOUT_SECONDS = 600
 
 def _chat_completions_vision(url, headers, model, prompt, b64,
                              timeout=PROVIDER_TIMEOUT_SECONDS, backend=None,
-                             limit_param=None, limit=None):
+                             limit_param=None, limit=None, detail=None):
     import requests
     payload = {
         "model": model,
@@ -116,6 +124,8 @@ def _chat_completions_vision(url, headers, model, prompt, b64,
             ],
         }],
     }
+    if detail is not None:
+        payload["messages"][0]["content"][1]["image_url"]["detail"] = detail
     if limit_param:
         payload[limit_param] = limit
     if backend is not None:
@@ -198,9 +208,6 @@ class GeminiBackend(BaseBackend):
             "generationConfig": {
                 "temperature": self.config.params.get("temperature", 0),
                 "maxOutputTokens": sent_output_limit(self.config)}}
-        budget = gemini_thinking_budget(self.config)
-        if budget is not None:
-            payload["generationConfig"]["thinkingConfig"] = {"thinkingBudget": budget}
         self._mark_sent()
         r = requests.post(url, headers={"x-goog-api-key": self.api_key},
                           json=payload, timeout=PROVIDER_TIMEOUT_SECONDS)
@@ -290,7 +297,7 @@ class OpenAIBackend(BaseBackend):
                     {"type": "input_text", "text": prompt},
                     {"type": "input_image",
                      "image_url": f"data:image/png;base64,{b64}",
-                     "detail": params.get("detail", "high")},
+                     "detail": openai_detail(self.config)},
                 ],
             }],
             "max_output_tokens": sent_output_limit(self.config),
@@ -355,7 +362,9 @@ class AzureOpenAIBackend(BaseBackend):
         raw, u = _chat_completions_vision(
             url, {"api-key": self.api_key}, self.config.model_id, prompt, b64,
             backend=self, limit_param="max_completion_tokens",
-            limit=sent_output_limit(self.config))
+            limit=sent_output_limit(self.config),
+            # Sent explicitly: the default would leave the tile rule unknown.
+            detail=openai_detail(self.config))
         text_by_key, unknown = parse_json_by_key(raw, keys)
         return AIResult(text_by_key, unknown,
                         u.get("prompt_tokens", estimate_image_tokens(w, h)),

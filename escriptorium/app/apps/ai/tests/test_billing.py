@@ -14,16 +14,19 @@ from PIL import Image
 from ai.backends import (
     AnthropicBackend, AzureOpenAIBackend, GeminiBackend, LocalOpenAIBackend,
     MistralBackend, OpenAIBackend, ProviderHTTPError, anthropic_input_equivalent,
-    backend_class, estimate_image_tokens,
+    backend_class,
 )
 from ai.billing import (
-    GEMINI_THINKING_CEILING, Price, UnpricedModel, ZERO_PRICE, call_bound_usd,
+    Price, UnpricedModel, ZERO_PRICE, call_bound_usd,
     cap_or_none, describe_error, estimate_seg_review_usd,
     estimate_transcribe_usd, expected_call_usd, extra_needed, failure_state,
-    fits, hold_remaining, image_token_bound, output_reserve_tokens,
+    fits, hold_remaining,
     price_cost, scope_usage, sent_output_limit, usd,
 )
 
+from ai.profiles import PROFILES
+
+CLAUDE = PROFILES[("anthropic", "claude-sonnet-5-5")]
 CHEAP = Price("0.15", "0.15")
 DEAR = Price("2.00", "6.00")
 
@@ -137,15 +140,11 @@ class PriceTests(unittest.TestCase):
 
 
 class BoundTests(unittest.TestCase):
+    """Reservation arithmetic. Provider formulas are in test_profiles."""
+
     def cfg(self, provider, **params):
         return SimpleNamespace(provider=provider, model_id="m",
                                max_edge_px=1024, params=params)
-
-    def test_image_bound_covers_known_schemes(self):
-        for w, h in ((1024, 1024), (1024, 200), (50, 900), (1, 1)):
-            bound = image_token_bound(w, h)
-            self.assertGreaterEqual(bound, estimate_image_tokens(w, h))
-            self.assertGreaterEqual(bound, -(-w * h // 750))
 
     def test_sent_limits_and_defaults(self):
         self.assertEqual(sent_output_limit(self.cfg("anthropic")), 8192)
@@ -164,45 +163,41 @@ class BoundTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             sent_output_limit(self.cfg("local"))
 
-    def test_gemini_reserves_thinking_on_top_of_the_sent_limit(self):
-        self.assertEqual(output_reserve_tokens(self.cfg("gemini")),
-                         8192 + GEMINI_THINKING_CEILING)
-        self.assertEqual(output_reserve_tokens(
-            self.cfg("gemini", max_output_tokens=1000, thinking_budget=512)), 1512)
-        self.assertEqual(output_reserve_tokens(self.cfg("anthropic")), 8192)
-
-    def test_bound_covers_a_maximal_response(self):
-        cfg = self.cfg("mistral", max_tokens=4000)
+    def test_bound_is_documented_input_plus_sent_output(self):
+        cfg = self.cfg("anthropic", max_tokens=4000)
         prompt = "p" * 2000
-        bound = call_bound_usd(DEAR, cfg, (3000, 2000), prompt)
-        worst = price_cost(DEAR, 1024 * 683 // 750 + 2000, 4000)
-        self.assertGreaterEqual(bound, worst)
+        # 1024 x 683 sent: ceil(1024/28) * ceil(683/28) = 37 * 25 = 925.
+        expected_in = 925 + 2000 + CLAUDE.request_overhead_tokens
+        self.assertEqual(call_bound_usd(DEAR, CLAUDE, cfg, (1024, 683), prompt),
+                         price_cost(DEAR, expected_in, 4000))
 
     def test_expensive_model_reserves_more(self):
-        cfg = self.cfg("mistral")
-        self.assertGreater(call_bound_usd(DEAR, cfg, (800, 600), "x"),
-                           call_bound_usd(CHEAP, cfg, (800, 600), "x"))
+        cfg = self.cfg("anthropic")
+        self.assertGreater(call_bound_usd(DEAR, CLAUDE, cfg, (800, 600), "x"),
+                           call_bound_usd(CHEAP, CLAUDE, cfg, (800, 600), "x"))
 
     def test_non_ascii_prompt_counts_bytes(self):
-        cfg = self.cfg("openai")
-        ascii_ = call_bound_usd(DEAR, cfg, (10, 10), "a" * 300)
-        devanagari = call_bound_usd(DEAR, cfg, (10, 10), "क" * 300)
-        self.assertGreater(devanagari, ascii_)
+        cfg = self.cfg("anthropic")
+        ascii_ = call_bound_usd(DEAR, CLAUDE, cfg, (10, 10), "a" * 300)
+        devanagari = call_bound_usd(DEAR, CLAUDE, cfg, (10, 10), "क" * 300)
+        self.assertEqual(devanagari - ascii_, price_cost(DEAR, 600, 0))
 
     def test_zero_price_costs_nothing(self):
         self.assertEqual(call_bound_usd(
-            ZERO_PRICE, self.cfg("openai"), (1024, 1024), "x"), Decimal("0"))
+            ZERO_PRICE, CLAUDE, self.cfg("anthropic"), (1024, 1024), "x"),
+            Decimal("0"))
 
     def test_job_estimate_counts_crops(self):
-        cfg = self.cfg("gemini")
-        six = expected_call_usd(DEAR, cfg, 6)
-        two = expected_call_usd(DEAR, cfg, 2)
+        cfg = self.cfg("anthropic")
+        six = expected_call_usd(DEAR, CLAUDE, cfg, 6)
+        two = expected_call_usd(DEAR, CLAUDE, cfg, 2)
         # 14 lines at 6 per crop: two full crops and one of 2 lines.
         self.assertEqual(
-            estimate_transcribe_usd(DEAR, cfg, [14], 6), usd(2 * six + two))
+            estimate_transcribe_usd(DEAR, CLAUDE, cfg, [14], 6), usd(2 * six + two))
         self.assertEqual(
-            estimate_transcribe_usd(DEAR, cfg, [0, 0], 6), Decimal(0))
-        self.assertGreater(estimate_seg_review_usd(DEAR, cfg, 3), Decimal(0))
+            estimate_transcribe_usd(DEAR, CLAUDE, cfg, [0, 0], 6), Decimal(0))
+        self.assertGreater(
+            estimate_seg_review_usd(DEAR, CLAUDE, cfg, 3), Decimal(0))
 
     def test_backend_class_refuses_unknown(self):
         with self.assertRaises(ValueError):
@@ -381,14 +376,9 @@ class OutgoingLimitTests(unittest.TestCase):
                 # max_tokens is deprecated and does not bound reasoning.
                 self.assertNotIn("max_tokens", body)
 
-    def test_gemini_thinking_budget_is_sent_when_set(self):
-        cfg, body, _ = self.body_for(
-            GeminiBackend, "gemini", {"max_output_tokens": 900,
-                                      "thinking_budget": 300})
-        self.assertEqual(
-            body["generationConfig"]["thinkingConfig"], {"thinkingBudget": 300})
-        self.assertEqual(output_reserve_tokens(cfg), 1200)
-        _, body, _ = self.body_for(GeminiBackend, "gemini", {})
+    def test_gemini_sends_no_thinking_budget(self):
+        # Gemini is refused for hosted billing; nothing implies a thinking cap.
+        _, body, _ = self.body_for(GeminiBackend, "gemini", {"thinking_budget": 300})
         self.assertNotIn("thinkingConfig", body["generationConfig"])
 
     def test_local_sends_no_limit(self):

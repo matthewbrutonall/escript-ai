@@ -32,29 +32,29 @@ from .models import (
 def estimate_transcribe_cost(config, parts, per_crop):
     """Expected hosted cost of a transcription job. 0 for local engines.
 
-    Raises UnpricedModel for a hosted model with no configured price.
+    Raises UnsupportedModel or UnpricedModel before anything is queued.
     """
     if config.is_local:
         return 0.0
     from django.db.models import Count
     from .billing import estimate_transcribe_usd
-    from .billing_store import resolve_price
+    from .billing_store import resolve_billing
     counts = (Line.objects
               .filter(document_part__in=parts)
               .filter(Q(mask__isnull=False) | Q(baseline__isnull=False))
               .values('document_part').annotate(n=Count('pk')))
+    price, profile = resolve_billing(config)
     return float(estimate_transcribe_usd(
-        resolve_price(config), config,
-        [row['n'] for row in counts], per_crop))
+        price, profile, config, [row['n'] for row in counts], per_crop))
 
 
 def estimate_seg_review_cost(config, parts):
     if config.is_local:
         return 0.0
     from .billing import estimate_seg_review_usd
-    from .billing_store import resolve_price
-    return float(estimate_seg_review_usd(
-        resolve_price(config), config, len(parts)))
+    from .billing_store import resolve_billing
+    price, profile = resolve_billing(config)
+    return float(estimate_seg_review_usd(price, profile, config, len(parts)))
 
 
 class AILayerGateSerializer(serializers.ModelSerializer):
@@ -231,8 +231,8 @@ class AIFixSerializer(serializers.Serializer):
             config = job.backend
         try:
             if not config.is_local:
-                from .billing_store import resolve_price
-                resolve_price(config)
+                from .billing_store import resolve_billing
+                resolve_billing(config)
             assert_dispatch_allowed(self.document, config, user=self.user)
         except (RemoteAIForbidden, RuntimeError, BillingStop) as e:
             raise serializers.ValidationError(str(e))

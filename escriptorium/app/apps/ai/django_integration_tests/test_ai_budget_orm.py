@@ -175,10 +175,10 @@ class BudgetFixture(TransactionTestCase):
             document=self.document, name="AI layer")
         self.config = AIBackendConfig.objects.create(
             name="claude-" + uuid.uuid4().hex[:8], provider="anthropic",
-            model_id="claude-test", key_ref="AI_BUDGET_TEST_KEY",
+            model_id="claude-sonnet-5-5", key_ref="AI_BUDGET_TEST_KEY",
             prompt_template="", params={"max_tokens": MAX_TOKENS})
         AIModelPrice.objects.get_or_create(
-            provider="anthropic", model_id="claude-test",
+            provider="anthropic", model_id="claude-sonnet-5-5",
             defaults=dict(input_usd_per_1m=PRICE.in_usd_per_1m,
                           output_usd_per_1m=PRICE.out_usd_per_1m,
                           source="test fixture"))
@@ -735,67 +735,134 @@ class ReviewFixTests(BudgetFixture):
         return job, call
 
     # -- pricing --------------------------------------------------------
-    def test_unpriced_model_is_refused_before_any_request(self):
-        unpriced = AIBackendConfig.objects.create(
-            name="unpriced-" + uuid.uuid4().hex[:8], provider="anthropic",
-            model_id="claude-unpriced", key_ref="AI_BUDGET_TEST_KEY",
-            prompt_template="", params={"max_tokens": MAX_TOKENS})
-        job = self._job("0.5", config=unpriced)
+    def _config(self, provider, model_id, **extra):
+        return AIBackendConfig.objects.create(
+            name=f"{provider}-" + uuid.uuid4().hex[:8], provider=provider,
+            model_id=model_id, key_ref="AI_BUDGET_TEST_KEY", prompt_template="",
+            params=extra.pop("params", {"max_tokens": MAX_TOKENS}), **extra)
+
+    def _price(self, provider, model_id):
+        AIModelPrice.objects.create(
+            provider=provider, model_id=model_id,
+            input_usd_per_1m=Decimal("1"), output_usd_per_1m=Decimal("1"))
+
+    def _refused_before_http(self, config, text):
+        job = self._job("0.5", config=config)
         provider = FakeProvider()
         outcome = self._run(job, provider)
         self.assertTrue(outcome.failed())
-        self.assertIn("No price is configured", str(outcome.error))
+        self.assertIn(text, str(outcome.error))
         self.assertEqual(provider.calls, 0)
-        self.assertFalse(AIBillableCall.objects.exists())
-        self.assertFalse(AIBudgetHold.objects.exists())
+        self.assertFalse(AIBillableCall.objects.filter(job=job).exists())
+        self.assertFalse(AIBudgetHold.objects.filter(job=job).exists())
         job.refresh_from_db()
         self.assertEqual(job.status, AIJob.STATUS_ERROR)
 
-    def test_unpriced_model_is_refused_at_submission(self):
+    def test_supported_but_unpriced_model_is_refused_before_any_request(self):
+        self._refused_before_http(
+            self._config("anthropic", "claude-opus-5-5"), "No price is configured")
+
+    def test_price_row_alone_does_not_enable_a_model(self):
+        for provider, model, params in (
+                ("anthropic", "claude-3-5-sonnet-latest", {"max_tokens": 100}),
+                ("openai", "gpt-5.6-terra", {}),
+                ("gemini", "gemini-3.8-flash", {}),
+                ("mistral", "pixtral-large-latest", {})):
+            self._price(provider, model)
+            config = self._config(provider, model, params=params)
+            self._refused_before_http(config, "not supported")
+
+    def test_unsupported_and_unpriced_models_are_refused_at_submission(self):
         from django.urls import reverse
         from rest_framework.test import APIClient
-        unpriced = AIBackendConfig.objects.create(
-            name="unpriced-" + uuid.uuid4().hex[:8], provider="mistral",
-            model_id="pixtral-large-latest", key_ref="AI_BUDGET_TEST_KEY",
+        self._price("mistral", "pixtral-large-latest")
+        client = APIClient()
+        client.force_authenticate(self.user)
+        uri = reverse('api:document-ai-transcribe', kwargs={'pk': self.document.pk})
+        for config, text in (
+                (self._config("mistral", "pixtral-large-latest", params={}),
+                 b"not supported"),
+                (self._config("anthropic", "claude-haiku-5-5"),
+                 b"No price is configured")):
+            with patch("ai.tasks.ai_transcribe.delay") as delay:
+                resp = client.post(uri, {"backend": config.pk,
+                                         "parts": [self.part.pk]}, format="json")
+            self.assertEqual(resp.status_code, 400)
+            self.assertIn(text, resp.content)
+            delay.assert_not_called()
+
+    def test_azure_model_and_version_select_profile_and_price(self):
+        from ai.billing import UnpricedModel
+        from ai.profiles import UnsupportedModel
+        azure = self._config("azure", "my-deployment",
+                             endpoint="https://example.test",
+                             params={"max_completion_tokens": 500})
+        with self.assertRaises(UnsupportedModel):  # no price_model_id
+            resolve_price(azure)
+        self._price("azure", "my-deployment")
+        with self.assertRaises(UnsupportedModel):  # deployment name is not used
+            resolve_price(azure)
+        azure.price_model_id = "gpt-4o"
+        azure.save()
+        with self.assertRaises(UnpricedModel):
+            resolve_price(azure)
+        AIModelPrice.objects.create(
+            provider="azure", model_id="gpt-4o",
+            input_usd_per_1m=Decimal("5"), output_usd_per_1m=Decimal("20"))
+        self.assertEqual(resolve_price(azure), Price("5", "20"))
+        azure.params = {"max_completion_tokens": 500,
+                        "api_version": "2024-08-01-preview"}
+        azure.save()
+        self._refused_before_http(azure, "api_version")
+
+    def test_restricted_document_refuses_non_loopback_local_endpoint(self):
+        from ai.models import AIDocumentPolicy
+        AIDocumentPolicy.objects.create(document=self.document,
+                                        never_send_offsite=True)
+        remote_local = AIBackendConfig.objects.create(
+            name="lan-" + uuid.uuid4().hex[:8], provider="local",
+            model_id="llava", endpoint="http://10.0.0.5:11434/v1",
+            prompt_template="", params={})
+        self._refused_before_http(remote_local, "non-loopback")
+        loopback = AIBackendConfig.objects.create(
+            name="lo-" + uuid.uuid4().hex[:8], provider="local",
+            model_id="llava", endpoint="http://127.0.0.1:11434/v1",
+            prompt_template="", params={})
+        job = self._job("0", config=loopback)
+        provider = FakeProvider()
+        self._run(job, provider)
+        job.refresh_from_db()
+        self.assertEqual(job.status, AIJob.STATUS_DONE)
+        self.assertEqual(provider.calls, 1)
+
+    def test_restricted_document_refuses_local_endpoint_at_submission(self):
+        from django.urls import reverse
+        from rest_framework.test import APIClient
+        from ai.models import AIDocumentPolicy
+        AIDocumentPolicy.objects.create(document=self.document,
+                                        never_send_offsite=True)
+        lan = AIBackendConfig.objects.create(
+            name="lan-" + uuid.uuid4().hex[:8], provider="local",
+            model_id="llava", endpoint="http://gpu-box:8000/v1",
             prompt_template="", params={})
         client = APIClient()
         client.force_authenticate(self.user)
         uri = reverse('api:document-ai-transcribe', kwargs={'pk': self.document.pk})
         with patch("ai.tasks.ai_transcribe.delay") as delay:
-            resp = client.post(uri, {"backend": unpriced.pk,
-                                     "parts": [self.part.pk]}, format="json")
+            resp = client.post(uri, {"backend": lan.pk, "parts": [self.part.pk]},
+                               format="json")
         self.assertEqual(resp.status_code, 400)
-        self.assertIn(b"No price is configured", resp.content)
+        self.assertIn(b"non-loopback", resp.content)
         delay.assert_not_called()
 
-    def test_azure_needs_an_explicit_priced_model(self):
-        from ai.billing import UnpricedModel
-        azure = AIBackendConfig.objects.create(
-            name="az-" + uuid.uuid4().hex[:8], provider="azure",
-            model_id="my-deployment", endpoint="https://example.test",
-            key_ref="AI_BUDGET_TEST_KEY", prompt_template="", params={})
-        with self.assertRaises(UnpricedModel):
-            resolve_price(azure)
-        AIModelPrice.objects.create(
-            provider="azure", model_id="my-deployment",
-            input_usd_per_1m=Decimal("0.01"), output_usd_per_1m=Decimal("0.01"))
-        with self.assertRaises(UnpricedModel):  # deployment name is not used
-            resolve_price(azure)
-        AIModelPrice.objects.create(
-            provider="azure", model_id="gpt-big",
-            input_usd_per_1m=Decimal("5"), output_usd_per_1m=Decimal("20"))
-        azure.price_model_id = "gpt-big"
-        azure.save()
-        self.assertEqual(resolve_price(azure), Price("5", "20"))
-
     def test_expensive_model_settles_at_its_configured_rates(self):
-        AIModelPrice.objects.filter(model_id="claude-test").update(
+        AIModelPrice.objects.filter(model_id="claude-sonnet-5-5").update(
             input_usd_per_1m=Decimal("15"), output_usd_per_1m=Decimal("75"))
         job = self._job("5")
 
         def raise_price_mid_call(n):
             # A price edit during the job must not change this call's charge.
-            AIModelPrice.objects.filter(model_id="claude-test").update(
+            AIModelPrice.objects.filter(model_id="claude-sonnet-5-5").update(
                 input_usd_per_1m=Decimal("99"), output_usd_per_1m=Decimal("99"))
 
         self._run(job, FakeProvider(on_call=raise_price_mid_call))

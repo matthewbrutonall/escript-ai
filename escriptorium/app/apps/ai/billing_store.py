@@ -83,27 +83,26 @@ def accounting_month(when):
     return month_start(when.astimezone(dt_timezone.utc)).date()
 
 
-def resolve_price(config):
-    """The configured price for a hosted config, or UnpricedModel.
+def resolve_billing(config):
+    """(Price, Profile) for a hosted config, or a BillingStop refusal.
 
-    Exact (provider, model) match. Azure uses price_model_id because its
-    model_id is a deployment name. Nothing is guessed or mapped.
+    The profile is checked first: a price row alone never makes a model
+    callable. Both are selected by the same model id (Azure: price_model_id).
     """
-    provider = config.provider
-    model = config.model_id
-    if provider == 'azure':
-        model = (getattr(config, 'price_model_id', '') or '').strip()
-        if not model:
-            raise UnpricedModel(
-                f"Azure deployment {config.model_id!r} has no price_model_id; "
-                "set the model it runs so it can be priced.")
+    from .profiles import priced_model, resolve_profile
+    profile = resolve_profile(config)
+    model = priced_model(config)
     row = (_m('AIModelPrice').objects
-           .filter(provider=provider, model_id=model).first())
+           .filter(provider=config.provider, model_id=model).first())
     if row is None:
         raise UnpricedModel(
-            f"No price is configured for {provider}:{model}. Add it under "
+            f"No price is configured for {config.provider}:{model}. Add it under "
             "AI model prices before using this backend.")
-    return Price(row.input_usd_per_1m, row.output_usd_per_1m)
+    return Price(row.input_usd_per_1m, row.output_usd_per_1m), profile
+
+
+def resolve_price(config):
+    return resolve_billing(config)[0]
 
 
 def _user_id(user):
@@ -573,10 +572,11 @@ class _CallContext:
 class HostedMeter:
     """Reserve, send, and settle each hosted call at one price snapshot."""
 
-    def __init__(self, *, config, price, user=None, document=None, job=None,
-                 claim=None, hold=None):
+    def __init__(self, *, config, price, profile, user=None, document=None,
+                 job=None, claim=None, hold=None):
         self.config = config
         self.price = price
+        self.profile = profile
         self.user = user
         self.document = document
         self.job = job
@@ -584,8 +584,11 @@ class HostedMeter:
         self.hold = hold
 
     def call(self, backend, image, keys, prompt):
+        from .backends import outgoing_image
         backend.price = self.price
-        bound = call_bound_usd(self.price, self.config, image.size, prompt)
+        # Sized from the image exactly as the backend will encode it.
+        size = outgoing_image(image, self.config.max_edge_px).size
+        bound = call_bound_usd(self.price, self.profile, self.config, size, prompt)
         call = reserve_call(
             job=self.job, claim=self.claim, hold=self.hold, user=self.user,
             document=self.document, config=self.config, price=self.price,
@@ -643,9 +646,9 @@ def open_job_meter(job, claim, config, user, document):
     """
     if config.is_local:
         return LocalMeter(job, claim)
-    price = resolve_price(config)
+    price, profile = resolve_billing(config)
     hold = open_hold(job, claim, user, job.est_cost)
-    return HostedMeter(config=config, price=price, user=user,
+    return HostedMeter(config=config, price=price, profile=profile, user=user,
                        document=document, job=job, claim=claim, hold=hold)
 
 
@@ -653,5 +656,6 @@ def open_call_meter(config, user, document):
     """A meter for one-off calls with no job (ai_fix)."""
     if config.is_local:
         return LocalMeter(None)
-    return HostedMeter(config=config, price=resolve_price(config),
+    price, profile = resolve_billing(config)
+    return HostedMeter(config=config, price=price, profile=profile,
                        user=user, document=document)
