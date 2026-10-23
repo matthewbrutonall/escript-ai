@@ -53,6 +53,20 @@ def _fail_job(job, exc):
         status=AIJob.STATUS_ERROR, error=str(exc)[:2000])
 
 
+def _require_job(AIJob, job_pk, name):
+    """A delivery is de-duplicated through its AIJob, so one is required.
+
+    Without job_pk a redelivered message would create a second job and run
+    again. Refuse it before any lookup, key resolution, or provider call.
+    """
+    job = AIJob.objects.filter(pk=job_pk).first() if job_pk else None
+    if job is None:
+        raise ValueError(
+            f"{name} needs the job_pk of an existing AIJob; it is refused "
+            "without one so a duplicate delivery cannot run twice.")
+    return job
+
+
 def _claim_or_skip(job, task_id):
     try:
         return claim_job(job.pk, task_id)
@@ -69,16 +83,10 @@ def ai_transcribe(self, instance_pks, ai_config_pk=None, transcription_pk=None,
     AIBackendConfig = apps.get_model('ai', 'AIBackendConfig')
     AIJob = apps.get_model('ai', 'AIJob')
 
+    job = _require_job(AIJob, job_pk, 'ai_transcribe')
     config = AIBackendConfig.objects.get(pk=ai_config_pk)
     transcription = Transcription.objects.get(pk=transcription_pk)
     user = User.objects.get(pk=user_pk) if user_pk else None
-    job = AIJob.objects.filter(pk=job_pk).first() if job_pk else None
-    if job is None:
-        # Raw .delay(): caps still apply; duplicate delivery is not detectable.
-        job = AIJob.objects.create(
-            backend=config, document=transcription.document,
-            transcription=transcription, mode=AIJob.MODE_REGION,
-            parts_count=len(instance_pks), created_by=user)
 
     claim = _claim_or_skip(job, self.request.id)
     if claim is None:
@@ -229,17 +237,13 @@ def ai_seg_review(self, instance_pks, ai_config_pk=None, user_pk=None,
     AIJob = apps.get_model('ai', 'AIJob')
     AISegSuggestion = apps.get_model('ai', 'AISegSuggestion')
 
+    job = _require_job(AIJob, job_pk, 'ai_seg_review')
     parts = list(DocumentPart.objects.filter(pk__in=instance_pks).order_by('order'))
     if not parts:
         return {"cost": 0}
     document = parts[0].document
     config = AIBackendConfig.objects.get(pk=ai_config_pk)
     user = User.objects.filter(pk=user_pk).first() if user_pk else None
-    job = AIJob.objects.filter(pk=job_pk).first() if job_pk else None
-    if job is None:
-        job = AIJob.objects.create(
-            backend=config, document=document, mode=AIJob.MODE_SEG_REVIEW,
-            parts_count=len(parts), created_by=user)
 
     claim = _claim_or_skip(job, self.request.id)
     if claim is None:

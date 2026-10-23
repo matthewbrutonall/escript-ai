@@ -1,239 +1,302 @@
 # Hosted AI budget reservations
 
-This note specifies how hosted AI spend is held, recorded, and capped. It
-covers `ai_transcribe`, `ai_seg_review`, and the synchronous `ai_fix` line
-re-read. Local backends (`provider = local`) are outside this accounting:
-they create no reservations and no ledger rows, and a dollar cap does not
-block them. Their token counts are still added to `AIJob`.
+This note specifies how hosted AI spend is priced, held, recorded, and
+capped. It covers `ai_transcribe`, `ai_seg_review`, and the synchronous
+`ai_fix` line re-read. Local backends (`provider = local`) are outside this
+accounting: they create no reservations and no ledger rows, and a dollar cap
+does not block them. Their token counts are still added to `AIJob`, and each
+call still refreshes the job's heartbeat.
+
+## Before migrating
+
+Drain hosted AI jobs before applying migrations `0010` and `0011`. A job that
+is `running` with no claim (started before `0010`) is never started again by
+a delivery. Reconciliation marks it `error` once its lease has passed.
+
+After migrating, enter a price for every hosted model in use (see Prices). Until
+then those backends are refused.
+
+## Prices
+
+Prices live in `AIModelPrice`: provider, exact model id, USD per million
+input tokens, USD per million output tokens, and a source note. There are no
+built-in prices. Enter them from the provider's current price list.
+
+- A hosted backend is priced by an exact `(provider, model_id)` match. Names
+  are never mapped to other models.
+- Azure `model_id` is a deployment name, so an Azure backend must set
+  `price_model_id` to the model the deployment runs. It is priced by
+  `(azure, price_model_id)`. A blank `price_model_id` is refused.
+- An unpriced hosted model is refused when the job is submitted, when a task
+  starts, and by `ai_fix`, always before any request.
+- Each meter resolves the price once. Every call row stores that snapshot
+  (`in_usd_per_1m`, `out_usd_per_1m`). The reservation and the settlement of
+  a call both use it, so a later price edit changes neither.
+
+Output prices include reasoning and thinking tokens, which providers bill as
+output.
+
+## Output limits
+
+Every hosted request carries an output limit, and the reservation is built
+from the same number (`billing.sent_output_limit`):
+
+| Provider | Body field | Config param | Default |
+|---|---|---|---|
+| Anthropic | `max_tokens` | `max_tokens` | 8192 |
+| OpenAI | `max_output_tokens` | `max_output_tokens` | 2048 |
+| Gemini | `generationConfig.maxOutputTokens` | `max_output_tokens` | 8192 |
+| Azure | `max_completion_tokens` | `max_completion_tokens` | 8192 |
+| Mistral | `max_tokens` | `max_tokens` | 8192 |
+
+A limit that is not a positive integer is refused. Azure's default
+`api_version` is now `2024-12-01-preview`, which accepts
+`max_completion_tokens`. That field replaces the deprecated `max_tokens` and
+also bounds reasoning tokens.
+
+Gemini thinking tokens are billed as output. Reports differ on whether
+`maxOutputTokens` includes them, so a Gemini reservation adds a thinking
+allowance on top of the sent limit:
+
+- If the config sets `thinking_budget`, it is sent as
+  `generationConfig.thinkingConfig.thinkingBudget` and added to the bound.
+- Otherwise 32,768 is added, the largest documented 2.5-series budget. That
+  is an assumption, not a sent limit. Set `thinking_budget` for an enforced
+  bound.
+
+## Upper bound per call
+
+```
+input  = image token bound (crop after downscale) + UTF-8 bytes of prompt + 64
+output = sent output limit (+ Gemini thinking allowance)
+bound  = input × input price + output × output price   (call's price snapshot)
+```
+
+The image token bound is the maximum of four tokenizer schemes: 768-px tiles
+× 258, 32-px patches, 16-px patches, and pixels / 750. It is deliberately
+generous.
 
 ## Caps
 
 | Scope | Cap | Counts |
 |---|---|---|
-| Instance | `AI_INSTANCE_MONTHLY_BUDGET_USD` (new) | every user's hosted spend, and jobs with no user |
+| Instance | `AI_INSTANCE_MONTHLY_BUDGET_USD` | every user's hosted spend, and jobs with no user |
 | User | `AIUserQuota.monthly_usd`, else `AI_MONTHLY_BUDGET_USD` | that user's hosted spend |
 
-Unset or negative means unlimited. `0` means blocked. A value that does not
-parse as a number (including `nan` and `inf`) is treated as `0` (blocked),
-not unlimited. Caps are read fresh at every check, so lowering a cap stops a
-running job at its next call. A call or hold must fit under every scope
-that applies to it.
+- Unset or negative: unlimited. `0`: blocked.
+- A non-finite value is treated as `0` (blocked). That covers a setting that
+  does not parse, `nan`, `inf`, and a quota stored as `nan` or `inf`. The quota
+  field also rejects non-finite values on save.
+- Caps are read fresh at every check, so lowering a cap stops a running job at
+  its next call.
+- A call or hold must fit under every scope that applies to it.
+
+## Accounting month
+
+A charge belongs to the calendar month, in UTC, in which its call was
+reserved.
+
+- Each ledger row written for a call stores that month in `accounting_month`:
+  on confirmation, on a late confirmation, and on operator resolution.
+- Ledger rows from before `0011` have no `accounting_month` and count in the
+  month of `created_at`.
+
+A month's usage for a scope is:
+
+```
+usage = ledger rows whose accounting month is this month
+      + reserved_usd of every call still reserved / estimated / unknown,
+        whatever month it was made in
+      + for each open hold: max(0, hold.amount_usd - drawn(hold))
+```
+
+An unresolved call therefore stays inside the cap in every month until it is
+resolved, and its exposure never drops out at a month boundary. When it is
+resolved as charged, the charge moves to the month the call was made. It
+never lands in the month of resolution.
+
+`drawn(hold)` is what the hold's calls already account for: a confirmed
+call's cost, a held call's `reserved_usd`, or nothing for a released call.
+Each call is counted exactly once.
 
 ## Three kinds of amount
 
 | Kind | Where | Meaning |
 |---|---|---|
-| Confirmed | `AIUsageLedger.actual_cost` | the provider reported token usage for the call; cost is tokens × configured price |
-| Estimated | `AIBillableCall.estimated_usd` (state `estimated`) | the provider answered but did not report usage; the amount is our estimate |
-| Unknown | `AIBillableCall` (state `unknown`) | the request may have reached the provider and we do not know whether it was billed |
+| Confirmed | `AIUsageLedger.actual_cost` | the provider reported usage; cost is tokens × the call's price snapshot |
+| Estimated | `AIBillableCall.estimated_usd` (state `estimated`) | the provider answered without usage; the amount is an estimate |
+| Unknown | `AIBillableCall` (state `unknown`) | the request may have been billed; we do not know |
 
-A reservation is never written to the ledger. The ledger only receives a
-row when a call is confirmed, or when an operator resolves an estimated or
-unknown call with an amount.
+A reservation is never written to the ledger.
+
+### Usage fields
+
+- **Anthropic:** `input_tokens` excludes cache tokens. Cache writes count as
+  2× input tokens (real rate 1.25× or 2×). Cache reads count as 1× (real rate
+  0.1×). These requests set no cache breakpoints, so both are normally zero.
+- **OpenAI, Azure, Mistral:** cached input is included in the prompt count
+  and charged here at the full input rate.
+- **Gemini:** cached content is included in `promptTokenCount` and charged
+  at the full input rate. `thoughtsTokenCount` is added to output.
+
+Every one of these is an overestimate or exact. None under-records a charge.
 
 ## Tables
 
-`AIBudgetLock` has one row per scope (`instance`, `user:<pk>`). It holds no
-money. Reservations lock these rows with `SELECT ... FOR UPDATE`.
+- `AIModelPrice` holds prices, as described above.
+- `AIBudgetLock` has one row per scope (`instance`, `user:<pk>`).
+- `AIBudgetHold` holds a running job's estimate. States `open` and `closed`.
+- `AIBillableCall` is one provider request. Its states are `reserved`,
+  `confirmed`, `estimated`, `unknown`, and `released`. It carries the price
+  snapshot.
+- `AIUsageLedger` gains `accounting_month`. `AIJob` gains `claim` and
+  `heartbeat_at`. `AIBackendConfig` gains `price_model_id`.
 
-`AIBudgetHold` is a job-level reservation. One per job (`job` is one-to-one).
-It holds the job's estimate while the job runs. States: `open`, `closed`.
+## Locking
 
-`AIBillableCall` is one provider request. States:
-
-| State | Counted against the cap as |
-|---|---|
-| `reserved` | `reserved_usd` (in flight) |
-| `confirmed` | the linked ledger row's cost (not counted again here) |
-| `estimated` | `reserved_usd` until resolved |
-| `unknown` | `reserved_usd` until resolved |
-| `released` | nothing |
-
-`AIJob` gains `claim` and `heartbeat_at` for execution ownership.
-
-## Month usage
-
-For a scope and the current calendar month (UTC):
-
-```
-usage = confirmed ledger rows created this month
-      + reserved_usd of calls in reserved / estimated / unknown created this month
-      + for each open hold: max(0, hold.amount_usd - drawn(hold))
-```
-
-`drawn(hold)` is what the hold's calls already account for: a confirmed
-call's ledger cost, a held call's `reserved_usd`, and nothing for a released
-call. Each call is therefore counted exactly once: either through the
-ledger or as a held call, and the job hold's remainder shrinks by the same
-amount.
-
-## Reservation ownership and locking
-
-Every transaction that touches more than one billing row first locks the
-`AIBudgetLock` rows for its scopes, always `instance` before `user:<pk>`.
-That covers opening a hold, reserving a call, confirming a call,
-reconciliation, claiming a job, and operator resolution. Lock rows are
-created with `get_or_create`, then locked in one ordered
-`select_for_update`. Job rows are locked next, then call and hold rows.
-
-Every such transaction includes the `instance` row, so it acts as one mutex
-for multi-row billing writes. That rules out lock-order deadlocks between,
-for example, a claim (job, then calls) and a confirmation (call, then job).
+Every transaction that touches more than one billing row locks the
+`AIBudgetLock` rows for its scopes first, always `instance` before
+`user:<pk>`. Moving a call to "sent" does the same. Job rows come next, then
+call and hold rows. Every such transaction includes the `instance` row, so
+it acts as one mutex for these writes. That rules out lock-order deadlocks.
 The transactions are short and contain no provider request.
 
-Under the lock, usage is recomputed from committed rows and checked against
-each cap. Single-row updates of one call (marking it sent, settling it as
-`estimated`, `unknown`, or `released`) and closing a hold take no other lock.
-They only keep or lower usage.
+Settling one call after its request (`estimated`, `unknown`, `released`) is
+a single conditional row update.
 
 ## Lifecycle of a job
 
-1. **Submission (serializer).** The API estimates the job's cost and stores it
-   on `AIJob.est_cost`. It refuses the request if current usage plus the
-   estimate is over a cap. This check is advisory: nothing is held while the
-   job waits in the queue.
-2. **Claim (task start).** The task locks the job row. It proceeds only if the
-   job has no live claim. It writes a fresh `claim` token, `heartbeat_at`, and
-   `status = running`. See duplicate delivery below.
-3. **Hold.** Under the budget locks, the task re-validates and opens an
-   `AIBudgetHold` for `est_cost`. If that does not fit, the job fails with a
-   budget error before any provider call.
-4. **Each billable call.** Under the budget locks and the job row lock, the
-   task checks that the job is still running under its own claim, that its
-   task was not cancelled, and that its hold is open. It refreshes
-   `heartbeat_at`. It then reserves the call's upper-bound cost:
-
-   ```
-   need     = call upper bound
-   from_job = max(0, hold.amount_usd - drawn(hold))
-   extra    = max(0, need - from_job)
-   ```
-
-   `extra` must fit under every cap. The call row is created as `reserved`
-   and committed before the request is sent.
-5. **Retries and fallbacks.** Per-line fallbacks and any later call reserve in
-   the same way. When the job's hold is used up, `extra` comes from the free
-   budget. If it does not fit, the call is not sent and the job stops with a
-   budget error. Lines already written stay written.
-6. **Usage capture.** Each backend reports usage as soon as it has decoded the
-   response body, before it extracts text or parses JSON. Reporting usage
-   confirms the call immediately in its own transaction, writes one ledger
-   row, and adds tokens and cost to `AIJob`. A later parse failure cannot lose
-   that charge.
-7. **Call outcome when usage was not reported.**
+1. **Submission.** The API resolves the price, estimates the job's cost,
+   stores it on `AIJob.est_cost`, and refuses the request if current usage plus
+   the estimate is over a cap. Nothing is held while the job waits in the queue.
+2. **Claim.** The task needs a `job_pk`. A delivery without one is refused
+   before any work, because a redelivered message without a job cannot be
+   de-duplicated. The task locks the job and proceeds only if the job is
+   `pending`. See Duplicate delivery.
+3. **Hold.** Reconciliation runs in its own committed transaction. Then,
+   under the budget locks, the task resolves the price and opens an
+   `AIBudgetHold` for `est_cost`. If that does not fit, the job fails before
+   any request.
+4. **Reserve each call.** Reconciliation runs again. Under the locks, the
+   task checks that it still owns the running job and that the task was not
+   cancelled. It checks that no earlier call in the job cost more than its
+   reservation, and that its hold is open. It refreshes the heartbeat, then
+   reserves the call's bound. `max(0, bound - hold remainder)` must fit under
+   every cap. The call row is committed as `reserved`.
+5. **Send.** Immediately before the HTTP request, `mark_sent` locks the call
+   and the job. It moves the call to sent only if it is still `reserved` and
+   unsent, the job is still owned, running, not cancelled, and within its
+   lease, and the hold is open. It refreshes the heartbeat. Otherwise it
+   raises, and no request is made.
+6. **Usage capture.** Each backend reports usage as soon as the body is
+   decoded, before any parsing. That confirms the call immediately, writes one
+   ledger row, and adds tokens and cost to `AIJob`.
+7. **Overrun.** A confirmed cost above the reservation is recorded in full.
+   It can happen when a provider exceeds the sent limit, or with the Gemini
+   thinking assumption. The job's next reservation is then refused and the
+   job stops. That cannot undo the call that overran, so a single call can
+   still finish above a cap by at most its own excess.
+8. **Outcome when usage was not reported.**
 
    | What happened | State |
    |---|---|
    | exception before the request was sent | `released` |
    | `requests.ConnectTimeout` (no connection was made) | `released` |
-   | HTTP 401 or 403 (no authenticated account to bill) | `released` |
+   | HTTP 401 (authentication failed, no account to bill) | `released` |
    | response received without usage | `estimated` |
-   | any other exception after sending | `unknown` |
+   | HTTP 403, any other status, read timeout, reset, parse error after send | `unknown` |
 
-8. **End.** On success or failure, the hold is closed, which returns its unused
+   An HTTP 403 is a permission or policy refusal, and does not prove no
+   tokens were processed.
+9. **End.** On success or failure the hold is closed, returning its unused
    remainder. Held calls stay held.
+
+Retries and per-line fallbacks are ordinary calls. They draw from the hold
+and then from free budget. When budget runs out, the next call is not sent
+and the job stops. Lines already written are kept.
 
 ## Partial-page failures
 
-Every call is confirmed when it returns, not at the end of the page. If a
-page fails after some calls succeeded, those calls are already in the
-ledger, and the failing call is `confirmed`, `estimated`, `unknown`, or
-`released` as above. The task no longer writes one ledger row per page.
+Every call is confirmed as soon as it returns. A page that fails halfway
+keeps every charge already made. The failing call itself ends `confirmed`,
+`estimated`, `unknown`, or `released` as above.
+
+## Leases
+
+`AI_JOB_LEASE_SECONDS` (default 1800) is raised to at least twice the
+provider read timeout (600 s), whatever it is set to. A request is only sent
+with a heartbeat refreshed at that moment, so the lease cannot run out during
+one read timeout. Requests' timeout applies per read, not to the whole
+request. A provider trickling bytes for longer than the lease would be
+reconciled as `unknown`, never released. Its late usage still confirms it,
+and its job sends nothing more.
 
 ## Cancellation
 
 `TaskReport.cancel` revokes the Celery task with `terminate=True`. The
-worker process is killed and runs no cleanup. So:
+worker process is killed and runs no cleanup.
 
-- Before each call, the task checks its own `TaskReport`. A cancelled report
-  stops the job before sending.
-- Reconciliation treats a job whose report is cancelled as stopped. It closes
-  the hold and marks its `reserved` calls `unknown`. They are not released:
-  the killed process may have sent them.
+- The reservation and send checks both look at the task's report. A
+  cancelled task sends nothing more.
+- Reconciliation stops a cancelled job at once. It closes the hold, marks
+  sent `reserved` calls `unknown`, releases unsent ones, and marks the job
+  `error`.
 
 ## Worker crashes
 
-A crashed worker leaves a `reserved` call and an open hold. Reconciliation
-runs in its own committed transaction before every hold and reservation,
-and in `python manage.py reconcile_ai_budget`. A refused reservation
-therefore cannot roll it back. It acts on open holds whose job
-heartbeat is older than `AI_JOB_LEASE_SECONDS` (default 1800, longer than the
-600-second provider timeout). It marks the job's `reserved` calls `unknown`,
-closes the hold, and marks a running job `error`. A `reserved` call with no
-job (from `ai_fix`) older than the lease becomes `unknown`.
+Reconciliation runs before every hold and reservation, and in
+`python manage.py reconcile_ai_budget`. It acts on:
 
-If a process that was presumed dead later gets its response, it may still
-confirm its own call from `unknown`, because that is better information.
-Its next reservation fails because the hold is closed.
+- an open hold whose job was cancelled, has finished, or whose heartbeat is
+  older than the lease;
+- a `running` job with no open hold and a stale heartbeat (or, with no
+  heartbeat, a stale `updated_at`). That covers a worker that died before its
+  hold opened, after it closed, or a local job;
+- a `reserved` call with no job (`ai_fix`) older than the lease.
+
+Sent calls become `unknown`, unsent ones `released`, and the job `error`. A
+presumed-dead worker that later gets its response may still confirm its own
+call from `unknown`. Its next reservation or send is refused.
 
 ## Duplicate delivery
-
-`CELERY_ACKS_LATE` means a task can be delivered again after a crash, and the
-Redis broker can redeliver a long task while the first worker still runs.
-The claim decides:
 
 | Job state at claim | Action |
 |---|---|
 | `done` or `error` | no-op |
-| running, heartbeat fresh | no-op (another worker owns it) |
-| running, heartbeat stale, hold open | reconcile as a crash, mark `error`, no-op |
-| running, heartbeat stale, billing finished | no-op |
-| pending | claim and run |
+| `running` with no claim (pre-0010) | no-op |
+| `running`, heartbeat fresh | no-op (another worker owns it) |
+| `running`, heartbeat stale | stop billing as for a crash, mark `error`, no-op |
+| `pending` | claim and run |
+| no `job_pk` | refused before any work |
 
-A redelivered job is never resumed automatically, because resuming would
-re-bill pages already transcribed. The user can submit it again.
+A redelivered job is never resumed, because resuming would re-bill pages
+already done. The AI tasks do not auto-retry.
 
-The AI tasks no longer use `autoretry_for=(MemoryError,)`. A retry would
-re-run every page and bill it again.
-
-A raw `ai_transcribe.delay()` without `job_pk` creates its own `AIJob`. It
-gets cap protection. Duplicate delivery of such a raw call cannot be
-detected.
-
-## Upper bounds and estimates
-
-Per call, the upper bound is:
-
-```
-input  = image token bound (crop after downscale) + UTF-8 bytes of prompt + 64
-output = the backend's output cap
-cost   = input × input price + output × output price
-```
-
-The image token bound takes the maximum of four tokenizer schemes: 768-px
-tiles × 258, 32-px patches, 16-px patches, and pixels / 750. It is
-deliberately generous. It is an assumption, not a figure verified per
-provider.
-
-Output caps: Anthropic sends `max_tokens` (default 8192) and OpenAI sends
-`max_output_tokens` (default 2048), so those are real limits. Gemini, Azure,
-and Mistral requests send no output limit. Their bound is an assumed maximum
-(`params.max_output_tokens_bound`, default 65536 for Gemini, 16384 otherwise).
-A confirmed cost above the bound is recorded truthfully and logged.
+## Estimates
 
 The job estimate uses expected rather than worst-case output: 256 tokens
-plus 96 per line for transcription, 1024 for a segmentation review. Fallbacks
-are not estimated in advance. They draw from the hold and then from free
-budget.
+plus 96 per line for transcription, and 1024 per part for segmentation
+review. It decides whether a job may start, not what it costs.
 
 ## Operator resolution
 
 An `estimated` or `unknown` call stays held until an operator resolves it in
-Django admin with the provider's billing data. The admin actions are
-**Resolve as charged** (enter the amount; writes a ledger row) and **Resolve
-as not charged** (releases it). Both record the user, time, and a note.
+Django admin from the provider's billing data:
+
+- **Resolve as charged** asks for an amount. That amount must be finite and
+  at least 0. It writes a ledger row in the call's accounting month, and adds
+  the amount to the job's `actual_cost` in the same transaction.
+- **Resolve as not charged** releases the call.
+
+Both need the `change` permission on billable calls and a note. Both record
+who resolved the call, and when. A call can be resolved only once.
 
 ## Limitations
 
-- Prices are per backend class, not per model. Confirmed cost is tokens ×
-  those prices, not the provider's invoice.
-- Gemini, Azure, and Mistral output bounds are assumptions because those
-  requests carry no output limit.
-- A `local` backend whose endpoint is a paid hosted service is not billed
-  here.
-- Months are calendar months in UTC.
-- A job interrupted after its billable calls (for example during the kraken
-  comparison pass) or before its hold opened (during part validation) can
-  stay `running`. Nothing is held for it, and a redelivery does nothing.
-- Estimates use a fixed expected output per line. They decide whether a
-  job may start, not what it costs.
+- **Gemini thinking.** Without `thinking_budget`, the thinking part of a
+  Gemini bound is an assumption. An overrun is recorded in full and stops the
+  job, but the call that overran is already billed.
+- **Wrong prices.** Prices are only as accurate as the `AIModelPrice` rows.
+  Confirmed cost is tokens × those rates, not the provider's invoice.
+- **Local endpoints.** A `local` backend whose endpoint is a paid hosted
+  service is not billed here.

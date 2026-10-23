@@ -22,6 +22,7 @@ from .dispatch import (
     assert_dispatch_allowed,
     assert_parts_belong,
 )
+from .billing import BillingStop
 from .gate import ACK_PHRASE, assemble_sample_lines
 from .models import (
     AIBackendConfig, AIJob, AILayerGate, AISegSuggestion,
@@ -29,28 +30,31 @@ from .models import (
 
 
 def estimate_transcribe_cost(config, parts, per_crop):
-    """Expected hosted cost of a transcription job. 0 for local engines."""
+    """Expected hosted cost of a transcription job. 0 for local engines.
+
+    Raises UnpricedModel for a hosted model with no configured price.
+    """
     if config.is_local:
         return 0.0
     from django.db.models import Count
-    from .backends import backend_class
     from .billing import estimate_transcribe_usd
+    from .billing_store import resolve_price
     counts = (Line.objects
               .filter(document_part__in=parts)
               .filter(Q(mask__isnull=False) | Q(baseline__isnull=False))
               .values('document_part').annotate(n=Count('pk')))
     return float(estimate_transcribe_usd(
-        backend_class(config.provider), config,
+        resolve_price(config), config,
         [row['n'] for row in counts], per_crop))
 
 
 def estimate_seg_review_cost(config, parts):
     if config.is_local:
         return 0.0
-    from .backends import backend_class
     from .billing import estimate_seg_review_usd
+    from .billing_store import resolve_price
     return float(estimate_seg_review_usd(
-        backend_class(config.provider), config, len(parts)))
+        resolve_price(config), config, len(parts)))
 
 
 class AILayerGateSerializer(serializers.ModelSerializer):
@@ -146,7 +150,7 @@ class AITranscribeSerializer(ProcessSerializerMixin, serializers.Serializer):
                 config, parts, data.get('per_crop') or 6)
             assert_dispatch_allowed(
                 self.document, config, user=self.user, est_cost=est_cost)
-        except (RemoteAIForbidden, RuntimeError, ValueError) as e:
+        except (RemoteAIForbidden, RuntimeError, ValueError, BillingStop) as e:
             raise serializers.ValidationError(str(e))
         data['parts'] = parts
         data['est_cost'] = est_cost
@@ -226,8 +230,11 @@ class AIFixSerializer(serializers.Serializer):
                     {'backend': 'No AI backend given and none on a prior job.'})
             config = job.backend
         try:
+            if not config.is_local:
+                from .billing_store import resolve_price
+                resolve_price(config)
             assert_dispatch_allowed(self.document, config, user=self.user)
-        except (RemoteAIForbidden, RuntimeError) as e:
+        except (RemoteAIForbidden, RuntimeError, BillingStop) as e:
             raise serializers.ValidationError(str(e))
         data['backend'] = config
         return data
@@ -236,7 +243,6 @@ class AIFixSerializer(serializers.Serializer):
         from PIL import Image
 
         from .backends import get_backend
-        from .billing import BillingStop
         from .billing_store import open_call_meter
         from .conventions import conventions_prompt
         from .dispatch import resolve_api_key
@@ -260,10 +266,10 @@ class AIFixSerializer(serializers.Serializer):
         api_key = resolve_api_key(config, user=self.user)
         backend = get_backend(config, api_key=api_key)
         prompt = fix_prompt(partial, conventions_prompt(config.conventions))
-        meter = open_call_meter(config, self.user, self.document)
         with Image.open(line.document_part.image.path) as im:
             crop = crop_line(im, [tuple(p) for p in mask])
             try:
+                meter = open_call_meter(config, self.user, self.document)
                 # Reserved, sent, and settled per call; no separate ledger write.
                 result = meter.call(backend, crop, [LINE_KEY], prompt)
             except BillingStop as e:
@@ -315,7 +321,7 @@ class AISegReviewSerializer(ProcessSerializerMixin, serializers.Serializer):
             est_cost = estimate_seg_review_cost(data['backend'], parts)
             assert_dispatch_allowed(
                 self.document, data['backend'], user=self.user, est_cost=est_cost)
-        except (RemoteAIForbidden, RuntimeError, ValueError) as e:
+        except (RemoteAIForbidden, RuntimeError, ValueError, BillingStop) as e:
             raise serializers.ValidationError(str(e))
         data['parts'] = parts
         data['est_cost'] = est_cost

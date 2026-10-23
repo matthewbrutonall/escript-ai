@@ -11,7 +11,8 @@ from django.conf import settings
 from .htr_engine_client import probe_configs
 from .models import (
     AIBackendConfig, AIDocumentPolicy, AIExample, AIJob, AILayerGate,
-    AIBillableCall, AIBudgetHold, AILineDisagreement, AISegSuggestion,
+    AIBillableCall, AIBudgetHold, AILineDisagreement, AIModelPrice,
+    AISegSuggestion,
     AIUsageLedger,
     AIUserKey, AIUserQuota, ExternalHTREngineConfig, ExternalHTRJob,
     ExternalHTRLineResult,
@@ -95,7 +96,8 @@ class ExternalHTRLineResultAdmin(admin.ModelAdmin):
 
 @admin.register(AIBackendConfig)
 class AIBackendConfigAdmin(admin.ModelAdmin):
-    list_display = ('name', 'provider', 'model_id', 'owner', 'public')
+    list_display = ('name', 'provider', 'model_id', 'price_model_id', 'owner',
+                    'public')
     list_filter = ('provider', 'public')
 
 
@@ -180,6 +182,15 @@ class AIUsageLedgerAdmin(admin.ModelAdmin):
     list_filter = ('provider', 'currency')
 
 
+@admin.register(AIModelPrice)
+class AIModelPriceAdmin(admin.ModelAdmin):
+    """Hosted models without a row here are refused before any request."""
+    list_display = ('provider', 'model_id', 'input_usd_per_1m',
+                    'output_usd_per_1m', 'source', 'updated_at')
+    list_filter = ('provider',)
+    search_fields = ('model_id',)
+
+
 @admin.register(AIBudgetHold)
 class AIBudgetHoldAdmin(admin.ModelAdmin):
     list_display = ('pk', 'job', 'user', 'amount_usd', 'state',
@@ -200,7 +211,13 @@ class AIBillableCallAdmin(admin.ModelAdmin):
 
     def _resolve(self, request, queryset, *, charged, action, instructions):
         from decimal import InvalidOperation
+
+        from django.core.exceptions import PermissionDenied
+
         from .billing_store import resolve_call
+        # Actions declare permissions=['change']; checked here as well.
+        if not self.has_change_permission(request):
+            raise PermissionDenied
         if 'confirm' not in request.POST:
             return render(request, 'admin/ai/aibillablecall/resolve.html', {
                 'title': 'Resolve provider calls', 'queryset': queryset,
@@ -232,14 +249,16 @@ class AIBillableCallAdmin(admin.ModelAdmin):
                 self.message_user(request, str(e), messages.ERROR)
         self.message_user(request, f"Resolved {ok} call(s).")
 
-    @admin.action(description="Resolve as charged (enter amount)")
+    @admin.action(description="Resolve as charged (enter amount)",
+                  permissions=['change'])
     def resolve_charged_action(self, request, queryset):
         return self._resolve(
             request, queryset, charged=True, action='resolve_charged_action',
             instructions="Use the provider's billing records. Each selected "
                          "call gets this amount as a ledger row.")
 
-    @admin.action(description="Resolve as not charged")
+    @admin.action(description="Resolve as not charged",
+                  permissions=['change'])
     def resolve_not_charged_action(self, request, queryset):
         return self._resolve(
             request, queryset, charged=False,

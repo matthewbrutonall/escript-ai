@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 
 from PIL import Image
 
+from .billing import gemini_thinking_budget, sent_output_limit
+
 
 @dataclass
 class AIResult:
@@ -56,7 +58,28 @@ def estimate_image_tokens(w: int, h: int) -> int:
     return max(258, tiles * 258)
 
 
-def azure_chat_url(endpoint, deployment, api_version="2024-08-01-preview") -> str:
+#: Default Azure api-version. It must accept max_completion_tokens, which
+#: replaces the deprecated max_tokens and also bounds reasoning tokens.
+AZURE_API_VERSION = "2024-12-01-preview"
+
+
+def anthropic_input_equivalent(usage):
+    """Input tokens at the base input rate, never below the real charge.
+
+    input_tokens excludes cache reads and writes. Writes cost 1.25x (5 min)
+    or 2x (1 h) the input rate, so they count 2x; reads cost 0.1x and count
+    1x. Both are conservative overestimates. None when nothing was reported.
+    """
+    fields = ("input_tokens", "cache_creation_input_tokens",
+              "cache_read_input_tokens")
+    if not any(usage.get(f) is not None for f in fields):
+        return None
+    return (int(usage.get("input_tokens") or 0)
+            + 2 * int(usage.get("cache_creation_input_tokens") or 0)
+            + int(usage.get("cache_read_input_tokens") or 0))
+
+
+def azure_chat_url(endpoint, deployment, api_version=AZURE_API_VERSION) -> str:
     base = (endpoint or "").rstrip("/")
     return (f"{base}/openai/deployments/{deployment}/chat/completions"
             f"?api-version={api_version}")
@@ -70,8 +93,13 @@ class ProviderHTTPError(RuntimeError):
         self.status_code = status_code
 
 
-def _chat_completions_vision(url, headers, model, prompt, b64, timeout=600,
-                             backend=None):
+#: Read timeout per provider request. The job lease must outlast it.
+PROVIDER_TIMEOUT_SECONDS = 600
+
+
+def _chat_completions_vision(url, headers, model, prompt, b64,
+                             timeout=PROVIDER_TIMEOUT_SECONDS, backend=None,
+                             limit_param=None, limit=None):
     import requests
     payload = {
         "model": model,
@@ -85,6 +113,8 @@ def _chat_completions_vision(url, headers, model, prompt, b64, timeout=600,
             ],
         }],
     }
+    if limit_param:
+        payload[limit_param] = limit
     if backend is not None:
         backend._mark_sent()
     r = requests.post(url, json=payload, headers=headers, timeout=timeout)
@@ -111,12 +141,11 @@ def _extract_openai_text(data: dict) -> str:
 
 
 class BaseBackend:
-    #: USD per 1M tokens; override per provider/model. 0 for local.
-    in_usd_per_1m = 0.0
-    out_usd_per_1m = 0.0
-
     #: Set per call by billing_store; receives sent() and usage().
     meter = None
+    #: billing.Price snapshot set by the meter. Prices are configured per
+    #: model (ai.AIModelPrice); backends carry no rates of their own.
+    price = None
 
     def __init__(self, config, api_key: str | None = None):
         self.config = config
@@ -143,12 +172,15 @@ class BaseBackend:
         return [self.transcribe_region(image, keys, prompt) for image, keys in crops]
 
     def cost(self, tokens_in, tokens_out) -> float:
-        return (tokens_in * self.in_usd_per_1m + tokens_out * self.out_usd_per_1m) / 1e6
+        """Display cost at the meter's price snapshot; 0 when unpriced (local).
+        The ledger, not this value, is what budgets count."""
+        if self.price is None:
+            return 0.0
+        from .billing import price_cost
+        return float(price_cost(self.price, tokens_in, tokens_out))
 
 
 class GeminiBackend(BaseBackend):
-    in_usd_per_1m = 0.30
-    out_usd_per_1m = 2.50
 
     def transcribe_region(self, image, keys, prompt) -> AIResult:
         import requests
@@ -160,10 +192,15 @@ class GeminiBackend(BaseBackend):
         payload = {"contents": [{"parts": [
             {"text": prompt},
             {"inline_data": {"mime_type": "image/png", "data": b64}}]}],
-            "generationConfig": {"temperature": self.config.params.get("temperature", 0)}}
+            "generationConfig": {
+                "temperature": self.config.params.get("temperature", 0),
+                "maxOutputTokens": sent_output_limit(self.config)}}
+        budget = gemini_thinking_budget(self.config)
+        if budget is not None:
+            payload["generationConfig"]["thinkingConfig"] = {"thinkingBudget": budget}
         self._mark_sent()
         r = requests.post(url, headers={"x-goog-api-key": self.api_key},
-                          json=payload, timeout=600)
+                          json=payload, timeout=PROVIDER_TIMEOUT_SECONDS)
         r.raise_for_status()
         data = r.json()
         u = data.get("usageMetadata") or {}
@@ -181,10 +218,6 @@ class GeminiBackend(BaseBackend):
 
 
 class AnthropicBackend(BaseBackend):
-    # Claude Sonnet 5 standard pricing. Keep per-config overrides
-    # possible later; the ledger records actual token counts either way.
-    in_usd_per_1m = 3.00
-    out_usd_per_1m = 15.00
 
     def transcribe_region(self, image, keys, prompt) -> AIResult:
         import requests
@@ -193,10 +226,9 @@ class AnthropicBackend(BaseBackend):
         b64, w, h = _downscale_png_b64(image, self.config.max_edge_px)
         # Sonnet 5 / Opus 4.7+: non-default temperature/top_p/top_k → HTTP 400.
         # Adaptive thinking is on by default and counts toward max_tokens.
-        params = self.config.params or {}
         payload = {
             "model": self.config.model_id,
-            "max_tokens": params.get("max_tokens", 8192),
+            "max_tokens": sent_output_limit(self.config),
             "messages": [{
                 "role": "user",
                 "content": [
@@ -219,7 +251,7 @@ class AnthropicBackend(BaseBackend):
                 "content-type": "application/json",
             },
             json=payload,
-            timeout=600,
+            timeout=PROVIDER_TIMEOUT_SECONDS,
         )
         if not r.ok:
             raise ProviderHTTPError(
@@ -227,7 +259,7 @@ class AnthropicBackend(BaseBackend):
         r.raise_for_status()
         data = r.json()
         u = data.get("usage") or {}
-        self._report_usage(u.get("input_tokens"), u.get("output_tokens"))
+        self._report_usage(anthropic_input_equivalent(u), u.get("output_tokens"))
         raw = "".join(
             block.get("text", "")
             for block in data.get("content", [])
@@ -240,10 +272,6 @@ class AnthropicBackend(BaseBackend):
 
 
 class OpenAIBackend(BaseBackend):
-    # GPT-5.6 Terra standard pricing. Keep per-config overrides possible later;
-    # the ledger records actual token counts either way.
-    in_usd_per_1m = 2.00
-    out_usd_per_1m = 12.00
 
     def transcribe_region(self, image, keys, prompt) -> AIResult:
         import requests
@@ -262,7 +290,7 @@ class OpenAIBackend(BaseBackend):
                      "detail": params.get("detail", "high")},
                 ],
             }],
-            "max_output_tokens": params.get("max_output_tokens", 2048),
+            "max_output_tokens": sent_output_limit(self.config),
         }
         if "reasoning" in params:
             payload["reasoning"] = params["reasoning"]
@@ -274,7 +302,7 @@ class OpenAIBackend(BaseBackend):
                 "Content-Type": "application/json",
             },
             json=payload,
-            timeout=600,
+            timeout=PROVIDER_TIMEOUT_SECONDS,
         )
         if not r.ok:
             raise ProviderHTTPError(
@@ -307,9 +335,9 @@ class LocalOpenAIBackend(BaseBackend):
 
 class AzureOpenAIBackend(BaseBackend):
     """Azure OpenAI chat completions (deployment name in model_id). Off-site
-    unless the archive's own Azure tenant; still blocked by never_send_offsite."""
-    in_usd_per_1m = 2.00
-    out_usd_per_1m = 12.00
+    unless the archive's own Azure tenant; still blocked by never_send_offsite.
+    The deployment name does not identify the model, so the price comes from
+    the config's price_model_id."""
 
     def transcribe_region(self, image, keys, prompt) -> AIResult:
         if not self.api_key:
@@ -320,10 +348,11 @@ class AzureOpenAIBackend(BaseBackend):
         params = self.config.params or {}
         url = azure_chat_url(
             self.config.endpoint, self.config.model_id,
-            params.get("api_version", "2024-08-01-preview"))
+            params.get("api_version", AZURE_API_VERSION))
         raw, u = _chat_completions_vision(
             url, {"api-key": self.api_key}, self.config.model_id, prompt, b64,
-            backend=self)
+            backend=self, limit_param="max_completion_tokens",
+            limit=sent_output_limit(self.config))
         text_by_key, unknown = parse_json_by_key(raw, keys)
         return AIResult(text_by_key, unknown,
                         u.get("prompt_tokens", estimate_image_tokens(w, h)),
@@ -332,8 +361,6 @@ class AzureOpenAIBackend(BaseBackend):
 
 class MistralBackend(BaseBackend):
     """Mistral / Pixtral vision via OpenAI-compatible chat completions."""
-    in_usd_per_1m = 0.15
-    out_usd_per_1m = 0.15
 
     def transcribe_region(self, image, keys, prompt) -> AIResult:
         if not self.api_key:
@@ -342,7 +369,8 @@ class MistralBackend(BaseBackend):
         url = (self.config.endpoint or "https://api.mistral.ai/v1").rstrip("/") + "/chat/completions"
         raw, u = _chat_completions_vision(
             url, {"Authorization": f"Bearer {self.api_key}"},
-            self.config.model_id, prompt, b64, backend=self)
+            self.config.model_id, prompt, b64, backend=self,
+            limit_param="max_tokens", limit=sent_output_limit(self.config))
         text_by_key, unknown = parse_json_by_key(raw, keys)
         return AIResult(text_by_key, unknown,
                         u.get("prompt_tokens", estimate_image_tokens(w, h)),

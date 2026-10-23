@@ -19,6 +19,13 @@ from django.utils.translation import gettext_lazy as _
 User = get_user_model()
 
 
+def validate_finite(value):
+    """Reject nan and +/-inf, which a FloatField or Postgres would store."""
+    import math
+    if value is not None and not math.isfinite(float(value)):
+        raise ValidationError(_("Enter a finite number."))
+
+
 class AIBackendConfig(models.Model):
     """Provider + model + prompt + params. The AI 'backend', surfaced beside
     kraken models in the UI but stored separately (do NOT extend OcrModel)."""
@@ -45,6 +52,12 @@ class AIBackendConfig(models.Model):
     # API key is NOT stored here in cleartext; resolved at run time from a secret
     # store keyed by this name (instance env or per-user/team, §7/§12). Never logged.
     key_ref = models.CharField(max_length=128, null=True, blank=True)
+    # Azure model_id is a deployment name; this names the model it runs so
+    # the price can be found. Required for Azure, unused for other providers.
+    price_model_id = models.CharField(
+        max_length=128, blank=True, default='',
+        help_text=_("Azure only: the model this deployment runs, exactly as "
+                    "in the AI model price table."))
 
     prompt_template = models.TextField(
         help_text=_("Diplomatic-transcription prompt. Colour keys are appended."))
@@ -150,9 +163,44 @@ class AIUsageLedger(models.Model):
     user = models.ForeignKey(User, null=True, on_delete=models.SET_NULL)
     document = models.ForeignKey('core.Document', null=True, on_delete=models.SET_NULL)
     created_at = models.DateTimeField(auto_now_add=True)
+    # First day (UTC) of the month the charge counts in: the month its call
+    # was reserved. Null on rows written before reservations; those count in
+    # the month of created_at.
+    accounting_month = models.DateField(null=True, blank=True, db_index=True)
 
     class Meta:
         ordering = ['-created_at']
+
+
+class AIModelPrice(models.Model):
+    """Configured USD price for one hosted model. Exact match only.
+
+    A hosted backend whose model has no row here is refused before any
+    request. There are no built-in prices: enter them from the provider's
+    current price list and note the source.
+    """
+    provider = models.CharField(max_length=32,
+                                choices=AIBackendConfig.PROVIDER_CHOICES)
+    model_id = models.CharField(
+        max_length=128,
+        help_text=_("Exact model id. For Azure, the underlying model named "
+                    "by the backend's price_model_id, not the deployment."))
+    input_usd_per_1m = models.DecimalField(
+        max_digits=12, decimal_places=6, validators=[MinValueValidator(0)])
+    output_usd_per_1m = models.DecimalField(
+        max_digits=12, decimal_places=6, validators=[MinValueValidator(0)],
+        help_text=_("Includes reasoning/thinking tokens, billed as output."))
+    source = models.CharField(
+        max_length=255, blank=True,
+        help_text=_("Where and when this price was taken from."))
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ['provider', 'model_id']
+
+    def __str__(self):
+        return (f"{self.provider}:{self.model_id} "
+                f"{self.input_usd_per_1m}/{self.output_usd_per_1m} per 1M")
 
 
 USD = dict(max_digits=14, decimal_places=6)
@@ -223,6 +271,11 @@ class AIBillableCall(models.Model):
     state = models.CharField(max_length=16, choices=STATE_CHOICES,
                              default=STATE_RESERVED)
     reserved_usd = models.DecimalField(**USD)
+    # Price snapshot used for this call's reservation and its settlement.
+    in_usd_per_1m = models.DecimalField(
+        max_digits=12, decimal_places=6, null=True, blank=True)
+    out_usd_per_1m = models.DecimalField(
+        max_digits=12, decimal_places=6, null=True, blank=True)
     confirmed_usd = models.DecimalField(null=True, blank=True, **USD)
     estimated_usd = models.DecimalField(null=True, blank=True, **USD)
     tokens_in = models.BigIntegerField(null=True, blank=True)
@@ -259,7 +312,7 @@ class AIUserQuota(models.Model):
     user = models.OneToOneField(
         User, on_delete=models.CASCADE, related_name='ai_quota')
     monthly_usd = models.FloatField(
-        null=True, blank=True,
+        null=True, blank=True, validators=[validate_finite],
         help_text=_("USD per calendar month. Blank = instance default. "
                     "0 = blocked. Negative ignored."))
 

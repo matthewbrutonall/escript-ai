@@ -22,14 +22,14 @@ from django.utils import timezone
 from PIL import Image
 
 from ai import billing_store
-from ai.billing import BudgetExceeded, JobClaimLost, usd
+from ai.billing import BudgetExceeded, JobClaimLost, Price, usd
 from ai.billing_store import (
     JobNotClaimed, claim_job, confirm_call, mark_sent, month_usage,
-    open_hold, reconcile_now, reserve_call, resolve_call,
+    open_hold, reconcile_now, reserve_call, resolve_call, resolve_price,
 )
 from ai.models import (
-    AIBackendConfig, AIBillableCall, AIBudgetHold, AIJob, AIUsageLedger,
-    AIUserQuota,
+    AIBackendConfig, AIBillableCall, AIBudgetHold, AIJob, AIModelPrice,
+    AIUsageLedger, AIUserQuota,
 )
 from ai.tasks import ai_seg_review, ai_transcribe
 from core.models import (
@@ -39,9 +39,14 @@ from reporting.models import TaskReport
 from users.models import User
 
 MEDIA = "/tmp/ai-budget-orm-media"
+# The fixture model is priced at 0 input and 100 USD per 1M output tokens,
+# and sends max_tokens 1000. The real bound function therefore gives every
+# call a reservation of exactly 1000 * 100 / 1M = 0.10 USD, whatever the
+# crop size or prompt, and a call reporting 300 output tokens costs 0.03.
+PRICE = Price("0", "100")
+MAX_TOKENS = 1000
 BOUND = Decimal("0.100000")
-# Anthropic prices: 10000 input tokens = 0.03 USD.
-CALL_USAGE = {"input_tokens": 10000, "output_tokens": 0}
+CALL_USAGE = {"input_tokens": 10000, "output_tokens": 300}
 CALL_COST = Decimal("0.030000")
 LEASE = 1800
 
@@ -156,9 +161,7 @@ class BudgetFixture(TransactionTestCase):
             self.addCleanup(p.stop)
         self.http = HttpSwitch()
         for target, value in (("requests.post", self.http),
-                              ("requests.get", self.http),
-                              ("ai.billing_store.call_bound_usd",
-                               lambda *a, **kw: BOUND)):
+                              ("requests.get", self.http)):
             p = patch(target, value)
             p.start()
             self.addCleanup(p.stop)
@@ -173,7 +176,12 @@ class BudgetFixture(TransactionTestCase):
         self.config = AIBackendConfig.objects.create(
             name="claude-" + uuid.uuid4().hex[:8], provider="anthropic",
             model_id="claude-test", key_ref="AI_BUDGET_TEST_KEY",
-            prompt_template="", params={})
+            prompt_template="", params={"max_tokens": MAX_TOKENS})
+        AIModelPrice.objects.get_or_create(
+            provider="anthropic", model_id="claude-test",
+            defaults=dict(input_usd_per_1m=PRICE.in_usd_per_1m,
+                          output_usd_per_1m=PRICE.out_usd_per_1m,
+                          source="test fixture"))
         os.environ["AI_BUDGET_TEST_KEY"] = "sk-test-not-real"
         self.addCleanup(os.environ.pop, "AI_BUDGET_TEST_KEY", None)
 
@@ -259,7 +267,7 @@ class ConcurrencyTests(BudgetFixture):
             try:
                 reserve_call(job=None, claim=None, hold=None, user=self.user,
                              document=self.document, config=self.config,
-                             bound=Decimal("0.30"))
+                             price=PRICE, bound=Decimal("0.30"))
                 results.append("ok")
             except BudgetExceeded:
                 results.append("refused")
@@ -302,11 +310,11 @@ class ConcurrencyTests(BudgetFixture):
         with self.assertRaises(BudgetExceeded):
             reserve_call(job=None, claim=None, hold=None, user=other,
                          document=self.document, config=self.config,
-                         bound=Decimal("0.3"))
+                         price=PRICE, bound=Decimal("0.3"))
         billing_store.close_hold(hold)
         reserve_call(job=None, claim=None, hold=None, user=other,
                      document=self.document, config=self.config,
-                     bound=Decimal("0.3"))
+                     price=PRICE, bound=Decimal("0.3"))
         self.assertEqual(month_usage(None), Decimal("0.3"))
 
     def test_concurrent_full_jobs_stop_at_the_cap(self):
@@ -542,9 +550,9 @@ class CancellationAndCrashTests(BudgetFixture):
         hold = open_hold(job, claim, self.user, job.est_cost)
         call = reserve_call(job=job, claim=claim, hold=hold, user=self.user,
                             document=self.document, config=self.config,
-                            bound=BOUND)
+                            price=PRICE, bound=BOUND)
         if sent:
-            mark_sent(call.pk)
+            mark_sent(call.pk, claim)
         return job, hold, call
 
     def test_killed_worker_is_reconciled_as_unknown(self):
@@ -552,7 +560,7 @@ class CancellationAndCrashTests(BudgetFixture):
         unsent = reserve_call(
             job=job, claim=AIJob.objects.get(pk=job.pk).claim, hold=hold,
             user=self.user, document=self.document, config=self.config,
-            bound=BOUND)
+            price=PRICE, bound=BOUND)
         later = timezone.now() + timedelta(seconds=LEASE + 1)
         self.assertEqual(reconcile_now(later), 1)
         sent_call.refresh_from_db()
@@ -572,7 +580,7 @@ class CancellationAndCrashTests(BudgetFixture):
         job, hold, call = self._crashed_job(sent=True)
         claim = AIJob.objects.get(pk=job.pk).claim
         reconcile_now(timezone.now() + timedelta(seconds=LEASE + 1))
-        confirm_call(call.pk, 10000, 0, CALL_COST)
+        confirm_call(call.pk, 10000, 300)
         call.refresh_from_db()
         self.assertEqual(call.state, AIBillableCall.STATE_CONFIRMED)
         self.assertEqual(month_usage(self.user), CALL_COST)
@@ -580,7 +588,7 @@ class CancellationAndCrashTests(BudgetFixture):
         with self.assertRaises(JobClaimLost):
             reserve_call(job=job, claim=claim, hold=hold, user=self.user,
                          document=self.document, config=self.config,
-                         bound=BOUND)
+                         price=PRICE, bound=BOUND)
 
     def test_operator_resolution(self):
         _, _, charged = self._crashed_job(sent=True)
@@ -714,3 +722,323 @@ class SubmissionTests(BudgetFixture):
         self.assertEqual(s._ai_budget_env("AI_TEST_BAD_CAP"), 0.0)
         os.environ["AI_TEST_BAD_CAP"] = ""
         self.assertIsNone(s._ai_budget_env("AI_TEST_BAD_CAP"))
+
+
+class ReviewFixTests(BudgetFixture):
+    """Corrections from the review of d3700bf. Real pricing and bounds."""
+
+    def _held_call(self):
+        job, hold, call = CancellationAndCrashTests._crashed_job(self, sent=True)
+        reconcile_now(timezone.now() + timedelta(seconds=LEASE + 1))
+        call.refresh_from_db()
+        self.assertEqual(call.state, AIBillableCall.STATE_UNKNOWN)
+        return job, call
+
+    # -- pricing --------------------------------------------------------
+    def test_unpriced_model_is_refused_before_any_request(self):
+        unpriced = AIBackendConfig.objects.create(
+            name="unpriced-" + uuid.uuid4().hex[:8], provider="anthropic",
+            model_id="claude-unpriced", key_ref="AI_BUDGET_TEST_KEY",
+            prompt_template="", params={"max_tokens": MAX_TOKENS})
+        job = self._job("0.5", config=unpriced)
+        provider = FakeProvider()
+        outcome = self._run(job, provider)
+        self.assertTrue(outcome.failed())
+        self.assertIn("No price is configured", str(outcome.error))
+        self.assertEqual(provider.calls, 0)
+        self.assertFalse(AIBillableCall.objects.exists())
+        self.assertFalse(AIBudgetHold.objects.exists())
+        job.refresh_from_db()
+        self.assertEqual(job.status, AIJob.STATUS_ERROR)
+
+    def test_unpriced_model_is_refused_at_submission(self):
+        from django.urls import reverse
+        from rest_framework.test import APIClient
+        unpriced = AIBackendConfig.objects.create(
+            name="unpriced-" + uuid.uuid4().hex[:8], provider="mistral",
+            model_id="pixtral-large-latest", key_ref="AI_BUDGET_TEST_KEY",
+            prompt_template="", params={})
+        client = APIClient()
+        client.force_authenticate(self.user)
+        uri = reverse('api:document-ai-transcribe', kwargs={'pk': self.document.pk})
+        with patch("ai.tasks.ai_transcribe.delay") as delay:
+            resp = client.post(uri, {"backend": unpriced.pk,
+                                     "parts": [self.part.pk]}, format="json")
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn(b"No price is configured", resp.content)
+        delay.assert_not_called()
+
+    def test_azure_needs_an_explicit_priced_model(self):
+        from ai.billing import UnpricedModel
+        azure = AIBackendConfig.objects.create(
+            name="az-" + uuid.uuid4().hex[:8], provider="azure",
+            model_id="my-deployment", endpoint="https://example.test",
+            key_ref="AI_BUDGET_TEST_KEY", prompt_template="", params={})
+        with self.assertRaises(UnpricedModel):
+            resolve_price(azure)
+        AIModelPrice.objects.create(
+            provider="azure", model_id="my-deployment",
+            input_usd_per_1m=Decimal("0.01"), output_usd_per_1m=Decimal("0.01"))
+        with self.assertRaises(UnpricedModel):  # deployment name is not used
+            resolve_price(azure)
+        AIModelPrice.objects.create(
+            provider="azure", model_id="gpt-big",
+            input_usd_per_1m=Decimal("5"), output_usd_per_1m=Decimal("20"))
+        azure.price_model_id = "gpt-big"
+        azure.save()
+        self.assertEqual(resolve_price(azure), Price("5", "20"))
+
+    def test_expensive_model_settles_at_its_configured_rates(self):
+        AIModelPrice.objects.filter(model_id="claude-test").update(
+            input_usd_per_1m=Decimal("15"), output_usd_per_1m=Decimal("75"))
+        job = self._job("5")
+
+        def raise_price_mid_call(n):
+            # A price edit during the job must not change this call's charge.
+            AIModelPrice.objects.filter(model_id="claude-test").update(
+                input_usd_per_1m=Decimal("99"), output_usd_per_1m=Decimal("99"))
+
+        self._run(job, FakeProvider(on_call=raise_price_mid_call))
+        call = AIBillableCall.objects.get(job=job)
+        self.assertEqual(call.state, AIBillableCall.STATE_CONFIRMED)
+        self.assertEqual(call.in_usd_per_1m, Decimal("15"))
+        expected = usd(Decimal(10000) * 15 / 10**6 + Decimal(300) * 75 / 10**6)
+        self.assertEqual(call.confirmed_usd, expected)
+        self.assertEqual(self._ledger_total(job=job), expected)
+        # The reservation used the same rates: output part alone is 1000 * 75.
+        self.assertGreaterEqual(call.reserved_usd, usd("0.075"))
+
+    def test_overrun_is_recorded_in_full_and_stops_the_job(self):
+        self.part = self._part(self.document, lines=12)
+        job = self._job("1")
+        over = dict(CALL_USAGE, output_tokens=2000)  # 0.20 against 0.10
+
+        provider = FakeProvider()
+        orig = provider.__call__
+
+        def overrun(url, headers=None, json=None, timeout=None):
+            resp = orig(url, headers=headers, json=json, timeout=timeout)
+            resp.json.return_value["usage"] = over
+            return resp
+
+        self.http.target = overrun
+        outcome = _apply(ai_transcribe, dict(
+            instance_pks=[self.part.pk], ai_config_pk=self.config.pk,
+            transcription_pk=self.layer.pk, user_pk=self.user.pk,
+            job_pk=job.pk))
+        self.assertTrue(outcome.failed())
+        self.assertIn("cost more than its reservation", str(outcome.error))
+        self.assertEqual(provider.calls, 1)
+        self.assertEqual(self._ledger_total(job=job), usd("0.20"))
+        job.refresh_from_db()
+        self.assertEqual(usd(job.actual_cost), usd("0.20"))
+
+    # -- unresolved billing and months ---------------------------------
+    def test_unresolved_call_survives_month_rollover_and_resolves_once(self):
+        job, call = self._held_call()
+        last_month = timezone.now().replace(day=1) - timedelta(days=3)
+        AIBillableCall.objects.filter(pk=call.pk).update(created_at=last_month)
+        # Still held in the current month, and in a later one.
+        self.assertEqual(month_usage(self.user), BOUND)
+        self.assertEqual(month_usage(
+            self.user, timezone.now() + timedelta(days=40)), BOUND)
+        resolve_call(call, by=self.user, charged=True, amount="0.04",
+                     note="invoice")
+        call.refresh_from_db()
+        ledger = call.ledger
+        self.assertEqual(ledger.accounting_month,
+                         last_month.replace(day=1).date())
+        # Counted in the month it was incurred, not in this one.
+        self.assertEqual(month_usage(self.user), Decimal(0))
+        self.assertEqual(month_usage(self.user, last_month), usd("0.04"))
+
+    def test_confirmed_charges_from_last_month_do_not_count_now(self):
+        job, call = self._held_call()
+        last_month = timezone.now().replace(day=1) - timedelta(days=3)
+        AIBillableCall.objects.filter(pk=call.pk).update(created_at=last_month)
+        confirm_call(call.pk, 10000, 300)  # late answer, after the rollover
+        self.assertEqual(month_usage(self.user), Decimal(0))
+        self.assertEqual(month_usage(self.user, last_month), CALL_COST)
+
+    def test_http_403_stays_held(self):
+        job = self._job("0.5")
+        self.http.target = MagicMock(return_value=MagicMock(
+            ok=False, status_code=403, text="policy"))
+        self.assertTrue(_apply(ai_transcribe, dict(
+            instance_pks=[self.part.pk], ai_config_pk=self.config.pk,
+            transcription_pk=self.layer.pk, user_pk=self.user.pk,
+            job_pk=job.pk)).failed())
+        call = AIBillableCall.objects.get(job=job)
+        self.assertEqual(call.state, AIBillableCall.STATE_UNKNOWN)
+        self.assertEqual(call.error, "ProviderHTTPError HTTP 403")
+        self.assertEqual(month_usage(self.user), BOUND)
+
+    # -- send transition ------------------------------------------------
+    def test_released_reservation_cannot_be_sent(self):
+        job, hold, call = CancellationAndCrashTests._crashed_job(self, sent=False)
+        claim = AIJob.objects.get(pk=job.pk).claim
+        AIBillableCall.objects.filter(pk=call.pk).update(
+            state=AIBillableCall.STATE_RELEASED)
+        with self.assertRaises(JobClaimLost):
+            mark_sent(call.pk, claim)
+        call.refresh_from_db()
+        self.assertFalse(call.sent)
+
+    def test_expired_lease_cannot_send(self):
+        job, hold, call = CancellationAndCrashTests._crashed_job(self, sent=False)
+        claim = AIJob.objects.get(pk=job.pk).claim
+        AIJob.objects.filter(pk=job.pk).update(
+            heartbeat_at=timezone.now() - timedelta(seconds=LEASE + 1))
+        with self.assertRaises(JobClaimLost):
+            mark_sent(call.pk, claim)
+        self.assertFalse(AIBillableCall.objects.get(pk=call.pk).sent)
+
+    def test_send_aborts_before_http_when_reservation_was_reconciled(self):
+        job = self._job("0.5")
+        provider = FakeProvider()
+
+        def expire_before_send(*a, **kw):
+            raise AssertionError("must not reach HTTP")
+
+        # Reconcile the call between reservation and send.
+        real_reserve = billing_store.reserve_call
+
+        def reserve_then_expire(**kw):
+            call = real_reserve(**kw)
+            AIBillableCall.objects.filter(pk=call.pk).update(
+                state=AIBillableCall.STATE_RELEASED)
+            return call
+
+        self.http.target = expire_before_send
+        with patch("ai.billing_store.reserve_call", reserve_then_expire):
+            outcome = _apply(ai_transcribe, dict(
+                instance_pks=[self.part.pk], ai_config_pk=self.config.pk,
+                transcription_pk=self.layer.pk, user_pk=self.user.pk,
+                job_pk=job.pk))
+        self.assertTrue(outcome.failed())
+        self.assertIsInstance(outcome.error, JobClaimLost)
+        self.assertEqual(provider.calls, 0)
+        self.assertFalse(AIBillableCall.objects.get(job=job).sent)
+
+    # -- lifecycle ------------------------------------------------------
+    def test_stale_running_job_without_hold_is_stopped(self):
+        job = self._job("0.5")
+        claim_job(job.pk, "died-before-hold")
+        AIJob.objects.filter(pk=job.pk).update(
+            heartbeat_at=timezone.now() - timedelta(seconds=LEASE + 1))
+        provider = FakeProvider()
+        outcome = self._run(job, provider, task_id="died-before-hold")
+        self.assertTrue(outcome.result.get("skipped"))
+        self.assertEqual(provider.calls, 0)
+        job.refresh_from_db()
+        self.assertEqual(job.status, AIJob.STATUS_ERROR)
+
+    def test_reconcile_stops_stale_job_without_hold(self):
+        job = self._job("0.5")
+        claim_job(job.pk, "t")
+        self.assertEqual(reconcile_now(
+            timezone.now() + timedelta(seconds=LEASE + 1)), 1)
+        job.refresh_from_db()
+        self.assertEqual(job.status, AIJob.STATUS_ERROR)
+
+    def test_legacy_running_job_without_claim_never_runs(self):
+        job = self._job("0.5")
+        AIJob.objects.filter(pk=job.pk).update(
+            status=AIJob.STATUS_RUNNING, claim="", heartbeat_at=None)
+        provider = FakeProvider()
+        outcome = self._run(job, provider)
+        self.assertTrue(outcome.result.get("skipped"))
+        self.assertEqual(provider.calls, 0)
+        self.assertFalse(AIBudgetHold.objects.exists())
+        # Once past the lease it is marked as stopped, still without running.
+        AIJob.objects.filter(pk=job.pk).update(
+            updated_at=timezone.now() - timedelta(seconds=LEASE + 1))
+        reconcile_now()
+        job.refresh_from_db()
+        self.assertEqual(job.status, AIJob.STATUS_ERROR)
+
+    def test_delivery_without_job_pk_is_refused_before_work(self):
+        provider = FakeProvider()
+        self.http.target = provider
+        outcome = _apply(ai_transcribe, dict(
+            instance_pks=[self.part.pk], ai_config_pk=self.config.pk,
+            transcription_pk=self.layer.pk, user_pk=self.user.pk))
+        self.assertTrue(outcome.failed())
+        self.assertIn("job_pk", str(outcome.error))
+        outcome = _apply(ai_seg_review, dict(
+            instance_pks=[self.part.pk], ai_config_pk=self.config.pk,
+            user_pk=self.user.pk))
+        self.assertTrue(outcome.failed())
+        self.assertEqual(provider.calls, 0)
+        self.assertFalse(AIJob.objects.exists())
+        self.assertFalse(AIBillableCall.objects.exists())
+
+    # -- administration -------------------------------------------------
+    def _staff(self, *perms):
+        from django.contrib.auth.models import Permission
+        staff = self._user()
+        staff.is_staff = True
+        staff.save()
+        for codename in perms:
+            staff.user_permissions.add(Permission.objects.get(
+                content_type__app_label="ai", codename=codename))
+        return staff
+
+    def _post_action(self, staff, call, action, **extra):
+        from django.test import Client
+        from django.urls import reverse
+        client = Client()
+        client.force_login(staff)
+        return client.post(
+            reverse("admin:ai_aibillablecall_changelist"),
+            dict(action=action, _selected_action=[call.pk], confirm="1",
+                 note="billing record", **extra))
+
+    def test_view_only_staff_cannot_resolve(self):
+        _, call = self._held_call()
+        viewer = self._staff("view_aibillablecall")
+        for action in ("resolve_charged_action", "resolve_not_charged_action"):
+            self._post_action(viewer, call, action, amount="0.05")
+            call.refresh_from_db()
+            self.assertEqual(call.state, AIBillableCall.STATE_UNKNOWN, action)
+        self.assertFalse(AIUsageLedger.objects.exists())
+
+    def test_change_permission_resolves_and_updates_job_once(self):
+        job, call = self._held_call()
+        before = usd(AIJob.objects.get(pk=job.pk).actual_cost)
+        editor = self._staff("view_aibillablecall", "change_aibillablecall")
+        self._post_action(editor, call, "resolve_charged_action", amount="0.05")
+        self._post_action(editor, call, "resolve_charged_action", amount="0.05")
+        call.refresh_from_db()
+        self.assertEqual(call.state, AIBillableCall.STATE_CONFIRMED)
+        self.assertEqual(call.resolved_by, editor)
+        self.assertEqual(AIUsageLedger.objects.filter(job=job).count(), 1)
+        self.assertEqual(usd(AIJob.objects.get(pk=job.pk).actual_cost),
+                         before + usd("0.05"))
+        with self.assertRaises(ValueError):
+            resolve_call(call, by=editor, charged=True, amount="0.05", note="x")
+        self.assertEqual(usd(AIJob.objects.get(pk=job.pk).actual_cost),
+                         before + usd("0.05"))
+
+    def test_non_finite_amounts_are_rejected(self):
+        _, call = self._held_call()
+        for bad in ("nan", "inf", "-1"):
+            with self.assertRaises(ValueError):
+                resolve_call(call, by=self.user, charged=True, amount=bad, note="x")
+        self.assertEqual(AIBillableCall.objects.get(pk=call.pk).state,
+                         AIBillableCall.STATE_UNKNOWN)
+
+    def test_non_finite_quota_fails_closed(self):
+        from django.core.exceptions import ValidationError
+        quota = AIUserQuota(user=self.user, monthly_usd=float("inf"))
+        with self.assertRaises(ValidationError):
+            quota.full_clean()
+        # A value stored before the validator existed blocks, not unlimited.
+        for bad in (float("inf"), float("nan")):
+            AIUserQuota.objects.update_or_create(
+                user=self.user, defaults={"monthly_usd": bad})
+            with self.assertRaises(BudgetExceeded):
+                reserve_call(job=None, claim=None, hold=None, user=self.user,
+                             document=self.document, config=self.config,
+                             price=PRICE, bound=Decimal("0.01"))
+        self.assertFalse(AIBillableCall.objects.exists())

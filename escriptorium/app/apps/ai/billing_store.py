@@ -1,22 +1,24 @@
 """
 ORM side of hosted AI budget reservations (docs/budget-reservations.md).
 
-Every transaction that touches more than one billing row locks AIBudgetLock
-rows first (instance, then user), then job rows, then call and hold rows.
-The instance row is therefore a single mutex for multi-row billing writes,
-which rules out lock-order deadlocks. Single-row updates of one call
-(mark_sent, settle_*) take no other lock.
+Every transaction that touches more than one billing row, or that moves a
+call to "sent", locks AIBudgetLock rows first (instance, then user), then
+job rows, then call and hold rows. The instance row is therefore a single
+mutex for those writes, which rules out lock-order deadlocks. Settling one
+call after its request (settle_*) is a single conditional row update.
 """
 from __future__ import annotations
 
 import logging
 import uuid
-from datetime import timedelta
+from datetime import timedelta, timezone as dt_timezone
 
 from django.apps import apps
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Case, DecimalField, Exists, F, OuterRef, Sum, Value, When
+from django.db.models import (
+    Case, DecimalField, Exists, F, OuterRef, Q, Sum, Value, When,
+)
 from django.utils import timezone
 
 from .billing import (
@@ -24,6 +26,8 @@ from .billing import (
     BudgetExceeded,
     JobCancelled,
     JobClaimLost,
+    Price,
+    UnpricedModel,
     call_bound_usd,
     describe_error,
     extra_needed,
@@ -54,8 +58,15 @@ def _m(name):
 
 
 def lease_seconds():
-    return int(getattr(settings, 'AI_JOB_LEASE_SECONDS', None)
-               or DEFAULT_LEASE_SECONDS)
+    """At least twice the provider read timeout, whatever the setting says.
+
+    A request is only sent with a heartbeat refreshed at that moment, so the
+    lease cannot run out while one read timeout is pending.
+    """
+    from .backends import PROVIDER_TIMEOUT_SECONDS
+    configured = int(getattr(settings, 'AI_JOB_LEASE_SECONDS', None)
+                     or DEFAULT_LEASE_SECONDS)
+    return max(configured, 2 * PROVIDER_TIMEOUT_SECONDS)
 
 
 def instance_cap():
@@ -65,6 +76,34 @@ def instance_cap():
 def user_cap(user):
     from .dispatch import user_monthly_cap
     return user_monthly_cap(user)
+
+
+def accounting_month(when):
+    """First day (UTC) of the month a charge counts in."""
+    return month_start(when.astimezone(dt_timezone.utc)).date()
+
+
+def resolve_price(config):
+    """The configured price for a hosted config, or UnpricedModel.
+
+    Exact (provider, model) match. Azure uses price_model_id because its
+    model_id is a deployment name. Nothing is guessed or mapped.
+    """
+    provider = config.provider
+    model = config.model_id
+    if provider == 'azure':
+        model = (getattr(config, 'price_model_id', '') or '').strip()
+        if not model:
+            raise UnpricedModel(
+                f"Azure deployment {config.model_id!r} has no price_model_id; "
+                "set the model it runs so it can be priced.")
+    row = (_m('AIModelPrice').objects
+           .filter(provider=provider, model_id=model).first())
+    if row is None:
+        raise UnpricedModel(
+            f"No price is configured for {provider}:{model}. Add it under "
+            "AI model prices before using this backend.")
+    return Price(row.input_usd_per_1m, row.output_usd_per_1m)
 
 
 def _user_id(user):
@@ -106,14 +145,20 @@ def hold_drawn(hold_id):
 
 
 def month_usage(user=None, now=None):
-    """Usage for a user, or for the whole instance when user is None."""
+    """Usage for a user, or for the whole instance when user is None.
+
+    Confirmed charges count in their accounting month. Held calls
+    (reserved, estimated, unknown) count in every month until resolved,
+    whenever they were made.
+    """
     Ledger = _m('AIUsageLedger')
     Call = _m('AIBillableCall')
     Hold = _m('AIBudgetHold')
     start = month_start(now or timezone.now())
-    ledger = Ledger.objects.filter(created_at__gte=start)
-    calls = Call.objects.filter(state__in=Call.HELD_STATES,
-                                created_at__gte=start)
+    ledger = Ledger.objects.filter(
+        Q(accounting_month=start.date())
+        | Q(accounting_month__isnull=True, created_at__gte=start))
+    calls = Call.objects.filter(state__in=Call.HELD_STATES)
     holds = Hold.objects.filter(state=Hold.STATE_OPEN)
     if user is not None:
         uid = _user_id(user)
@@ -159,7 +204,7 @@ def job_cancelled(job):
 
 
 def _stop_job_billing(job, hold, reason, now):
-    """Close a hold and mark its in-flight calls. Never releases a sent call."""
+    """Close a hold and mark in-flight calls. Never releases a sent call."""
     Call = _m('AIBillableCall')
     Hold = _m('AIBudgetHold')
     AIJob = _m('AIJob')
@@ -184,23 +229,27 @@ def _stop_job_billing(job, hold, reason, now):
     return unknown
 
 
+def _stale(job, cutoff):
+    return (job.heartbeat_at or job.updated_at) < cutoff
+
+
 def reconcile_stale(now=None):
-    """Stop billing for jobs whose worker is gone. Returns holds closed.
+    """Stop billing for jobs whose worker is gone. Returns jobs stopped.
 
     Run it through reconcile_now(), which holds the instance lock.
     """
     Call = _m('AIBillableCall')
     Hold = _m('AIBudgetHold')
     AIJob = _m('AIJob')
+    TaskReport = apps.get_model('reporting', 'TaskReport')
     now = now or timezone.now()
     cutoff = now - timedelta(seconds=lease_seconds())
-    TaskReport = apps.get_model('reporting', 'TaskReport')
     open_holds = (Hold.objects.filter(state=Hold.STATE_OPEN)
                   .select_related('job')
                   .annotate(cancelled=Exists(TaskReport.objects.filter(
                       task_id=OuterRef('job__task_id'),
                       workflow_state=TaskReport.WORKFLOW_STATE_CANCELED))))
-    closed = 0
+    stopped = 0
     for hold in open_holds:
         job = hold.job
         if job is None:
@@ -209,19 +258,34 @@ def reconcile_stale(now=None):
             reason = 'task cancelled'
         elif job.status in (AIJob.STATUS_DONE, AIJob.STATUS_ERROR):
             reason = 'job already finished'
-        elif (job.heartbeat_at or hold.created_at) < cutoff:
+        elif _stale(job, cutoff):
             reason = 'worker heartbeat expired'
         else:
             continue
         _stop_job_billing(job, hold, reason, now)
-        closed += 1
+        stopped += 1
+    # Running jobs with no open hold: died before the hold opened, after it
+    # closed, or are local. Same lease, same outcome.
+    for job in (AIJob.objects.filter(status=AIJob.STATUS_RUNNING)
+                .exclude(budget_hold__state=Hold.STATE_OPEN)):
+        if _stale(job, cutoff):
+            _stop_job_billing(job, None, 'worker heartbeat expired', now)
+            stopped += 1
     orphans = Call.objects.filter(
-        state=Call.STATE_RESERVED, hold__isnull=True, created_at__lt=cutoff)
+        state=Call.STATE_RESERVED, hold__isnull=True, job__isnull=True,
+        created_at__lt=cutoff)
     orphans.filter(sent=False).update(
         state=Call.STATE_RELEASED, settled_at=now, error='not sent; stale')
     orphans.filter(sent=True).update(
         state=Call.STATE_UNKNOWN, settled_at=now, error='stale reservation')
-    return closed
+    return stopped
+
+
+def reconcile_now(now=None):
+    """Reconcile in its own transaction under the instance lock."""
+    with transaction.atomic():
+        _lock_scopes(None)
+        return reconcile_stale(now)
 
 
 def claim_job(job_pk, task_id, now=None):
@@ -237,14 +301,17 @@ def claim_job(job_pk, task_id, now=None):
         job = AIJob.objects.select_for_update().get(pk=job_pk)
         if job.status in (AIJob.STATUS_DONE, AIJob.STATUS_ERROR):
             refusal = f'job already {job.status}'
-        elif job.status == AIJob.STATUS_RUNNING and job.claim:
+        elif job.status == AIJob.STATUS_RUNNING and not job.claim:
+            # Started before claims existed (or by hand). It may be running
+            # and billing now; never start it a second time.
+            refusal = 'running without a claim (started before migration 0010)'
+        elif job.status == AIJob.STATUS_RUNNING:
             cutoff = now - timedelta(seconds=lease_seconds())
-            hold = Hold.objects.filter(job=job, state=Hold.STATE_OPEN).first()
-            if job.heartbeat_at is not None and job.heartbeat_at >= cutoff:
+            if not _stale(job, cutoff):
                 refusal = 'another delivery owns this job'
-            elif hold is None:
-                refusal = 'earlier delivery finished billing'
             else:
+                hold = Hold.objects.filter(
+                    job=job, state=Hold.STATE_OPEN).first()
                 _stop_job_billing(
                     job, hold, 'worker stopped; task redelivered', now)
                 refusal = 'earlier delivery was interrupted'
@@ -263,14 +330,22 @@ def _owned_job(job_pk, claim):
     """Lock the job row and check this worker still owns it."""
     AIJob = _m('AIJob')
     job = AIJob.objects.select_for_update().get(pk=job_pk)
-    if job.status != AIJob.STATUS_RUNNING or job.claim != claim:
-        if job_cancelled(job):
-            raise JobCancelled('The AI task was cancelled.')
-        raise JobClaimLost(
-            'This worker no longer owns the AI job; no further calls are sent.')
     if job_cancelled(job):
         raise JobCancelled('The AI task was cancelled.')
+    if job.status != AIJob.STATUS_RUNNING or job.claim != claim:
+        raise JobClaimLost(
+            'This worker no longer owns the AI job; no further calls are sent.')
     return job
+
+
+def touch_job(job, claim, now=None):
+    """Refresh the heartbeat of a job without billing (local engines)."""
+    now = now or timezone.now()
+    with transaction.atomic():
+        _lock_scopes(None)
+        job_row = _owned_job(job.pk, claim)
+        job_row.heartbeat_at = now
+        job_row.save(update_fields=['heartbeat_at'])
 
 
 def open_hold(job, claim, user, amount, now=None):
@@ -297,8 +372,9 @@ def close_hold(hold, reason='finished', now=None):
         close_reason=reason[:64])
 
 
-def reserve_call(*, job, claim, hold, user, document, config, bound, now=None):
-    """Hold one call's upper bound. Committed before the request is sent."""
+def reserve_call(*, job, claim, hold, user, document, config, price, bound,
+                 now=None):
+    """Hold one call's upper bound at `price`. Committed before sending."""
     Call = _m('AIBillableCall')
     Hold = _m('AIBudgetHold')
     now = now or timezone.now()
@@ -310,6 +386,13 @@ def reserve_call(*, job, claim, hold, user, document, config, bound, now=None):
         delta = bound
         if job is not None:
             job_row = _owned_job(job.pk, claim)
+            if Call.objects.filter(
+                    job_id=job.pk, state=Call.STATE_CONFIRMED,
+                    confirmed_usd__gt=F('reserved_usd')).exists():
+                raise BudgetExceeded(
+                    'A provider call in this job cost more than its '
+                    'reservation. It is recorded in full; no further calls '
+                    'are sent.')
             job_row.heartbeat_at = now
             job_row.save(update_fields=['heartbeat_at'])
         if hold is not None:
@@ -321,21 +404,54 @@ def reserve_call(*, job, claim, hold, user, document, config, bound, now=None):
         return Call.objects.create(
             job=job, hold=hold, user=user, document=document,
             provider=config.provider, model_id=config.model_id,
-            reserved_usd=bound)
+            reserved_usd=bound, in_usd_per_1m=price.in_usd_per_1m,
+            out_usd_per_1m=price.out_usd_per_1m)
 
 
-def mark_sent(call_pk):
+def mark_sent(call_pk, claim=None, now=None):
+    """reserved -> sent, only while the reservation and the job are valid.
+
+    Raises JobClaimLost or JobCancelled before any HTTP request when the
+    reservation was released or settled, the hold closed, or the job is no
+    longer owned, running, or within its lease. Refreshes the heartbeat.
+    """
     Call = _m('AIBillableCall')
-    Call.objects.filter(pk=call_pk).update(sent=True)
+    Hold = _m('AIBudgetHold')
+    now = now or timezone.now()
+    with transaction.atomic():
+        _lock_scopes(None)
+        call = Call.objects.select_for_update().get(pk=call_pk)
+        if call.state != Call.STATE_RESERVED or call.sent:
+            raise JobClaimLost(
+                f'Reservation {call.pk} is {call.state}; the request is not sent.')
+        if call.job_id is not None:
+            job = _owned_job(call.job_id, claim)
+            if job.heartbeat_at is None or job.heartbeat_at < (
+                    now - timedelta(seconds=lease_seconds())):
+                raise JobClaimLost('The job lease expired; the request is not sent.')
+            job.heartbeat_at = now
+            job.save(update_fields=['heartbeat_at'])
+        if call.hold_id is not None and not Hold.objects.filter(
+                pk=call.hold_id, state=Hold.STATE_OPEN).exists():
+            raise JobClaimLost('The job budget hold is closed.')
+        call.sent = True
+        call.save(update_fields=['sent'])
 
 
-def confirm_call(call_pk, tokens_in, tokens_out, cost, now=None):
-    """Provider-reported usage: write the one ledger row for this call."""
+def _call_price(call):
+    return Price(call.in_usd_per_1m, call.out_usd_per_1m)
+
+
+def confirm_call(call_pk, tokens_in, tokens_out, now=None):
+    """Provider-reported usage: write the one ledger row for this call.
+
+    Cost uses the call's own price snapshot. A cost above the reservation is
+    recorded in full; reserve_call then refuses the job's next call.
+    """
     Call = _m('AIBillableCall')
     Ledger = _m('AIUsageLedger')
     AIJob = _m('AIJob')
     now = now or timezone.now()
-    cost = usd(cost)
     user_id = Call.objects.filter(pk=call_pk).values_list(
         'user_id', flat=True).first()
     with transaction.atomic():
@@ -346,14 +462,16 @@ def confirm_call(call_pk, tokens_in, tokens_out, cost, now=None):
             logger.warning('ai: usage for call %s ignored (state %s)',
                            call.pk, call.state)
             return call
+        cost = price_cost(_call_price(call), tokens_in, tokens_out)
         if cost > call.reserved_usd:
-            logger.warning('ai: call %s cost %s exceeds its bound %s',
+            logger.warning('ai: call %s cost %s exceeds its reservation %s',
                            call.pk, cost, call.reserved_usd)
         ledger = Ledger.objects.create(
             job_id=call.job_id, provider=call.provider, model_id=call.model_id,
             tokens_in=tokens_in, tokens_out=tokens_out,
             est_cost=float(call.reserved_usd), actual_cost=float(cost),
-            user_id=call.user_id, document_id=call.document_id)
+            user_id=call.user_id, document_id=call.document_id,
+            accounting_month=accounting_month(call.created_at))
         call.state = Call.STATE_CONFIRMED
         call.confirmed_usd = cost
         call.tokens_in = tokens_in
@@ -369,11 +487,13 @@ def confirm_call(call_pk, tokens_in, tokens_out, cost, now=None):
         return call
 
 
-def settle_estimated(call_pk, estimated, tokens_in, tokens_out, now=None):
+def settle_estimated(call_pk, tokens_in, tokens_out, now=None):
     """Answered without usage: billed, amount unknown. Stays held."""
     Call = _m('AIBillableCall')
+    call = Call.objects.get(pk=call_pk)
     Call.objects.filter(pk=call_pk, state=Call.STATE_RESERVED).update(
-        state=Call.STATE_ESTIMATED, estimated_usd=usd(estimated),
+        state=Call.STATE_ESTIMATED,
+        estimated_usd=price_cost(_call_price(call), tokens_in, tokens_out),
         tokens_in=tokens_in, tokens_out=tokens_out,
         settled_at=now or timezone.now())
 
@@ -388,10 +508,20 @@ def settle_failure(call_pk, exc, sent, now=None):
 
 
 def resolve_call(call, *, by, charged, amount=None, note='', now=None):
-    """Operator decision on an estimated or unknown call."""
+    """Operator decision on an estimated or unknown call.
+
+    A charged resolution counts in the month the call was reserved, and is
+    added to its job's actual_cost in the same transaction as the state
+    change, so a repeat cannot add it twice.
+    """
     Call = _m('AIBillableCall')
     Ledger = _m('AIUsageLedger')
+    AIJob = _m('AIJob')
     now = now or timezone.now()
+    if charged:
+        amount = usd(amount)
+        if not amount.is_finite() or amount < 0:
+            raise ValueError('The charged amount must be a finite amount >= 0.')
     with transaction.atomic():
         _lock_scopes(call.user_id)
         call = Call.objects.select_for_update().get(pk=call.pk)
@@ -401,56 +531,52 @@ def resolve_call(call, *, by, charged, amount=None, note='', now=None):
         call.resolved_at = now
         call.resolution_note = note
         if charged:
-            amount = usd(amount)
             call.ledger = Ledger.objects.create(
                 job_id=call.job_id, provider=call.provider,
                 model_id=call.model_id, tokens_in=call.tokens_in or 0,
                 tokens_out=call.tokens_out or 0,
                 est_cost=float(call.reserved_usd), actual_cost=float(amount),
-                user_id=call.user_id, document_id=call.document_id)
+                user_id=call.user_id, document_id=call.document_id,
+                accounting_month=accounting_month(call.created_at))
             call.state = Call.STATE_CONFIRMED
             call.confirmed_usd = amount
+            if call.job_id:
+                AIJob.objects.filter(pk=call.job_id).update(
+                    actual_cost=F('actual_cost') + float(amount))
         else:
             call.state = Call.STATE_RELEASED
         call.save()
         return call
 
 
-def reconcile_now(now=None):
-    """Stand-alone reconcile under the instance lock (management command)."""
-    with transaction.atomic():
-        _lock_scopes(None)
-        return reconcile_stale(now)
-
-
 class _CallContext:
     """Receives a backend's sent()/usage() for one reserved call."""
 
-    def __init__(self, call_pk, backend_cls):
+    def __init__(self, call_pk, claim):
         self.call_pk = call_pk
-        self.backend_cls = backend_cls
+        self.claim = claim
         self.was_sent = False
         self.confirmed = False
 
     def sent(self):
         if not self.was_sent:
-            mark_sent(self.call_pk)
+            mark_sent(self.call_pk, self.claim)
             self.was_sent = True
 
     def usage(self, tokens_in, tokens_out):
         if self.confirmed:
             return
-        confirm_call(self.call_pk, tokens_in, tokens_out,
-                     price_cost(self.backend_cls, tokens_in, tokens_out))
+        confirm_call(self.call_pk, tokens_in, tokens_out)
         self.confirmed = True
 
 
 class HostedMeter:
-    """Reserve, send, and settle each hosted call. One per job or ai_fix."""
+    """Reserve, send, and settle each hosted call at one price snapshot."""
 
-    def __init__(self, *, config, user=None, document=None, job=None,
+    def __init__(self, *, config, price, user=None, document=None, job=None,
                  claim=None, hold=None):
         self.config = config
+        self.price = price
         self.user = user
         self.document = document
         self.job = job
@@ -458,11 +584,13 @@ class HostedMeter:
         self.hold = hold
 
     def call(self, backend, image, keys, prompt):
-        bound = call_bound_usd(type(backend), self.config, image.size, prompt)
+        backend.price = self.price
+        bound = call_bound_usd(self.price, self.config, image.size, prompt)
         call = reserve_call(
             job=self.job, claim=self.claim, hold=self.hold, user=self.user,
-            document=self.document, config=self.config, bound=bound)
-        ctx = _CallContext(call.pk, type(backend))
+            document=self.document, config=self.config, price=self.price,
+            bound=bound)
+        ctx = _CallContext(call.pk, self.claim)
         backend.meter = ctx
         try:
             result = backend.transcribe_region(image, keys, prompt)
@@ -476,10 +604,7 @@ class HostedMeter:
         finally:
             backend.meter = None
         if not ctx.confirmed:
-            settle_estimated(
-                call.pk, price_cost(type(backend), result.tokens_in,
-                                    result.tokens_out),
-                result.tokens_in, result.tokens_out)
+            settle_estimated(call.pk, result.tokens_in, result.tokens_out)
         return result
 
     def close(self, reason='finished'):
@@ -487,12 +612,19 @@ class HostedMeter:
 
 
 class LocalMeter:
-    """Local engines: no dollars, no reservations. Tokens go on the job."""
+    """Local engines: no dollars, no reservations. Tokens go on the job.
 
-    def __init__(self, job=None):
+    Each call still refreshes the job's heartbeat, so reconciliation does
+    not stop a long local job that is alive.
+    """
+
+    def __init__(self, job=None, claim=None):
         self.job = job
+        self.claim = claim
 
     def call(self, backend, image, keys, prompt):
+        if self.job is not None:
+            touch_job(self.job, self.claim)
         result = backend.transcribe_region(image, keys, prompt)
         if self.job is not None:
             _m('AIJob').objects.filter(pk=self.job.pk).update(
@@ -505,16 +637,21 @@ class LocalMeter:
 
 
 def open_job_meter(job, claim, config, user, document):
-    """Open the job hold for est_cost, or a no-dollar meter for local."""
+    """Resolve the price, then open the job hold for est_cost.
+
+    Local engines get a no-dollar meter.
+    """
     if config.is_local:
-        return LocalMeter(job)
+        return LocalMeter(job, claim)
+    price = resolve_price(config)
     hold = open_hold(job, claim, user, job.est_cost)
-    return HostedMeter(config=config, user=user, document=document,
-                       job=job, claim=claim, hold=hold)
+    return HostedMeter(config=config, price=price, user=user,
+                       document=document, job=job, claim=claim, hold=hold)
 
 
 def open_call_meter(config, user, document):
     """A meter for one-off calls with no job (ai_fix)."""
     if config.is_local:
         return LocalMeter(None)
-    return HostedMeter(config=config, user=user, document=document)
+    return HostedMeter(config=config, price=resolve_price(config),
+                       user=user, document=document)

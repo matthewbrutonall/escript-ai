@@ -63,7 +63,9 @@ def user_monthly_cap(user):
     monthly = (AIUserQuota.objects.filter(user_id=getattr(user, 'pk', user))
                .values_list('monthly_usd', flat=True).first())
     if monthly is not None:
-        return monthly
+        # nan/inf could be stored before the model validator existed.
+        import math
+        return monthly if math.isfinite(monthly) else 0.0
     return getattr(settings, 'AI_MONTHLY_BUDGET_USD', None)
 
 
