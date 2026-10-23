@@ -124,6 +124,10 @@ class AIJob(models.Model):
     task_id = models.CharField(
         max_length=64, null=True, blank=True,
         help_text=_("Celery task id, set when the worker starts. Not the TaskGroup pk."))
+    # Execution ownership (docs/budget-reservations.md). A redelivered task
+    # with a live claim does nothing.
+    claim = models.CharField(max_length=64, blank=True, default='')
+    heartbeat_at = models.DateTimeField(null=True, blank=True)
     error = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -149,6 +153,105 @@ class AIUsageLedger(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+
+
+USD = dict(max_digits=14, decimal_places=6)
+
+
+class AIBudgetLock(models.Model):
+    """One row per budget scope ('instance', 'user:<pk>'). Holds no money.
+
+    Reservations lock these rows, instance first, so concurrent jobs see
+    each other's holds (docs/budget-reservations.md).
+    """
+    scope = models.CharField(max_length=64, unique=True)
+
+    def __str__(self):
+        return f"AIBudgetLock {self.scope}"
+
+
+class AIBudgetHold(models.Model):
+    """A running job's reserved estimate. Calls draw from it."""
+    STATE_OPEN = 'open'
+    STATE_CLOSED = 'closed'
+    STATE_CHOICES = ((STATE_OPEN, 'Open'), (STATE_CLOSED, 'Closed'))
+
+    job = models.OneToOneField(
+        AIJob, null=True, on_delete=models.SET_NULL, related_name='budget_hold')
+    user = models.ForeignKey(User, null=True, on_delete=models.SET_NULL)
+    amount_usd = models.DecimalField(**USD)
+    state = models.CharField(max_length=8, choices=STATE_CHOICES,
+                             default=STATE_OPEN)
+    close_reason = models.CharField(max_length=64, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['state'], name='ai_aibudget_state_4f5c1e_idx')]
+
+    def __str__(self):
+        return f"AIBudgetHold#{self.pk} job={self.job_id} {self.state} {self.amount_usd}"
+
+
+class AIBillableCall(models.Model):
+    """One hosted provider request. Never a ledger row by itself."""
+    STATE_RESERVED = 'reserved'
+    STATE_CONFIRMED = 'confirmed'
+    STATE_ESTIMATED = 'estimated'
+    STATE_UNKNOWN = 'unknown'
+    STATE_RELEASED = 'released'
+    STATE_CHOICES = (
+        (STATE_RESERVED, 'Reserved (in flight)'),
+        (STATE_CONFIRMED, 'Confirmed by provider usage'),
+        (STATE_ESTIMATED, 'Answered without usage (estimated)'),
+        (STATE_UNKNOWN, 'Billing outcome unknown'),
+        (STATE_RELEASED, 'Not billed'),
+    )
+    #: States still held against the cap at reserved_usd.
+    HELD_STATES = (STATE_RESERVED, STATE_ESTIMATED, STATE_UNKNOWN)
+
+    job = models.ForeignKey(AIJob, null=True, on_delete=models.SET_NULL,
+                            related_name='billable_calls')
+    hold = models.ForeignKey(AIBudgetHold, null=True, on_delete=models.SET_NULL,
+                             related_name='calls')
+    user = models.ForeignKey(User, null=True, on_delete=models.SET_NULL,
+                             related_name='+')
+    document = models.ForeignKey('core.Document', null=True,
+                                 on_delete=models.SET_NULL, related_name='+')
+    provider = models.CharField(max_length=32)
+    model_id = models.CharField(max_length=128)
+    state = models.CharField(max_length=16, choices=STATE_CHOICES,
+                             default=STATE_RESERVED)
+    reserved_usd = models.DecimalField(**USD)
+    confirmed_usd = models.DecimalField(null=True, blank=True, **USD)
+    estimated_usd = models.DecimalField(null=True, blank=True, **USD)
+    tokens_in = models.BigIntegerField(null=True, blank=True)
+    tokens_out = models.BigIntegerField(null=True, blank=True)
+    sent = models.BooleanField(default=False)
+    error = models.CharField(
+        max_length=255, blank=True,
+        help_text=_("Exception class and HTTP status only. No response body."))
+    ledger = models.OneToOneField(
+        AIUsageLedger, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='billable_call')
+    created_at = models.DateTimeField(auto_now_add=True)
+    settled_at = models.DateTimeField(null=True, blank=True)
+    resolved_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    resolution_note = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['state', 'created_at'],
+                         name='ai_aibillab_state_9a2d4b_idx'),
+            models.Index(fields=['user', 'created_at'],
+                         name='ai_aibillab_user_id_1c7e3f_idx'),
+        ]
+
+    def __str__(self):
+        return f"AIBillableCall#{self.pk} {self.provider}:{self.model_id} {self.state}"
 
 
 class AIUserQuota(models.Model):

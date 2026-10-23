@@ -1,0 +1,21 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<p>{{ instructions }}</p>
+<ul>
+  {% for obj in queryset %}
+  <li>#{{ obj.pk }} {{ obj.provider }}:{{ obj.model_id }} {{ obj.state }}, held {{ obj.reserved_usd }} USD</li>
+  {% endfor %}
+</ul>
+<form method="post">{% csrf_token %}
+  {% if charged %}
+  <p><label>Charged amount per call (USD) <input type="text" name="amount" size="12" autocomplete="off"></label></p>
+  {% endif %}
+  <p><label>Note (billing reference) <input type="text" name="note" size="60" autocomplete="off"></label></p>
+  <input type="hidden" name="action" value="{{ action }}">
+  <input type="hidden" name="confirm" value="1">
+  {% for obj in queryset %}
+  <input type="hidden" name="_selected_action" value="{{ obj.pk }}">
+  {% endfor %}
+  <input type="submit" value="Resolve">
+</form>
+{% endblock %}

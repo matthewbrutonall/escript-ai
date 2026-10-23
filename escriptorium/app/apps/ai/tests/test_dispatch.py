@@ -86,22 +86,35 @@ class EgressTests(unittest.TestCase):
         self.assertIn("No API key", str(ctx.exception))
 
     def test_budget_failure_raises(self):
-        cfg = SimpleNamespace(provider="local", is_local=True,
-                              model_id="llava", key_ref=None)
+        cfg = SimpleNamespace(provider="gemini", is_local=False,
+                              model_id="gemini-2.5-flash", key_ref="K")
         with self.assertRaises(RuntimeError) as ctx:
             assert_dispatch_allowed(
                 SimpleNamespace(pk=1), cfg,
                 user=SimpleNamespace(pk=3),
+                get_policy=lambda d: None,
+                get_api_key=lambda c, user=None: "k",
                 budget_ok=False)
         self.assertIn("budget", str(ctx.exception))
+
+    def test_local_backend_ignores_dollar_budget(self):
+        # Local engines are outside hosted-provider dollar accounting.
+        cfg = SimpleNamespace(provider="local", is_local=True,
+                              model_id="llava", key_ref=None)
+        assert_dispatch_allowed(
+            SimpleNamespace(pk=1), cfg,
+            user=SimpleNamespace(pk=3),
+            budget_ok=False)
 
     def test_remote_allowed_with_key_and_no_policy(self):
         cfg = SimpleNamespace(provider="gemini", is_local=False,
                               model_id="gemini-2.5-flash", key_ref="K")
+        # No user still checks the instance cap; injected here (no Django).
         assert_dispatch_allowed(
             SimpleNamespace(pk=7), cfg,
             get_policy=lambda doc: None,
-            get_api_key=lambda c: "secret")
+            get_api_key=lambda c: "secret",
+            budget_ok=True)
 
     def test_remote_uses_per_user_key(self):
         cfg = SimpleNamespace(provider="gemini", is_local=False,

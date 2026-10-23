@@ -16,6 +16,7 @@ import logging
 from PIL import Image
 
 from .assignment import keys_to_stamp
+from .billing import BillingStop
 from .conventions import conventions_prompt
 from .fewshot import fewshot_prompt_block
 from .fixthis import LINE_KEY, extract_line_text, fix_prompt
@@ -107,22 +108,32 @@ def _record_write(line, transcription, text, version_source, author, comparison,
         })
 
 
-def transcribe_one_line(backend, image, mask, prompt):
+def _call(meter, backend, image, keys, prompt):
+    """Every provider call goes through the meter when there is one."""
+    if meter is None:
+        return backend.transcribe_region(image, keys, prompt)
+    return meter.call(backend, image, keys, prompt)
+
+
+def transcribe_one_line(backend, image, mask, prompt, meter=None):
     crop = crop_line(image, mask)
-    return backend.transcribe_region(crop, [LINE_KEY], prompt)
+    return _call(meter, backend, crop, [LINE_KEY], prompt)
 
 
 def _per_line_group(im, lines, masks, backend, config, transcription,
                     version_source, author, comparison, disagreements,
                     written_line_pks, written, flagged, tok_in, tok_out, cost,
-                    witness_raw=""):
+                    witness_raw="", meter=None):
     """Tight single-line crops when colour-key is unsafe or incomplete."""
     line_prompt = fix_prompt(
         "", conventions_prompt(getattr(config, "conventions", None)))
     still_empty = []
     for line, mask in zip(lines, masks):
         try:
-            line_result = transcribe_one_line(backend, im, mask, line_prompt)
+            line_result = transcribe_one_line(
+                backend, im, mask, line_prompt, meter=meter)
+        except BillingStop:
+            raise
         except Exception:
             logger.exception("ai: per-line fallback failed on line %s", line.pk)
             still_empty.append(line)
@@ -160,7 +171,8 @@ def _per_line_group(im, lines, masks, backend, config, transcription,
 
 
 def transcribe_part(part, config, transcription, backend, *, user=None,
-                    per_crop=6, job=None, comparison=None, examples=None):
+                    per_crop=6, job=None, comparison=None, examples=None,
+                    meter=None):
     """Transcribe one DocumentPart into `transcription` via colour-keyed crops.
     Returns dict including optional disagreement rows vs `comparison`."""
     lines = list(part.lines.all().order_by('order'))
@@ -173,83 +185,90 @@ def transcribe_part(part, config, transcription, backend, *, user=None,
     disagreements = []
     written_line_pks = []
 
-    with Image.open(part.image.path) as im:
-        for start in range(0, len(lines), per_crop):
-            group = lines[start:start + per_crop]
-            group_masks = masks[start:start + per_crop]
-            if any(m is None for m in group_masks):
-                flagged += sum(1 for m in group_masks if m is None)
-                group = [g for g, m in zip(group, group_masks) if m]
-                group_masks = [m for m in group_masks if m]
-                if not group:
+    try:
+        with Image.open(part.image.path) as im:
+            for start in range(0, len(lines), per_crop):
+                group = lines[start:start + per_crop]
+                group_masks = masks[start:start + per_crop]
+                if any(m is None for m in group_masks):
+                    flagged += sum(1 for m in group_masks if m is None)
+                    group = [g for g, m in zip(group, group_masks) if m]
+                    group_masks = [m for m in group_masks if m]
+                    if not group:
+                        continue
+
+                # PRE-FLIGHT (§5.A): fragments drop; overlap blocks colour-key
+                # and falls back to per-line crops.
+                decision = evaluate_crop(group_masks)
+                for i, why in decision.drop:
+                    if why == "overlap":
+                        continue
+                    logger.warning("ai: dropping line %s (%s) on part %s",
+                                   group[i].pk, why, part.pk)
+                    flagged += 1
+                if not decision.send:
+                    overlap_idxs = [i for i, why in decision.drop if why == "overlap"]
+                    logger.warning("ai: colour-key skipped (%s) on part %s; "
+                                   "per-line fallback for %s lines",
+                                   decision.reason, part.pk, len(overlap_idxs))
+                    if not overlap_idxs:
+                        continue
+                    written, flagged, tok_in, tok_out, cost = _per_line_group(
+                        im, [group[i] for i in overlap_idxs],
+                        [group_masks[i] for i in overlap_idxs],
+                        backend, config, transcription, version_source, author,
+                        comparison, disagreements, written_line_pks,
+                        written, flagged, tok_in, tok_out, cost, meter=meter)
                     continue
+                group = [group[i] for i in decision.keep]
+                group_masks = [group_masks[i] for i in decision.keep]
 
-            # PRE-FLIGHT (§5.A): fragments drop; overlap blocks colour-key
-            # and falls back to per-line crops.
-            decision = evaluate_crop(group_masks)
-            for i, why in decision.drop:
-                if why == "overlap":
-                    continue
-                logger.warning("ai: dropping line %s (%s) on part %s",
-                               group[i].pk, why, part.pk)
-                flagged += 1
-            if not decision.send:
-                overlap_idxs = [i for i, why in decision.drop if why == "overlap"]
-                logger.warning("ai: colour-key skipped (%s) on part %s; "
-                               "per-line fallback for %s lines",
-                               decision.reason, part.pk, len(overlap_idxs))
-                if not overlap_idxs:
-                    continue
-                written, flagged, tok_in, tok_out, cost = _per_line_group(
-                    im, [group[i] for i in overlap_idxs],
-                    [group_masks[i] for i in overlap_idxs],
-                    backend, config, transcription, version_source, author,
-                    comparison, disagreements, written_line_pks,
-                    written, flagged, tok_in, tok_out, cost)
-                continue
-            group = [group[i] for i in decision.keep]
-            group_masks = [group_masks[i] for i in decision.keep]
+                crop_img, key_to_idx = render_crop(im, group_masks)
+                keys = list(key_to_idx)
+                result = _call(
+                    meter, backend, crop_img, keys,
+                    build_prompt(config, keys, examples=examples))
+                tok_in += result.tokens_in
+                tok_out += result.tokens_out
+                cost += backend.cost(result.tokens_in, result.tokens_out)
+                if result.unknown_keys:
+                    logger.warning("ai: unexpected keys %s on part %s (parser, not "
+                                   "dropped lines)", result.unknown_keys, part.pk)
 
-            crop_img, key_to_idx = render_crop(im, group_masks)
-            keys = list(key_to_idx)
-            result = backend.transcribe_region(
-                crop_img, keys, build_prompt(config, keys, examples=examples))
-            tok_in += result.tokens_in
-            tok_out += result.tokens_out
-            cost += backend.cost(result.tokens_in, result.tokens_out)
-            if result.unknown_keys:
-                logger.warning("ai: unexpected keys %s on part %s (parser, not "
-                               "dropped lines)", result.unknown_keys, part.pk)
+                stamped = keys_to_stamp(keys, result.text_by_key, result.unknown_keys)
+                fallback_idxs = []
+                for key, local_idx in key_to_idx.items():
+                    text = stamped.get(key, "")
+                    line = group[local_idx]
+                    if text:
+                        _record_write(
+                            line, transcription, text, version_source, author,
+                            comparison, disagreements, written_line_pks)
+                        written += 1
+                    else:
+                        fallback_idxs.append(local_idx)
 
-            stamped = keys_to_stamp(keys, result.text_by_key, result.unknown_keys)
-            fallback_idxs = []
-            for key, local_idx in key_to_idx.items():
-                text = stamped.get(key, "")
-                line = group[local_idx]
-                if text:
-                    _record_write(
-                        line, transcription, text, version_source, author,
-                        comparison, disagreements, written_line_pks)
-                    written += 1
-                else:
-                    fallback_idxs.append(local_idx)
-
-            if fallback_idxs:
-                written, flagged, tok_in, tok_out, cost = _per_line_group(
-                    im, [group[i] for i in fallback_idxs],
-                    [group_masks[i] for i in fallback_idxs],
-                    backend, config, transcription, version_source, author,
-                    comparison, disagreements, written_line_pks,
-                    written, flagged, tok_in, tok_out, cost,
-                    witness_raw=result.raw)
-
-    if job:
-        job.lines_written += written
-        job.lines_flagged += flagged
-        job.tokens_in += tok_in
-        job.tokens_out += tok_out
-        job.actual_cost += cost
-        job.save()
+                if fallback_idxs:
+                    written, flagged, tok_in, tok_out, cost = _per_line_group(
+                        im, [group[i] for i in fallback_idxs],
+                        [group_masks[i] for i in fallback_idxs],
+                        backend, config, transcription, version_source, author,
+                        comparison, disagreements, written_line_pks,
+                        written, flagged, tok_in, tok_out, cost,
+                        witness_raw=result.raw, meter=meter)
+    finally:
+        if job:
+            # F() so concurrent per-call cost/token updates are not overwritten.
+            # With a meter, tokens and cost are added per call, not here.
+            from django.db.models import F
+            # written_line_pks survives a failure inside a per-line group.
+            updates = dict(lines_written=F('lines_written') + len(written_line_pks),
+                           lines_flagged=F('lines_flagged') + flagged)
+            if meter is None:
+                updates.update(tokens_in=F('tokens_in') + tok_in,
+                               tokens_out=F('tokens_out') + tok_out,
+                               actual_cost=F('actual_cost') + cost)
+            type(job).objects.filter(pk=job.pk).update(**updates)
 
     return dict(lines_written=written, lines_flagged=flagged,
                 tokens_in=tok_in, tokens_out=tok_out, cost=cost,
@@ -257,7 +276,7 @@ def transcribe_part(part, config, transcription, backend, *, user=None,
                 written_line_pks=written_line_pks)
 
 
-def review_part_segmentation(part, backend):
+def review_part_segmentation(part, backend, meter=None):
     """One VLM call: numbered boxes → structured suggestions. No mask writes."""
     lines = list(part.lines.all().order_by('order'))
     masks = _line_masks(lines)
@@ -283,13 +302,15 @@ def review_part_segmentation(part, backend):
     try:
         with Image.open(part.image.path) as im:
             overlay = render_numbered_lines(im, masks)
-            result = backend.transcribe_region(
-                overlay, [REVIEW_KEY], SEG_PROMPT + hint)
+            result = _call(
+                meter, backend, overlay, [REVIEW_KEY], SEG_PROMPT + hint)
         raw = result.raw or result.text_by_key.get(REVIEW_KEY) or ""
         parsed = parse_review_json(raw, len(lines))
         tokens_in = result.tokens_in
         tokens_out = result.tokens_out
         cost = backend.cost(tokens_in, tokens_out)
+    except BillingStop:
+        raise
     except Exception:
         logger.exception(
             "ai: VLM seg review failed on part %s; keeping geometry flags",

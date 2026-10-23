@@ -55,41 +55,32 @@ def user_monthly_cap(user):
     from django.conf import settings
     if user is None:
         return getattr(settings, 'AI_MONTHLY_BUDGET_USD', None)
-    quota = getattr(user, 'ai_quota', None)
-    if quota is None:
-        try:
-            from django.apps import apps
-            AIUserQuota = apps.get_model('ai', 'AIUserQuota')
-            quota = AIUserQuota.objects.filter(user=user).first()
-        except Exception:
-            quota = None
-    if quota is not None and quota.monthly_usd is not None:
-        return quota.monthly_usd
+    # Read fresh each time: user.ai_quota is cached on the instance, so a
+    # long task would never see a lowered cap. A database error propagates
+    # rather than falling back to a possibly unlimited default.
+    from django.apps import apps
+    AIUserQuota = apps.get_model('ai', 'AIUserQuota')
+    monthly = (AIUserQuota.objects.filter(user_id=getattr(user, 'pk', user))
+               .values_list('monthly_usd', flat=True).first())
+    if monthly is not None:
+        return monthly
     return getattr(settings, 'AI_MONTHLY_BUDGET_USD', None)
 
 
 def user_month_spend(user):
-    if user is None:
-        return 0.0
-    from django.apps import apps
-    from django.utils import timezone
-    from .budget import month_start
-    Ledger = apps.get_model('ai', 'AIUsageLedger')
-    start = month_start(timezone.now())
-    from django.db.models import Sum
-    total = (
-        Ledger.objects.filter(user=user, created_at__gte=start)
-        .aggregate(s=Sum('actual_cost'))['s']
-    )
-    return float(total or 0.0)
+    """Confirmed spend plus held reservations this month (budget-reservations.md)."""
+    from .billing_store import month_usage
+    return float(month_usage(user))
 
 
 def check_budget(user, est_cost):
-    """§11: instance/user monthly USD cap. None/negative cap = unlimited."""
-    from .budget import budget_allows
-    if user is None:
-        return True
-    return budget_allows(user_month_spend(user), user_monthly_cap(user), est_cost)
+    """§11: instance and user monthly USD caps. None/negative cap = unlimited.
+
+    Advisory and unlocked. The task's hold and each call's reservation are
+    the checks that hold under concurrency.
+    """
+    from .billing_store import budget_allows_now
+    return budget_allows_now(user, est_cost)
 
 
 def assert_dispatch_allowed(document, config, user=None, est_cost=0.0, *,
@@ -121,11 +112,12 @@ def assert_dispatch_allowed(document, config, user=None, est_cost=0.0, *,
             raise RuntimeError(
                 f"No API key resolved for {config.provider}:{config.model_id} "
                 f"(key_ref={getattr(config, 'key_ref', None)!r}).")
-    if user is not None:
+        # Local engines are outside hosted dollar accounting.
         ok = budget_ok if budget_ok is not None else check_budget(user, est_cost)
         if not ok:
             raise RuntimeError(
-                f"User {getattr(user, 'pk', user)} has no remaining AI budget.")
+                f"No remaining AI budget for an estimated "
+                f"{float(est_cost or 0):.4f} USD.")
 
 
 def assert_parts_belong(document, parts):

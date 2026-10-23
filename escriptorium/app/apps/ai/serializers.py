@@ -24,8 +24,33 @@ from .dispatch import (
 )
 from .gate import ACK_PHRASE, assemble_sample_lines
 from .models import (
-    AIBackendConfig, AIJob, AILayerGate, AISegSuggestion, AIUsageLedger,
+    AIBackendConfig, AIJob, AILayerGate, AISegSuggestion,
 )
+
+
+def estimate_transcribe_cost(config, parts, per_crop):
+    """Expected hosted cost of a transcription job. 0 for local engines."""
+    if config.is_local:
+        return 0.0
+    from django.db.models import Count
+    from .backends import backend_class
+    from .billing import estimate_transcribe_usd
+    counts = (Line.objects
+              .filter(document_part__in=parts)
+              .filter(Q(mask__isnull=False) | Q(baseline__isnull=False))
+              .values('document_part').annotate(n=Count('pk')))
+    return float(estimate_transcribe_usd(
+        backend_class(config.provider), config,
+        [row['n'] for row in counts], per_crop))
+
+
+def estimate_seg_review_cost(config, parts):
+    if config.is_local:
+        return 0.0
+    from .backends import backend_class
+    from .billing import estimate_seg_review_usd
+    return float(estimate_seg_review_usd(
+        backend_class(config.provider), config, len(parts)))
 
 
 class AILayerGateSerializer(serializers.ModelSerializer):
@@ -117,10 +142,14 @@ class AITranscribeSerializer(ProcessSerializerMixin, serializers.Serializer):
                 {'transcription': 'Transcription must belong to this document.'})
         config = data['backend']
         try:
-            assert_dispatch_allowed(self.document, config, user=self.user)
-        except (RemoteAIForbidden, RuntimeError) as e:
+            est_cost = estimate_transcribe_cost(
+                config, parts, data.get('per_crop') or 6)
+            assert_dispatch_allowed(
+                self.document, config, user=self.user, est_cost=est_cost)
+        except (RemoteAIForbidden, RuntimeError, ValueError) as e:
             raise serializers.ValidationError(str(e))
         data['parts'] = parts
+        data['est_cost'] = est_cost
         return data
 
     def process(self):
@@ -142,6 +171,7 @@ class AITranscribeSerializer(ProcessSerializerMixin, serializers.Serializer):
             mode=AIJob.MODE_REGION,
             status=AIJob.STATUS_PENDING,
             parts_count=len(parts),
+            est_cost=self.validated_data['est_cost'],
             created_by=self.user,
             task_group=self.task_group,
         )
@@ -206,6 +236,8 @@ class AIFixSerializer(serializers.Serializer):
         from PIL import Image
 
         from .backends import get_backend
+        from .billing import BillingStop
+        from .billing_store import open_call_meter
         from .conventions import conventions_prompt
         from .dispatch import resolve_api_key
         from .fixthis import LINE_KEY, extract_line_text, fix_prompt
@@ -228,9 +260,14 @@ class AIFixSerializer(serializers.Serializer):
         api_key = resolve_api_key(config, user=self.user)
         backend = get_backend(config, api_key=api_key)
         prompt = fix_prompt(partial, conventions_prompt(config.conventions))
+        meter = open_call_meter(config, self.user, self.document)
         with Image.open(line.document_part.image.path) as im:
             crop = crop_line(im, [tuple(p) for p in mask])
-            result = backend.transcribe_region(crop, [LINE_KEY], prompt)
+            try:
+                # Reserved, sent, and settled per call; no separate ledger write.
+                result = meter.call(backend, crop, [LINE_KEY], prompt)
+            except BillingStop as e:
+                raise serializers.ValidationError({'detail': str(e)})
         text = extract_line_text(result)
         if not text:
             raise serializers.ValidationError(
@@ -239,10 +276,6 @@ class AIFixSerializer(serializers.Serializer):
         stamp_line_transcription(
             line, trans, text, config.version_source, author)
         cost = backend.cost(result.tokens_in, result.tokens_out)
-        AIUsageLedger.objects.create(
-            job=None, provider=config.provider, model_id=config.model_id,
-            tokens_in=result.tokens_in, tokens_out=result.tokens_out,
-            actual_cost=cost, user=self.user, document=self.document)
         return {
             'line': line.pk,
             'text': text,
@@ -279,10 +312,13 @@ class AISegReviewSerializer(ProcessSerializerMixin, serializers.Serializer):
         except CrossDocumentError as e:
             raise serializers.ValidationError({'parts': str(e)})
         try:
-            assert_dispatch_allowed(self.document, data['backend'], user=self.user)
-        except (RemoteAIForbidden, RuntimeError) as e:
+            est_cost = estimate_seg_review_cost(data['backend'], parts)
+            assert_dispatch_allowed(
+                self.document, data['backend'], user=self.user, est_cost=est_cost)
+        except (RemoteAIForbidden, RuntimeError, ValueError) as e:
             raise serializers.ValidationError(str(e))
         data['parts'] = parts
+        data['est_cost'] = est_cost
         return data
 
     def process(self):
@@ -297,6 +333,7 @@ class AISegReviewSerializer(ProcessSerializerMixin, serializers.Serializer):
             mode=AIJob.MODE_SEG_REVIEW,
             status=AIJob.STATUS_PENDING,
             parts_count=len(parts),
+            est_cost=self.validated_data['est_cost'],
             created_by=self.user,
             task_group=self.task_group,
         )

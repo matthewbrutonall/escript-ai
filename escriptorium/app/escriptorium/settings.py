@@ -535,12 +535,28 @@ QUOTA_CPU_MINUTES = int(os.environ['QUOTA_CPU_MINUTES']) if os.environ.get('QUOT
 # If set to None, users have unlimited GPU minutes capacity
 QUOTA_GPU_MINUTES = int(os.environ['QUOTA_GPU_MINUTES']) if os.environ.get('QUOTA_GPU_MINUTES') else None
 
-# AI monthly USD cap (§11/§12). None/blank = unlimited (self-host default).
-# Per-user override: ai.AIUserQuota.monthly_usd.
-try:
-    AI_MONTHLY_BUDGET_USD = float(os.environ['AI_MONTHLY_BUDGET_USD']) if os.environ.get('AI_MONTHLY_BUDGET_USD') else None
-except ValueError:
-    AI_MONTHLY_BUDGET_USD = None
+
+# AI monthly USD caps (§11/§12). None/blank = unlimited (self-host default).
+# AI_MONTHLY_BUDGET_USD is the per-user default (override: ai.AIUserQuota);
+# AI_INSTANCE_MONTHLY_BUDGET_USD caps all users together. A value that does
+# not parse blocks hosted AI (0) instead of becoming unlimited.
+# See apps/ai/docs/budget-reservations.md.
+def _ai_budget_env(name):
+    raw = os.environ.get(name)
+    if not raw:
+        return None
+    try:
+        value = float(raw)
+    except ValueError:
+        return 0.0
+    # nan/inf are not amounts.
+    return value if abs(value) < float('inf') else 0.0
+
+
+AI_MONTHLY_BUDGET_USD = _ai_budget_env('AI_MONTHLY_BUDGET_USD')
+AI_INSTANCE_MONTHLY_BUDGET_USD = _ai_budget_env('AI_INSTANCE_MONTHLY_BUDGET_USD')
+# A running AI job whose heartbeat is older than this is presumed dead.
+AI_JOB_LEASE_SECONDS = int(os.environ.get('AI_JOB_LEASE_SECONDS', '1800'))
 
 # Number of days that we have to wait before sending a new email to a user that reached one or more of its quotas
 QUOTA_NOTIFICATIONS_TIMEOUT = int(os.environ.get('QUOTA_NOTIFICATIONS_TIMEOUT', '3'))

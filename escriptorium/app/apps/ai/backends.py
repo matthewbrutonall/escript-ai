@@ -62,7 +62,16 @@ def azure_chat_url(endpoint, deployment, api_version="2024-08-01-preview") -> st
             f"?api-version={api_version}")
 
 
-def _chat_completions_vision(url, headers, model, prompt, b64, timeout=600):
+class ProviderHTTPError(RuntimeError):
+    """A non-2xx provider answer. `status_code` decides billing outcome."""
+
+    def __init__(self, message, status_code=None):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+def _chat_completions_vision(url, headers, model, prompt, b64, timeout=600,
+                             backend=None):
     import requests
     payload = {
         "model": model,
@@ -76,12 +85,17 @@ def _chat_completions_vision(url, headers, model, prompt, b64, timeout=600):
             ],
         }],
     }
+    if backend is not None:
+        backend._mark_sent()
     r = requests.post(url, json=payload, headers=headers, timeout=timeout)
     if not r.ok:
-        raise RuntimeError(f"chat completions {r.status_code}: {r.text[:800]}")
+        raise ProviderHTTPError(
+            f"chat completions {r.status_code}: {r.text[:800]}", r.status_code)
     data = r.json()
+    u = data.get("usage") or {}
+    if backend is not None:
+        backend._report_usage(u.get("prompt_tokens"), u.get("completion_tokens"))
     raw = data["choices"][0]["message"]["content"]
-    u = data.get("usage", {})
     return raw, u
 
 
@@ -101,9 +115,24 @@ class BaseBackend:
     in_usd_per_1m = 0.0
     out_usd_per_1m = 0.0
 
+    #: Set per call by billing_store; receives sent() and usage().
+    meter = None
+
     def __init__(self, config, api_key: str | None = None):
         self.config = config
         self.api_key = api_key
+
+    def _mark_sent(self):
+        """Call right before the request leaves. Earlier failures are unbilled."""
+        if self.meter is not None:
+            self.meter.sent()
+
+    def _report_usage(self, tokens_in, tokens_out):
+        """Call as soon as the body is decoded, before any parsing, so a
+        parse failure cannot lose a charge. None for both = not reported."""
+        if self.meter is not None and (tokens_in is not None
+                                       or tokens_out is not None):
+            self.meter.usage(int(tokens_in or 0), int(tokens_out or 0))
 
     def transcribe_region(self, image: Image.Image, keys, prompt) -> AIResult:
         raise NotImplementedError
@@ -132,16 +161,23 @@ class GeminiBackend(BaseBackend):
             {"text": prompt},
             {"inline_data": {"mime_type": "image/png", "data": b64}}]}],
             "generationConfig": {"temperature": self.config.params.get("temperature", 0)}}
+        self._mark_sent()
         r = requests.post(url, headers={"x-goog-api-key": self.api_key},
                           json=payload, timeout=600)
         r.raise_for_status()
         data = r.json()
+        u = data.get("usageMetadata") or {}
+        # Thinking tokens are billed as output but reported separately.
+        tokens_out = None
+        if "candidatesTokenCount" in u or "thoughtsTokenCount" in u:
+            tokens_out = (u.get("candidatesTokenCount", 0)
+                          + u.get("thoughtsTokenCount", 0))
+        self._report_usage(u.get("promptTokenCount"), tokens_out)
         raw = data["candidates"][0]["content"]["parts"][0]["text"]
-        u = data.get("usageMetadata", {})
         text_by_key, unknown = parse_json_by_key(raw, keys)
         return AIResult(text_by_key, unknown,
                         u.get("promptTokenCount", estimate_image_tokens(w, h)),
-                        u.get("candidatesTokenCount", 0), raw)
+                        tokens_out or 0, raw)
 
 
 class AnthropicBackend(BaseBackend):
@@ -174,6 +210,7 @@ class AnthropicBackend(BaseBackend):
                 ],
             }],
         }
+        self._mark_sent()
         r = requests.post(
             "https://api.anthropic.com/v1/messages",
             headers={
@@ -185,16 +222,17 @@ class AnthropicBackend(BaseBackend):
             timeout=600,
         )
         if not r.ok:
-            raise RuntimeError(
-                f"Anthropic {r.status_code}: {r.text[:800]}")
+            raise ProviderHTTPError(
+                f"Anthropic {r.status_code}: {r.text[:800]}", r.status_code)
         r.raise_for_status()
         data = r.json()
+        u = data.get("usage") or {}
+        self._report_usage(u.get("input_tokens"), u.get("output_tokens"))
         raw = "".join(
             block.get("text", "")
             for block in data.get("content", [])
             if block.get("type") == "text"
         )
-        u = data.get("usage", {})
         text_by_key, unknown = parse_json_by_key(raw, keys)
         return AIResult(text_by_key, unknown,
                         u.get("input_tokens", estimate_image_tokens(w, h)),
@@ -228,6 +266,7 @@ class OpenAIBackend(BaseBackend):
         }
         if "reasoning" in params:
             payload["reasoning"] = params["reasoning"]
+        self._mark_sent()
         r = requests.post(
             "https://api.openai.com/v1/responses",
             headers={
@@ -238,11 +277,13 @@ class OpenAIBackend(BaseBackend):
             timeout=600,
         )
         if not r.ok:
-            raise RuntimeError(f"OpenAI {r.status_code}: {r.text[:800]}")
+            raise ProviderHTTPError(
+                f"OpenAI {r.status_code}: {r.text[:800]}", r.status_code)
         r.raise_for_status()
         data = r.json()
+        u = data.get("usage") or {}
+        self._report_usage(u.get("input_tokens"), u.get("output_tokens"))
         raw = _extract_openai_text(data)
-        u = data.get("usage", {})
         text_by_key, unknown = parse_json_by_key(raw, keys)
         return AIResult(text_by_key, unknown,
                         u.get("input_tokens", estimate_image_tokens(w, h)),
@@ -258,7 +299,7 @@ class LocalOpenAIBackend(BaseBackend):
         url = (self.config.endpoint or "http://localhost:11434/v1").rstrip("/") + "/chat/completions"
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
         raw, u = _chat_completions_vision(
-            url, headers, self.config.model_id, prompt, b64)
+            url, headers, self.config.model_id, prompt, b64, backend=self)
         text_by_key, unknown = parse_json_by_key(raw, keys)
         return AIResult(text_by_key, unknown,
                         u.get("prompt_tokens", 0), u.get("completion_tokens", 0), raw)
@@ -281,7 +322,8 @@ class AzureOpenAIBackend(BaseBackend):
             self.config.endpoint, self.config.model_id,
             params.get("api_version", "2024-08-01-preview"))
         raw, u = _chat_completions_vision(
-            url, {"api-key": self.api_key}, self.config.model_id, prompt, b64)
+            url, {"api-key": self.api_key}, self.config.model_id, prompt, b64,
+            backend=self)
         text_by_key, unknown = parse_json_by_key(raw, keys)
         return AIResult(text_by_key, unknown,
                         u.get("prompt_tokens", estimate_image_tokens(w, h)),
@@ -300,7 +342,7 @@ class MistralBackend(BaseBackend):
         url = (self.config.endpoint or "https://api.mistral.ai/v1").rstrip("/") + "/chat/completions"
         raw, u = _chat_completions_vision(
             url, {"Authorization": f"Bearer {self.api_key}"},
-            self.config.model_id, prompt, b64)
+            self.config.model_id, prompt, b64, backend=self)
         text_by_key, unknown = parse_json_by_key(raw, keys)
         return AIResult(text_by_key, unknown,
                         u.get("prompt_tokens", estimate_image_tokens(w, h)),
@@ -317,18 +359,24 @@ class MockBackend(BaseBackend):
         return AIResult({k: self._gt.get(k, "") for k in keys if k in self._gt}, set())
 
 
-def get_backend(config, api_key=None) -> BaseBackend:
-    backends = {
-        'gemini': GeminiBackend,
-        'anthropic': AnthropicBackend,
-        'openai': OpenAIBackend,
-        'local': LocalOpenAIBackend,
-        'azure': AzureOpenAIBackend,
-        'mistral': MistralBackend,
-    }
-    cls = backends.get(config.provider)
+BACKENDS = {
+    'gemini': GeminiBackend,
+    'anthropic': AnthropicBackend,
+    'openai': OpenAIBackend,
+    'local': LocalOpenAIBackend,
+    'azure': AzureOpenAIBackend,
+    'mistral': MistralBackend,
+}
+
+
+def backend_class(provider):
+    cls = BACKENDS.get(provider)
     if cls is None:
         raise ValueError(
-            f"No backend implemented for provider {config.provider!r} "
+            f"No backend implemented for provider {provider!r} "
             f"(refusing to silently fall back to Gemini).")
-    return cls(config, api_key=api_key)
+    return cls
+
+
+def get_backend(config, api_key=None) -> BaseBackend:
+    return backend_class(config.provider)(config, api_key=api_key)

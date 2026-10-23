@@ -11,7 +11,8 @@ from django.conf import settings
 from .htr_engine_client import probe_configs
 from .models import (
     AIBackendConfig, AIDocumentPolicy, AIExample, AIJob, AILayerGate,
-    AILineDisagreement, AISegSuggestion, AIUsageLedger,
+    AIBillableCall, AIBudgetHold, AILineDisagreement, AISegSuggestion,
+    AIUsageLedger,
     AIUserKey, AIUserQuota, ExternalHTREngineConfig, ExternalHTRJob,
     ExternalHTRLineResult,
 )
@@ -177,3 +178,71 @@ class AIUsageLedgerAdmin(admin.ModelAdmin):
     list_display = ('pk', 'provider', 'model_id', 'tokens_in', 'tokens_out',
                     'actual_cost', 'currency', 'user', 'created_at')
     list_filter = ('provider', 'currency')
+
+
+@admin.register(AIBudgetHold)
+class AIBudgetHoldAdmin(admin.ModelAdmin):
+    list_display = ('pk', 'job', 'user', 'amount_usd', 'state',
+                    'close_reason', 'created_at', 'closed_at')
+    list_filter = ('state',)
+    raw_id_fields = ('job', 'user')
+
+
+@admin.register(AIBillableCall)
+class AIBillableCallAdmin(admin.ModelAdmin):
+    """Estimated and unknown calls stay held until resolved here."""
+    list_display = ('pk', 'state', 'provider', 'model_id', 'reserved_usd',
+                    'confirmed_usd', 'estimated_usd', 'sent', 'error', 'job',
+                    'user', 'created_at', 'resolved_by')
+    list_filter = ('state', 'provider', 'sent')
+    raw_id_fields = ('job', 'hold', 'user', 'document', 'ledger', 'resolved_by')
+    actions = ['resolve_charged_action', 'resolve_not_charged_action']
+
+    def _resolve(self, request, queryset, *, charged, action, instructions):
+        from decimal import InvalidOperation
+        from .billing_store import resolve_call
+        if 'confirm' not in request.POST:
+            return render(request, 'admin/ai/aibillablecall/resolve.html', {
+                'title': 'Resolve provider calls', 'queryset': queryset,
+                'charged': charged, 'action': action,
+                'instructions': instructions,
+            })
+        note = request.POST.get('note', '').strip()
+        if not note:
+            self.message_user(request, "A note is required.", messages.ERROR)
+            return
+        amount = None
+        if charged:
+            from .billing import usd
+            try:
+                amount = usd(request.POST.get('amount', ''))
+            except (ValueError, InvalidOperation):
+                amount = None
+            if amount is None or amount < 0:
+                self.message_user(request, "Enter the charged amount in USD.",
+                                  messages.ERROR)
+                return
+        ok = 0
+        for call in queryset:
+            try:
+                resolve_call(call, by=request.user, charged=charged,
+                             amount=amount, note=note)
+                ok += 1
+            except ValueError as e:
+                self.message_user(request, str(e), messages.ERROR)
+        self.message_user(request, f"Resolved {ok} call(s).")
+
+    @admin.action(description="Resolve as charged (enter amount)")
+    def resolve_charged_action(self, request, queryset):
+        return self._resolve(
+            request, queryset, charged=True, action='resolve_charged_action',
+            instructions="Use the provider's billing records. Each selected "
+                         "call gets this amount as a ledger row.")
+
+    @admin.action(description="Resolve as not charged")
+    def resolve_not_charged_action(self, request, queryset):
+        return self._resolve(
+            request, queryset, charged=False,
+            action='resolve_not_charged_action',
+            instructions="Only when the provider's billing records show no "
+                         "charge. This releases the held amount.")
