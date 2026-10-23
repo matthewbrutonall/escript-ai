@@ -93,6 +93,9 @@ class ProviderHTTPError(RuntimeError):
         self.status_code = status_code
 
 
+#: Endpoint a local backend uses when its config sets none.
+LOCAL_DEFAULT_ENDPOINT = "http://localhost:11434/v1"
+
 #: Read timeout per provider request. The job lease must outlast it.
 PROVIDER_TIMEOUT_SECONDS = 600
 
@@ -324,7 +327,7 @@ class LocalOpenAIBackend(BaseBackend):
 
     def transcribe_region(self, image, keys, prompt) -> AIResult:
         b64, w, h = _downscale_png_b64(image, self.config.max_edge_px)
-        url = (self.config.endpoint or "http://localhost:11434/v1").rstrip("/") + "/chat/completions"
+        url = (self.config.endpoint or LOCAL_DEFAULT_ENDPOINT).rstrip("/") + "/chat/completions"
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
         raw, u = _chat_completions_vision(
             url, headers, self.config.model_id, prompt, b64, backend=self)

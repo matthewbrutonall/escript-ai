@@ -104,6 +104,7 @@ class EgressTests(unittest.TestCase):
         assert_dispatch_allowed(
             SimpleNamespace(pk=1), cfg,
             user=SimpleNamespace(pk=3),
+            get_policy=lambda doc: None,
             budget_ok=False)
 
     def test_remote_allowed_with_key_and_no_policy(self):
@@ -148,6 +149,66 @@ class EgressTests(unittest.TestCase):
                 get_api_key=key_fn,
                 budget_ok=True)
         self.assertIn("No API key", str(ctx.exception))
+
+
+class LocalEgressTests(unittest.TestCase):
+    """provider='local' does not make an arbitrary URL local."""
+
+    forbid = staticmethod(lambda doc: SimpleNamespace(never_send_offsite=True))
+
+    def local(self, endpoint):
+        return SimpleNamespace(provider="local", is_local=True,
+                               model_id="llava", key_ref=None, endpoint=endpoint)
+
+    def test_restricted_document_refuses_non_loopback_local_endpoint(self):
+        for endpoint in ("http://10.0.0.5:11434/v1", "https://api.example.com/v1",
+                         "http://gpu-box:8000/v1", "http://0.0.0.0:11434/v1"):
+            with self.assertRaises(RemoteAIForbidden, msg=endpoint):
+                assert_dispatch_allowed(
+                    SimpleNamespace(pk=1), self.local(endpoint),
+                    get_policy=self.forbid)
+
+    def test_restricted_document_allows_loopback_local_endpoint(self):
+        for endpoint in ("http://127.0.0.1:11434/v1", "http://localhost:8000/v1",
+                         "http://[::1]:11434/v1", None):
+            assert_dispatch_allowed(
+                SimpleNamespace(pk=1), self.local(endpoint),
+                get_policy=self.forbid)
+
+    def test_unrestricted_document_allows_any_local_endpoint(self):
+        assert_dispatch_allowed(
+            SimpleNamespace(pk=1), self.local("http://10.0.0.5:11434/v1"),
+            get_policy=lambda doc: None)
+        assert_dispatch_allowed(
+            SimpleNamespace(pk=1), self.local("http://10.0.0.5:11434/v1"),
+            get_policy=lambda doc: SimpleNamespace(never_send_offsite=False))
+
+    def test_unreadable_flag_fails_closed(self):
+        with self.assertRaises(RemoteAIForbidden):
+            assert_dispatch_allowed(
+                SimpleNamespace(pk=1), self.local("http://127.0.0.1/v1"),
+                get_policy=lambda doc: SimpleNamespace(never_send_offsite="yes"))
+
+    def test_classifier_matches_external_htr_policy(self):
+        # Runtime code may not import external_htr_policy, so egress.py
+        # restates its rule. Both must agree on every case.
+        from ai.egress import endpoint_is_loopback
+        from ai.external_htr_policy import literal_local
+        cases = (
+            "http://127.0.0.1:8766", "http://127.0.0.2/",
+            "https://127.255.255.255/base", "http://[::1]:8766/",
+            "http://localhost:8766", "http://LOCALHOST/v1",
+            "http://10.0.0.8:8766", "http://192.168.1.9/",
+            "http://172.17.0.2:8766", "http://pylaia-smoke:8766",
+            "http://0.0.0.0:8766", "http://[::ffff:127.0.0.1]/",
+            "http://[::ffff:7f00:1]/", "http://[0:0:0:0:0:ffff:127.0.0.1]/",
+            "http://localhost.example.com/", "http://127.0.0.1.nip.io/",
+            "http://user:pass@127.0.0.1/", "http://127.0.0.1/?token=secret",
+            "ftp://127.0.0.1/", "http://127.0.0.1/#frag", "", None, 7,
+            " http://127.0.0.1/ ",
+        )
+        for url in cases:
+            self.assertEqual(endpoint_is_loopback(url), literal_local(url), url)
 
 
 if __name__ == "__main__":
