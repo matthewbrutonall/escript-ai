@@ -119,13 +119,13 @@ shows in **non-legacy** UI. RTL beyond `html dir` is unfinished.
 
 ## Kraken training limits
 
-Recognition training and both segmentation trainers pass epoch limits from the Kraken training config into `KrakenTrainer`.
+Recognition training (`train`, `train_from_collection`, and `train_`) and both segmentation trainers pass epoch limits from the Kraken training config into `KrakenTrainer`. The recognition tasks accept `epochs`, `quit_mode`, and `min_epochs` and forward them. Limits are checked before the trainer is created.
 
-A fixed run uses `epochs` as `max_epochs` and passes `min_epochs` through. An early-stopping run uses `max_epochs=-1` and the same `min_epochs`, so the recognition or segmentation model can stop on its own early-stopping callback. Limits are checked before the trainer is created. A quit mode other than fixed or early, a non-integer count, a fixed run below 1 epoch, a fixed run whose minimum is above its maximum, or an early run with a negative lag raises `TrainingLimitError` before fitting starts.
+A fixed run uses `epochs` as `max_epochs` and passes `min_epochs` through. `min_epochs` cannot exceed that maximum. An early-stopping run still uses Kraken's own early-stopping callback. Its ceiling is the configured `epochs` value when that value is at least 1. Otherwise the ceiling is `KRAKEN_EARLY_STOP_MAX_EPOCHS` (default 100). `min_epochs` cannot exceed the ceiling. A quit mode other than fixed or early, a non-integer count, a fixed run below 1 epoch, an early run with `epochs` of 0 or below -1, a negative lag, an early-stopping ceiling that is not a positive integer, or a minimum above the ceiling raises `TrainingLimitError` before fitting starts.
 
-Unconfigured runs keep the Kraken class defaults. PP-OCRv6 recognition is a fixed 100-epoch schedule. BLLA segmentation is a fixed 50-epoch schedule. VGSL recognition uses early stopping, so its trainer cap is `max_epochs=-1`. A caller can pass a shorter fixed schedule. One epoch is only used when that caller sets it.
+Unconfigured runs keep the Kraken class defaults, with that ceiling applied to early stopping. PP-OCRv6 recognition is a fixed 100-epoch schedule. BLLA segmentation is a fixed 50-epoch schedule. VGSL recognition uses early stopping and, with its default `epochs=-1`, stops at the application ceiling of 100. A caller can pass a shorter fixed schedule, or a positive `epochs` value that caps an early-stopping run. One epoch is only used when that caller sets it.
 
-A new run keeps one checkpoint: the best `val_metric` file. That file is recorded as one model version and is then the conversion source. The checkpoint stays on disk so the version still names a real file. Older version rows and the files they name stay in place. A missing best file is not recorded.
+Each fit writes checkpoints in its own `runs/<id>/` directory inside the model directory. The run keeps one file, the best `val_metric` checkpoint, and pruning stays inside that directory. That file is recorded as one model version, and the version names that run's file. The checkpoint stays on disk and is the conversion source. A later run does not overwrite or delete a file named by an earlier version. A best path whose file is missing is not recorded and does not delete the model.
 
 Cancellation revokes the Celery task and sets training off. This application does not resume a fit, so the trainer does not write a last checkpoint for Lightning to pick up later.
 

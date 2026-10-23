@@ -3,6 +3,7 @@ import os
 import os.path
 import shutil
 import tempfile
+import uuid
 from collections import defaultdict
 from itertools import groupby
 from pathlib import Path
@@ -63,6 +64,13 @@ User = get_user_model()
 
 class DidNotConverge(Exception):
     pass
+
+
+class CheckpointMissing(Exception):
+    """Lightning named a best file that is not on disk.
+
+    Distinct from ``DidNotConverge``. Those handlers delete the model.
+    """
 
 
 def _ketos_cer_from_qs(model, held_qs):
@@ -310,13 +318,27 @@ class FrontendFeedback(Callback):
         })
 
 
-def make_checkpoint_callback(model_dir):
-    """Keep the single best checkpoint for a new run.
+def allocate_training_run_dir(model_dir):
+    """Create a directory owned by one fit.
 
-    ``save_top_k=1`` replaces a worse file from this run. It does not scan
-    or delete checkpoints already stored for older model versions.
-    ``save_last`` stays off: this application does not resume training, and
-    a last-checkpoint file is what Lightning would auto-select on a later fit.
+    ``ModelCheckpoint(save_top_k=1)`` deletes worse checkpoints in its own
+    ``dirpath``. Retraining with ``override=True`` reuses the model directory,
+    so a second fit there would delete the file an older version still names.
+    Each fit gets ``runs/<id>/`` and the version records that path.
+    """
+    run_dir = os.path.join(model_dir, 'runs', uuid.uuid4().hex)
+    os.makedirs(run_dir, exist_ok=False)
+    return run_dir
+
+
+def make_checkpoint_callback(model_dir):
+    """Keep the single best checkpoint written into ``model_dir``.
+
+    ``save_top_k=1`` deletes a worse checkpoint from this directory only.
+    Pass a directory from ``allocate_training_run_dir`` so pruning cannot
+    remove a file recorded for an earlier run. ``save_last`` stays off:
+    this application does not resume training, and a last-checkpoint file
+    is what Lightning would auto-select on a later fit.
     """
     return ModelCheckpoint(dirpath=model_dir,
                            filename='checkpoint_epoch={epoch}',
@@ -346,14 +368,33 @@ def _schedule_overrides(epochs=None, quit_mode=None, min_epochs=None):
     return overrides
 
 
+def _early_stopping_ceiling(epochs):
+    """Finite cap for a run that uses Kraken's own early-stopping callback.
+
+    A positive ``epochs`` value is that cap. ``ketos`` would pass
+    ``max_epochs=-1`` when ``epochs`` is left at -1; this application uses
+    ``KRAKEN_EARLY_STOP_MAX_EPOCHS`` instead (default 100). The setting is
+    read only for that fallback, so an explicit positive count does not
+    depend on it.
+    """
+    if epochs >= 1:
+        return epochs
+    raw = getattr(settings, 'KRAKEN_EARLY_STOP_MAX_EPOCHS', 100)
+    if type(raw) is not int or raw < 1:
+        raise TrainingLimitError(
+            "KRAKEN_EARLY_STOP_MAX_EPOCHS must be an integer >= 1, "
+            f"not {raw!r}.")
+    return raw
+
+
 def trainer_epoch_limits(config):
-    """Match ``ketos`` fixed versus early-stopping trainer arguments.
+    """Turn a Kraken training config into finite trainer epoch limits.
 
     ``quit='fixed'`` sets ``max_epochs`` from ``config.epochs``.
-    ``quit='early'`` sets ``max_epochs=-1`` so the Lightning module's own
-    ``EarlyStopping`` callback (added when ``quit=='early'``) can stop the run.
-    ``min_epochs`` always comes from the config. ``KrakenTrainer`` defaults
-    of ``min_epochs=5`` and ``max_epochs=100`` are not used.
+    ``quit='early'`` keeps Kraken's module callback and sets ``max_epochs``
+    to ``_early_stopping_ceiling``. ``min_epochs`` comes from the config and
+    cannot exceed the ceiling. ``KrakenTrainer`` defaults of ``min_epochs=5``
+    and ``max_epochs=100`` are not used.
     """
     quit_mode = getattr(config, 'quit', None)
     if quit_mode not in ('fixed', 'early'):
@@ -377,7 +418,12 @@ def trainer_epoch_limits(config):
         if epochs < -1 or epochs == 0:
             raise TrainingLimitError(
                 f"epochs must be -1 or >= 1 when quit is early, not {epochs!r}.")
-        return {'max_epochs': -1, 'min_epochs': min_epochs}
+        ceiling = _early_stopping_ceiling(epochs)
+        if min_epochs > ceiling:
+            raise TrainingLimitError(
+                f"min_epochs ({min_epochs}) cannot exceed the early-stopping "
+                f"ceiling ({ceiling}).")
+        return {'max_epochs': ceiling, 'min_epochs': min_epochs}
 
     if epochs < 1:
         raise TrainingLimitError(
@@ -402,6 +448,21 @@ def construct_kraken_trainer(config, *, accelerator, device, precision, callback
                          callbacks=callbacks,
                          max_epochs=limits['max_epochs'],
                          min_epochs=limits['min_epochs'])
+
+
+def checkpoint_file_missing(best_path):
+    """True when Lightning named a best file that is not on disk.
+
+    An empty ``best_path`` is not this case. Callers still treat that as
+    ``DidNotConverge``. A named file that is absent must not: those handlers
+    delete the model, including one that is being retrained.
+    """
+    if not best_path or os.path.isfile(best_path):
+        return False
+    logger.error(
+        'Best checkpoint %s is missing; leaving the existing model in place.',
+        best_path)
+    return True
 
 
 def record_retained_checkpoint(es_model, best_path):
@@ -553,13 +614,14 @@ def segtrain(model_pk=None, part_pks=[], document_pk=None, task_group_pk=None, u
         else:
             kraken_model = BLLASegmentationModel(seg_train_config)
 
+        run_dir = allocate_training_run_dir(model_dir)
         trainer = construct_kraken_trainer(
             seg_train_config,
             accelerator=accelerator,
             device=device,
             precision=AMP_MODE,
             callbacks=[FrontendFeedback(model, model_dir, document_pk),
-                       make_checkpoint_callback(model_dir)])
+                       make_checkpoint_callback(run_dir)])
 
         trainer.fit(kraken_model, seg_dm)
 
@@ -567,7 +629,9 @@ def segtrain(model_pk=None, part_pks=[], document_pk=None, task_group_pk=None, u
         best_path = getattr(getattr(trainer, 'checkpoint_callback', None), 'best_model_path', None)
         best_score = getattr(getattr(trainer, 'checkpoint_callback', None), 'best_model_score', None)
 
-        if not best_path or not os.path.isfile(best_path):
+        if checkpoint_file_missing(best_path):
+            raise CheckpointMissing
+        if not best_path:
             logger.info(f'Model {os.path.split(model.file.path)[0]} did not improve.')
             raise DidNotConverge
 
@@ -585,6 +649,8 @@ def segtrain(model_pk=None, part_pks=[], document_pk=None, task_group_pk=None, u
                             id="seg-no-gain-error", level='warning')
             shutil.copy(load, model.file.path)
 
+    except CheckpointMissing:
+        pass
     except DidNotConverge:
         send_event('document', ground_truth[0].document.pk, "training:error", {
             "id": model.pk,
@@ -910,13 +976,14 @@ def train_(qs, document=None, transcription=None, model=None, user=None, collect
         # allow frontend feedback for per-collection training
         room_name = 'collection' if collection_pk else 'document'
         room_pk = collection_pk if collection_pk else document.pk
+        run_dir = allocate_training_run_dir(model_dir)
         trainer = construct_kraken_trainer(
             rec_train_config,
             accelerator=accelerator,
             device=device,
             precision=AMP_MODE,
             callbacks=[FrontendFeedback(model, model_dir, room_pk, room_name=room_name),
-                       make_checkpoint_callback(model_dir)])
+                       make_checkpoint_callback(run_dir)])
 
         trainer.fit(kraken_model, rec_dm)
 
@@ -924,7 +991,9 @@ def train_(qs, document=None, transcription=None, model=None, user=None, collect
     best_path = getattr(getattr(trainer, 'checkpoint_callback', None), 'best_model_path', None)
     best_score = getattr(getattr(trainer, 'checkpoint_callback', None), 'best_model_score', None)
 
-    if not best_path or not os.path.isfile(best_path):
+    if checkpoint_file_missing(best_path):
+        raise CheckpointMissing
+    if not best_path:
         logger.info(f'Model {os.path.split(model.file.path)[0]} did not improve.')
         raise DidNotConverge
     else:
@@ -938,7 +1007,8 @@ def train_(qs, document=None, transcription=None, model=None, user=None, collect
 
 @shared_task(autoretry_for=(MemoryError,), default_retry_delay=60 * 60)
 def train(transcription_pk=None, model_pk=None, task_group_pk=None,
-          part_pks=None, user_pk=None, **kwargs):
+          part_pks=None, user_pk=None, epochs=None, quit_mode=None, min_epochs=None,
+          **kwargs):
     if user_pk:
         try:
             user = User.objects.get(pk=user_pk)
@@ -981,7 +1051,8 @@ def train(transcription_pk=None, model_pk=None, task_group_pk=None,
               .filter(transcription=transcription,
                       line__document_part__pk__in=part_pks)
               .exclude(Q(content='') | Q(content=None)))
-        train_(qs, document, transcription, model=model, user=user)
+        train_(qs, document, transcription, model=model, user=user,
+               epochs=epochs, quit_mode=quit_mode, min_epochs=min_epochs)
         if gate is not None and gate.held_out_part_pks:
             held_qs = (LineTranscription.objects
                        .filter(transcription=transcription,
@@ -991,6 +1062,10 @@ def train(transcription_pk=None, model_pk=None, task_group_pk=None,
             if cer is not None:
                 gate.held_out_cer = cer
                 gate.save(update_fields=['held_out_cer'])
+    except TrainingLimitError:
+        raise
+    except CheckpointMissing:
+        pass
     except DidNotConverge:
         if document is not None:
             send_event('document', document.pk, "training:error", {
@@ -1248,7 +1323,8 @@ def replace_line_transcriptions_text(
 
 
 @shared_task(autoretry_for=(MemoryError,), default_retry_delay=60 * 60)
-def train_from_collection(collection_pk=None, model_pk=None, task_group_pk=None, user_pk=None, **kwargs):
+def train_from_collection(collection_pk=None, model_pk=None, task_group_pk=None, user_pk=None,
+                          epochs=None, quit_mode=None, min_epochs=None, **kwargs):
     # Note hack to circumvent AssertionError: daemonic processes are not allowed to have children
     from multiprocessing import current_process
     current_process().daemon = False
@@ -1339,8 +1415,15 @@ def train_from_collection(collection_pk=None, model_pk=None, task_group_pk=None,
             transcription=None,
             model=model,
             user=user,
-            collection_pk=collection_pk
+            collection_pk=collection_pk,
+            epochs=epochs,
+            quit_mode=quit_mode,
+            min_epochs=min_epochs,
         )
+    except TrainingLimitError:
+        raise
+    except CheckpointMissing:
+        pass
     except DidNotConverge:
         send_event(
             "collection", collection_pk, "training:error", {"id": model.pk}
@@ -1504,13 +1587,14 @@ def segtrain_from_collection(collection_pk=None, model_pk=None, task_group_pk=No
         else:
             kraken_model = BLLASegmentationModel(seg_train_config)
 
+        run_dir = allocate_training_run_dir(model_dir)
         trainer = construct_kraken_trainer(
             seg_train_config,
             accelerator=accelerator,
             device=device,
             precision=AMP_MODE,
             callbacks=[FrontendFeedback(model, model_dir, collection_pk, "collection"),
-                       make_checkpoint_callback(model_dir)])
+                       make_checkpoint_callback(run_dir)])
 
         trainer.fit(kraken_model, seg_dm)
 
@@ -1518,7 +1602,9 @@ def segtrain_from_collection(collection_pk=None, model_pk=None, task_group_pk=No
         best_path = getattr(getattr(trainer, 'checkpoint_callback', None), 'best_model_path', None)
         best_score = getattr(getattr(trainer, 'checkpoint_callback', None), 'best_model_score', None)
 
-        if not best_path or not os.path.isfile(best_path):
+        if checkpoint_file_missing(best_path):
+            raise CheckpointMissing
+        if not best_path:
             logger.info(f"Model {os.path.split(model.file.path)[0]} did not improve.")
             raise DidNotConverge
 
@@ -1538,6 +1624,8 @@ def segtrain_from_collection(collection_pk=None, model_pk=None, task_group_pk=No
                     level="warning",
                 )
             shutil.copy(load, model.file.path)
+    except CheckpointMissing:
+        pass
     except DidNotConverge:
         send_event(
             "collection", collection_pk, "training:error", {"id": model.pk}

@@ -471,6 +471,9 @@ IIIF_IMPORT_QUALITY = 'full'
 KRAKEN_TRAINING_DEVICE = os.getenv('KRAKEN_TRAINING_DEVICE', 'cpu')
 KRAKEN_TRAINING_LOAD_THREADS = int(os.getenv('KRAKEN_TRAINING_LOAD_THREADS', 0))
 KRAKEN_INFERENCE_DEVICE = os.getenv('KRAKEN_INFERENCE_DEVICE', 'cpu')
+# Early-stopping runs whose Kraken config has no positive epoch count stop here.
+# trainer_epoch_limits validates this when that fallback is used.
+KRAKEN_EARLY_STOP_MAX_EPOCHS = int(os.getenv('KRAKEN_EARLY_STOP_MAX_EPOCHS', '100'))
 
 REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
