@@ -1,4 +1,6 @@
+import os
 import os.path
+import tempfile
 
 import celery.app.trace
 from celery import signals
@@ -10,7 +12,22 @@ CELERY_TASK_EAGER_PROPAGATES = True
 REDIS_DB = 1
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MEDIA_ROOT = os.path.join(BASE_DIR, 'test_media')
+
+
+def _short_test_media_root():
+    """Keep absolute FileField values inside the 100-character column.
+
+    Several tests assign an absolute model path to ``OcrModel.file``.
+    A media root under this repository exceeds that limit.
+    """
+    configured = os.environ.get('ESCRIPT_TEST_MEDIA')
+    if configured:
+        os.makedirs(configured, exist_ok=True)
+        return configured
+    return tempfile.mkdtemp(prefix='es-m-')
+
+
+MEDIA_ROOT = _short_test_media_root()
 STATICFILES_STORAGE = 'django.contrib.staticfiles.storage.StaticFilesStorage'
 
 WEBPACK_LOADER = {

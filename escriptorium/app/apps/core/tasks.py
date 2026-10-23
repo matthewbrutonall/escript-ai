@@ -3,6 +3,7 @@ import os
 import os.path
 import shutil
 import tempfile
+import uuid
 from collections import defaultdict
 from itertools import groupby
 from pathlib import Path
@@ -43,6 +44,8 @@ from kraken.train import (
 )
 from lightning.pytorch.callbacks import Callback, ModelCheckpoint
 
+from versioning.models import NoChangeException
+
 from core.search import (
     REGEX_SEARCH_MODE,
     WORD_BY_WORD_SEARCH_MODE,
@@ -61,6 +64,20 @@ User = get_user_model()
 
 class DidNotConverge(Exception):
     pass
+
+
+class CheckpointMissing(Exception):
+    """Lightning named a best file that is not on disk.
+
+    Distinct from ``DidNotConverge``. Those handlers delete the model.
+    ``created_without_artifact`` is set only at the start of the run, when
+    the model had no weight file and no version history. It is not inferred
+    from the missing checkpoint.
+    """
+
+    def __init__(self, created_without_artifact=False):
+        super().__init__('best checkpoint file is missing')
+        self.created_without_artifact = bool(created_without_artifact)
 
 
 def _ketos_cer_from_qs(model, held_qs):
@@ -296,9 +313,9 @@ class FrontendFeedback(Callback):
             self.best_metric = val_metric
         logger.info(f'Epoch {trainer.current_epoch} finished.')
         self.es_model.training_accuracy = val_metric
-        relpath = os.path.relpath(self.model_directory, settings.MEDIA_ROOT)
-        self.es_model.new_version(file=f'{relpath}/checkpoint_epoch={trainer.current_epoch}.ckpt')
-        self.es_model.save()
+        # Checkpoint files are retained by ModelCheckpoint. A version row is
+        # written only for the best file that survives the run, after fit.
+        self.es_model.save(update_fields=['training_epoch', 'training_accuracy'])
 
         send_event(self.room_name, self.room_pk, "training:eval", {
             "id": self.es_model.pk,
@@ -308,16 +325,227 @@ class FrontendFeedback(Callback):
         })
 
 
+def allocate_training_run_dir(model_dir):
+    """Create a directory owned by one fit.
+
+    ``ModelCheckpoint(save_top_k=1)`` deletes worse checkpoints in its own
+    ``dirpath``. Retraining with ``override=True`` reuses the model directory,
+    so a second fit there would delete the file an older version still names.
+    Each fit gets ``runs/<id>/`` and the version records that path.
+    """
+    run_dir = os.path.join(model_dir, 'runs', uuid.uuid4().hex)
+    os.makedirs(run_dir, exist_ok=False)
+    return run_dir
+
+
 def make_checkpoint_callback(model_dir):
+    """Keep the single best checkpoint written into ``model_dir``.
+
+    ``save_top_k=1`` deletes a worse checkpoint from this directory only.
+    Pass a directory from ``allocate_training_run_dir`` so pruning cannot
+    remove a file recorded for an earlier run. ``save_last`` stays off:
+    this application does not resume training, and a last-checkpoint file
+    is what Lightning would auto-select on a later fit.
+    """
     return ModelCheckpoint(dirpath=model_dir,
                            filename='checkpoint_epoch={epoch}',
                            auto_insert_metric_name=False,
                            monitor='val_metric',
                            mode='max',
-                           save_top_k=-1,
+                           save_top_k=1,
+                           save_last=False,
                            save_weights_only=True,
                            save_on_train_epoch_end=False,
                            enable_version_counter=False)
+
+
+class TrainingLimitError(ValueError):
+    """A Kraken training config cannot be turned into trainer epoch limits."""
+
+
+def _schedule_overrides(epochs=None, quit_mode=None, min_epochs=None):
+    """Optional explicit schedule fields. Omitted values keep the Kraken class default."""
+    overrides = {}
+    if epochs is not None:
+        overrides['epochs'] = epochs
+    if quit_mode is not None:
+        overrides['quit'] = quit_mode
+    if min_epochs is not None:
+        overrides['min_epochs'] = min_epochs
+    return overrides
+
+
+def _early_stopping_ceiling(epochs):
+    """Finite cap for a run that uses Kraken's own early-stopping callback.
+
+    A positive ``epochs`` value is that cap. ``ketos`` would pass
+    ``max_epochs=-1`` when ``epochs`` is left at -1; this application uses
+    ``KRAKEN_EARLY_STOP_MAX_EPOCHS`` instead (default 100). The setting is
+    read only for that fallback, so an explicit positive count does not
+    depend on it.
+    """
+    if epochs >= 1:
+        return epochs
+    raw = getattr(settings, 'KRAKEN_EARLY_STOP_MAX_EPOCHS', 100)
+    if type(raw) is not int or raw < 1:
+        raise TrainingLimitError(
+            "KRAKEN_EARLY_STOP_MAX_EPOCHS must be an integer >= 1, "
+            f"not {raw!r}.")
+    return raw
+
+
+def trainer_epoch_limits(config):
+    """Turn a Kraken training config into finite trainer epoch limits.
+
+    ``quit='fixed'`` sets ``max_epochs`` from ``config.epochs``.
+    ``quit='early'`` keeps Kraken's module callback and sets ``max_epochs``
+    to ``_early_stopping_ceiling``. ``min_epochs`` comes from the config and
+    cannot exceed the ceiling. ``KrakenTrainer`` defaults of ``min_epochs=5``
+    and ``max_epochs=100`` are not used.
+    """
+    quit_mode = getattr(config, 'quit', None)
+    if quit_mode not in ('fixed', 'early'):
+        raise TrainingLimitError(
+            f"Training quit mode must be 'fixed' or 'early', not {quit_mode!r}.")
+
+    min_epochs = getattr(config, 'min_epochs', None)
+    if type(min_epochs) is not int or min_epochs < 0:
+        raise TrainingLimitError(
+            f"min_epochs must be an integer >= 0, not {min_epochs!r}.")
+
+    epochs = getattr(config, 'epochs', None)
+    if type(epochs) is not int:
+        raise TrainingLimitError(f"epochs must be an integer, not {epochs!r}.")
+
+    if quit_mode == 'early':
+        lag = getattr(config, 'lag', None)
+        if type(lag) is not int or lag < 0:
+            raise TrainingLimitError(
+                f"lag must be an integer >= 0 for early stopping, not {lag!r}.")
+        if epochs < -1 or epochs == 0:
+            raise TrainingLimitError(
+                f"epochs must be -1 or >= 1 when quit is early, not {epochs!r}.")
+        ceiling = _early_stopping_ceiling(epochs)
+        if min_epochs > ceiling:
+            raise TrainingLimitError(
+                f"min_epochs ({min_epochs}) cannot exceed the early-stopping "
+                f"ceiling ({ceiling}).")
+        return {'max_epochs': ceiling, 'min_epochs': min_epochs}
+
+    if epochs < 1:
+        raise TrainingLimitError(
+            f"epochs must be >= 1 when quit is fixed, not {epochs!r}.")
+    if min_epochs > epochs:
+        raise TrainingLimitError(
+            f"min_epochs ({min_epochs}) cannot exceed epochs ({epochs}) when quit is fixed.")
+    return {'max_epochs': epochs, 'min_epochs': min_epochs}
+
+
+def construct_kraken_trainer(config, *, accelerator, device, precision, callbacks):
+    """Build the trainer only after the config's epoch limits validate."""
+    limits = trainer_epoch_limits(config)
+    logger.info('Kraken trainer limits quit=%s max_epochs=%s min_epochs=%s',
+                config.quit, limits['max_epochs'], limits['min_epochs'])
+    return KrakenTrainer(accelerator=accelerator,
+                         devices=device,
+                         precision=precision,
+                         enable_summary=False,
+                         enable_progress_bar=False,
+                         val_check_interval=1.0,
+                         callbacks=callbacks,
+                         max_epochs=limits['max_epochs'],
+                         min_epochs=limits['min_epochs'])
+
+
+def checkpoint_file_missing(best_path):
+    """True when Lightning named a best file that is not on disk.
+
+    An empty ``best_path`` is not this case. Callers still treat that as
+    ``DidNotConverge``. A named file that is absent must not: those handlers
+    delete the model, including one that is being retrained.
+    """
+    if not best_path or os.path.isfile(best_path):
+        return False
+    logger.error('Best checkpoint %s is missing; the training task will fail.', best_path)
+    return True
+
+
+def _report_missing_checkpoint(model, user, room, room_pk, *, segmenter):
+    """Send the existing training-error event and notice.
+
+    Does not delete the model and does not use the DidNotConverge warning.
+    """
+    if model is not None and room_pk is not None:
+        send_event(room, room_pk, "training:error", {"id": model.pk})
+    if user is not None:
+        if segmenter:
+            message = _("Something went wrong during the segmenter training process!")
+        else:
+            message = _("Something went wrong during the training process!")
+        user.notify(message, id="training-error", level="danger")
+
+
+def _finish_training(model, *, discard):
+    """Clear the training flag, or remove a model that started with no file.
+
+    Deletion has to be the last database write. A later ``save()`` inserts
+    the row again when the update matches nothing. Version history is kept.
+    """
+    if model is None:
+        return None
+    pk = model.pk
+    if pk is None:
+        return None
+    if discard and not (model.versions or []):
+        logger.error(
+            'Removing model %s because this run started with no weight file '
+            'and the best checkpoint is missing.',
+            pk)
+        model.delete()
+        return pk
+    model.training = False
+    model.save()
+    return pk
+
+
+def record_retained_checkpoint(es_model, best_path):
+    """Record one version for the best checkpoint that is still on disk.
+
+    Does not delete checkpoint files. Does not remove version rows, including
+    rows whose files are missing. Returns True when a version references the
+    existing best file.
+    """
+    if not best_path:
+        return False
+    best_path = os.path.abspath(best_path)
+    if not os.path.isfile(best_path):
+        logger.error('Best checkpoint %s is missing; not recording a version.', best_path)
+        return False
+    media_root = os.path.abspath(settings.MEDIA_ROOT)
+    relpath = os.path.relpath(best_path, media_root)
+    if relpath.startswith('..') or os.path.isabs(relpath):
+        logger.error('Best checkpoint %s is outside MEDIA_ROOT; not recording a version.',
+                     best_path)
+        return False
+
+    es_model.refresh_from_db()
+    already = any((version.get('data') or {}).get('file') == relpath
+                  for version in (es_model.versions or []))
+    if not already:
+        try:
+            es_model.new_version(file=relpath)
+        except NoChangeException:
+            pass
+        es_model.save(update_fields=['versions',
+                                     'revision',
+                                     'version_author',
+                                     'version_source',
+                                     'version_created_at',
+                                     'version_updated_at'])
+    if not os.path.isfile(best_path):
+        logger.error('Best checkpoint %s disappeared while recording its version.', best_path)
+        return False
+    return True
 
 
 def _to_ptl_device(device: str):
@@ -332,7 +560,8 @@ def _to_ptl_device(device: str):
 
 
 @shared_task(autoretry_for=(MemoryError,), default_retry_delay=60 * 60)
-def segtrain(model_pk=None, part_pks=[], document_pk=None, task_group_pk=None, user_pk=None, **kwargs):
+def segtrain(model_pk=None, part_pks=[], document_pk=None, task_group_pk=None, user_pk=None,
+             epochs=None, quit_mode=None, min_epochs=None, **kwargs):
     # # Note hack to circumvent AssertionError: daemonic processes are not allowed to have children
     from multiprocessing import current_process
     current_process().daemon = False
@@ -358,10 +587,12 @@ def segtrain(model_pk=None, part_pks=[], document_pk=None, task_group_pk=None, u
     OcrModel = apps.get_model('core', 'OcrModel')
 
     model = OcrModel.objects.get(pk=model_pk)
+    started_without_artifact = False
 
     try:
         load = model.file.path
     except ValueError:  # model is empty
+        started_without_artifact = not (model.versions or [])
         load = SEGMENTATION_DEFAULT_MODEL
         model.file = model.file.field.upload_to(model, slugify(model.name) + '.safetensors')
 
@@ -379,6 +610,7 @@ def segtrain(model_pk=None, part_pks=[], document_pk=None, task_group_pk=None, u
             model.delete()
             raise NotImplementedError(_("D-FINE model fine-tuning is not supported at the moment."))
 
+    discard_empty_model = False
     try:
         model.training = True
         model.save()
@@ -420,6 +652,7 @@ def segtrain(model_pk=None, part_pks=[], document_pk=None, task_group_pk=None, u
             resize='union',
             topline=topline,
             load_hyper_parameters=True,
+            **_schedule_overrides(epochs, quit_mode, min_epochs),
         )
         seg_dm = BLLASegmentationDataModule(seg_data_config)
         if load:
@@ -427,16 +660,14 @@ def segtrain(model_pk=None, part_pks=[], document_pk=None, task_group_pk=None, u
         else:
             kraken_model = BLLASegmentationModel(seg_train_config)
 
-        trainer = KrakenTrainer(accelerator=accelerator,
-                                devices=device,
-                                # max_epochs=2,
-                                # min_epochs=5,
-                                precision=AMP_MODE,
-                                enable_summary=False,
-                                enable_progress_bar=False,
-                                val_check_interval=1.0,
-                                callbacks=[FrontendFeedback(model, model_dir, document_pk),
-                                           make_checkpoint_callback(model_dir)])
+        run_dir = allocate_training_run_dir(model_dir)
+        trainer = construct_kraken_trainer(
+            seg_train_config,
+            accelerator=accelerator,
+            device=device,
+            precision=AMP_MODE,
+            callbacks=[FrontendFeedback(model, model_dir, document_pk),
+                       make_checkpoint_callback(run_dir)])
 
         trainer.fit(kraken_model, seg_dm)
 
@@ -444,6 +675,8 @@ def segtrain(model_pk=None, part_pks=[], document_pk=None, task_group_pk=None, u
         best_path = getattr(getattr(trainer, 'checkpoint_callback', None), 'best_model_path', None)
         best_score = getattr(getattr(trainer, 'checkpoint_callback', None), 'best_model_score', None)
 
+        if checkpoint_file_missing(best_path):
+            raise CheckpointMissing(created_without_artifact=started_without_artifact)
         if not best_path:
             logger.info(f'Model {os.path.split(model.file.path)[0]} did not improve.')
             raise DidNotConverge
@@ -451,6 +684,7 @@ def segtrain(model_pk=None, part_pks=[], document_pk=None, task_group_pk=None, u
         try:
             fb_best = next((cb.best_metric for cb in trainer.callbacks if isinstance(cb, FrontendFeedback)), 0.0)
             best_score_val = float(best_score) if best_score is not None else fb_best
+            record_retained_checkpoint(model, best_path)
             logger.info(f'Converting best model {best_path} (accuracy: {best_score_val}) to {model.file.path}.')
             convert_models([best_path], model.file.path)
             model.training_accuracy = best_score_val
@@ -461,6 +695,10 @@ def segtrain(model_pk=None, part_pks=[], document_pk=None, task_group_pk=None, u
                             id="seg-no-gain-error", level='warning')
             shutil.copy(load, model.file.path)
 
+    except CheckpointMissing as exc:
+        _report_missing_checkpoint(model, user, 'document', document_pk, segmenter=True)
+        discard_empty_model = exc.created_without_artifact
+        raise
     except DidNotConverge:
         send_event('document', ground_truth[0].document.pk, "training:error", {
             "id": model.pk,
@@ -487,11 +725,10 @@ def segtrain(model_pk=None, part_pks=[], document_pk=None, task_group_pk=None, u
                         id="training-success",
                         level='success')
     finally:
-        model.training = False
-        model.save()
+        finished_pk = _finish_training(model, discard=discard_empty_model)
 
         send_event('document', document_pk, "training:done", {
-            "id": model.pk,
+            "id": finished_pk,
         })
 
 
@@ -683,7 +920,8 @@ def recalculate_masks(instance_pk=None, user_pk=None, only=None, **kwargs):
     })
 
 
-def train_(qs, document=None, transcription=None, model=None, user=None, collection_pk=None):
+def train_(qs, document=None, transcription=None, model=None, user=None, collection_pk=None,
+           epochs=None, quit_mode=None, min_epochs=None):
     # # Note hack to circumvent AssertionError: daemonic processes are not allowed to have children
     from multiprocessing import current_process
     current_process().daemon = False
@@ -723,9 +961,11 @@ def train_(qs, document=None, transcription=None, model=None, user=None, collect
                              format_type=None)
 
         load = None
+        started_without_artifact = False
         try:
             load = model.file.path
         except ValueError:  # model is empty
+            started_without_artifact = not (model.versions or [])
             filename = slugify(model.name) + '.safetensors'
             model.file = model.file.field.upload_to(model, filename)
             model.save()
@@ -774,6 +1014,7 @@ def train_(qs, document=None, transcription=None, model=None, user=None, collect
         rec_train_config = train_config_class(
             batch_size=BATCH_SIZE,
             resize='union',
+            **_schedule_overrides(epochs, quit_mode, min_epochs),
         )
         rec_dm = data_module_class(rec_data_config)
         if load:
@@ -784,14 +1025,14 @@ def train_(qs, document=None, transcription=None, model=None, user=None, collect
         # allow frontend feedback for per-collection training
         room_name = 'collection' if collection_pk else 'document'
         room_pk = collection_pk if collection_pk else document.pk
-        trainer = KrakenTrainer(accelerator=accelerator,
-                                devices=device,
-                                precision=AMP_MODE,
-                                enable_summary=False,
-                                enable_progress_bar=False,
-                                val_check_interval=1.0,
-                                callbacks=[FrontendFeedback(model, model_dir, room_pk, room_name=room_name),
-                                           make_checkpoint_callback(model_dir)])
+        run_dir = allocate_training_run_dir(model_dir)
+        trainer = construct_kraken_trainer(
+            rec_train_config,
+            accelerator=accelerator,
+            device=device,
+            precision=AMP_MODE,
+            callbacks=[FrontendFeedback(model, model_dir, room_pk, room_name=room_name),
+                       make_checkpoint_callback(run_dir)])
 
         trainer.fit(kraken_model, rec_dm)
 
@@ -799,12 +1040,15 @@ def train_(qs, document=None, transcription=None, model=None, user=None, collect
     best_path = getattr(getattr(trainer, 'checkpoint_callback', None), 'best_model_path', None)
     best_score = getattr(getattr(trainer, 'checkpoint_callback', None), 'best_model_score', None)
 
+    if checkpoint_file_missing(best_path):
+        raise CheckpointMissing(created_without_artifact=started_without_artifact)
     if not best_path:
         logger.info(f'Model {os.path.split(model.file.path)[0]} did not improve.')
         raise DidNotConverge
     else:
         fb_best = next((cb.best_metric for cb in trainer.callbacks if isinstance(cb, FrontendFeedback)), 0.0)
         best_score_val = float(best_score) if best_score is not None else fb_best
+        record_retained_checkpoint(model, best_path)
         logger.info(f'Converting best model {best_path} (accuracy: {best_score_val}) to {model.file.path}.')
         convert_models([best_path], model.file.path)
         model.training_accuracy = best_score_val
@@ -812,7 +1056,8 @@ def train_(qs, document=None, transcription=None, model=None, user=None, collect
 
 @shared_task(autoretry_for=(MemoryError,), default_retry_delay=60 * 60)
 def train(transcription_pk=None, model_pk=None, task_group_pk=None,
-          part_pks=None, user_pk=None, **kwargs):
+          part_pks=None, user_pk=None, epochs=None, quit_mode=None, min_epochs=None,
+          **kwargs):
     if user_pk:
         try:
             user = User.objects.get(pk=user_pk)
@@ -834,6 +1079,7 @@ def train(transcription_pk=None, model_pk=None, task_group_pk=None,
     OcrModel = apps.get_model('core', 'OcrModel')
     document = None
     model = None
+    discard_empty_model = False
 
     try:
         model = OcrModel.objects.get(pk=model_pk)
@@ -855,7 +1101,8 @@ def train(transcription_pk=None, model_pk=None, task_group_pk=None,
               .filter(transcription=transcription,
                       line__document_part__pk__in=part_pks)
               .exclude(Q(content='') | Q(content=None)))
-        train_(qs, document, transcription, model=model, user=user)
+        train_(qs, document, transcription, model=model, user=user,
+               epochs=epochs, quit_mode=quit_mode, min_epochs=min_epochs)
         if gate is not None and gate.held_out_part_pks:
             held_qs = (LineTranscription.objects
                        .filter(transcription=transcription,
@@ -865,6 +1112,13 @@ def train(transcription_pk=None, model_pk=None, task_group_pk=None,
             if cer is not None:
                 gate.held_out_cer = cer
                 gate.save(update_fields=['held_out_cer'])
+    except TrainingLimitError:
+        raise
+    except CheckpointMissing as exc:
+        room_pk = document.pk if document is not None else None
+        _report_missing_checkpoint(model, user, 'document', room_pk, segmenter=False)
+        discard_empty_model = exc.created_without_artifact
+        raise
     except DidNotConverge:
         if document is not None:
             send_event('document', document.pk, "training:error", {
@@ -894,12 +1148,12 @@ def train(transcription_pk=None, model_pk=None, task_group_pk=None,
                         id="training-success",
                         level='success')
     finally:
-        model.training = False
-        model.save()
+        finished_pk = _finish_training(model, discard=discard_empty_model)
 
-        send_event('document', document.pk, "training:done", {
-            "id": model.pk,
-        })
+        if document is not None:
+            send_event('document', document.pk, "training:done", {
+                "id": finished_pk,
+            })
 
 
 @shared_task(autoretry_for=(MemoryError,), default_retry_delay=10 * 60)
@@ -1122,7 +1376,8 @@ def replace_line_transcriptions_text(
 
 
 @shared_task(autoretry_for=(MemoryError,), default_retry_delay=60 * 60)
-def train_from_collection(collection_pk=None, model_pk=None, task_group_pk=None, user_pk=None, **kwargs):
+def train_from_collection(collection_pk=None, model_pk=None, task_group_pk=None, user_pk=None,
+                          epochs=None, quit_mode=None, min_epochs=None, **kwargs):
     # Note hack to circumvent AssertionError: daemonic processes are not allowed to have children
     from multiprocessing import current_process
     current_process().daemon = False
@@ -1150,6 +1405,8 @@ def train_from_collection(collection_pk=None, model_pk=None, task_group_pk=None,
     else:
         user = None
 
+    model = None
+    discard_empty_model = False
     try:
         model = OcrModel.objects.get(pk=model_pk)
         collection_items = VirtualCollectionItem.objects.filter(
@@ -1213,8 +1470,18 @@ def train_from_collection(collection_pk=None, model_pk=None, task_group_pk=None,
             transcription=None,
             model=model,
             user=user,
-            collection_pk=collection_pk
+            collection_pk=collection_pk,
+            epochs=epochs,
+            quit_mode=quit_mode,
+            min_epochs=min_epochs,
         )
+    except TrainingLimitError:
+        raise
+    except CheckpointMissing as exc:
+        _report_missing_checkpoint(
+            model, user, "collection", collection_pk, segmenter=False)
+        discard_empty_model = exc.created_without_artifact
+        raise
     except DidNotConverge:
         send_event(
             "collection", collection_pk, "training:error", {"id": model.pk}
@@ -1248,20 +1515,20 @@ def train_from_collection(collection_pk=None, model_pk=None, task_group_pk=None,
         if user:
             user.notify(_("Training finished!"), id="training-success", level="success")
     finally:
-        model.training = False
-        model.save()
+        finished_pk = _finish_training(model, discard=discard_empty_model)
         send_event(
             "collection",
             collection_pk,
             "training:done",
             {
-                "id": model.pk,
+                "id": finished_pk,
             },
         )
 
 
 @shared_task(autoretry_for=(MemoryError,), default_retry_delay=60 * 60)
-def segtrain_from_collection(collection_pk=None, model_pk=None, task_group_pk=None, user_pk=None, **kwargs):
+def segtrain_from_collection(collection_pk=None, model_pk=None, task_group_pk=None, user_pk=None,
+                             epochs=None, quit_mode=None, min_epochs=None, **kwargs):
     # Note hack to circumvent AssertionError: daemonic processes are not allowed to have children
     from multiprocessing import current_process
     current_process().daemon = False
@@ -1291,10 +1558,12 @@ def segtrain_from_collection(collection_pk=None, model_pk=None, task_group_pk=No
     OcrModel = apps.get_model("core", "OcrModel")
 
     model = OcrModel.objects.get(pk=model_pk)
+    started_without_artifact = False
 
     try:
         load = model.file.path
     except ValueError:  # model is empty
+        started_without_artifact = not (model.versions or [])
         load = getattr(settings, "SEGMENTATION_DEFAULT_MODEL", "")
         model.file = model.file.field.upload_to(model, slugify(model.name) + ".safetensors")
 
@@ -1311,6 +1580,7 @@ def segtrain_from_collection(collection_pk=None, model_pk=None, task_group_pk=No
             model.delete()
             raise NotImplementedError(_("D-FINE model fine-tuning is not supported at the moment."))
 
+    discard_empty_model = False
     try:
         model.training = True
         model.save()
@@ -1369,6 +1639,7 @@ def segtrain_from_collection(collection_pk=None, model_pk=None, task_group_pk=No
             resize='union',
             topline=topline,
             load_hyper_parameters=True,
+            **_schedule_overrides(epochs, quit_mode, min_epochs),
         )
         seg_dm = BLLASegmentationDataModule(seg_data_config)
         if load:
@@ -1376,16 +1647,14 @@ def segtrain_from_collection(collection_pk=None, model_pk=None, task_group_pk=No
         else:
             kraken_model = BLLASegmentationModel(seg_train_config)
 
-        trainer = KrakenTrainer(
+        run_dir = allocate_training_run_dir(model_dir)
+        trainer = construct_kraken_trainer(
+            seg_train_config,
             accelerator=accelerator,
-            devices=device,
+            device=device,
             precision=AMP_MODE,
-            enable_summary=False,
-            enable_progress_bar=False,
-            val_check_interval=1.0,
             callbacks=[FrontendFeedback(model, model_dir, collection_pk, "collection"),
-                       make_checkpoint_callback(model_dir)],
-        )
+                       make_checkpoint_callback(run_dir)])
 
         trainer.fit(kraken_model, seg_dm)
 
@@ -1393,6 +1662,8 @@ def segtrain_from_collection(collection_pk=None, model_pk=None, task_group_pk=No
         best_path = getattr(getattr(trainer, 'checkpoint_callback', None), 'best_model_path', None)
         best_score = getattr(getattr(trainer, 'checkpoint_callback', None), 'best_model_score', None)
 
+        if checkpoint_file_missing(best_path):
+            raise CheckpointMissing(created_without_artifact=started_without_artifact)
         if not best_path:
             logger.info(f"Model {os.path.split(model.file.path)[0]} did not improve.")
             raise DidNotConverge
@@ -1400,6 +1671,7 @@ def segtrain_from_collection(collection_pk=None, model_pk=None, task_group_pk=No
         try:
             fb_best = next((cb.best_metric for cb in trainer.callbacks if isinstance(cb, FrontendFeedback)), 0.0)
             best_score_val = float(best_score) if best_score is not None else fb_best
+            record_retained_checkpoint(model, best_path)
             logger.info(f"Converting best model {best_path} (accuracy: {best_score_val}) to {model.file.path}.")
             convert_models([best_path], model.file.path)
             model.training_accuracy = best_score_val
@@ -1412,6 +1684,11 @@ def segtrain_from_collection(collection_pk=None, model_pk=None, task_group_pk=No
                     level="warning",
                 )
             shutil.copy(load, model.file.path)
+    except CheckpointMissing as exc:
+        _report_missing_checkpoint(
+            model, user, "collection", collection_pk, segmenter=True)
+        discard_empty_model = exc.created_without_artifact
+        raise
     except DidNotConverge:
         send_event(
             "collection", collection_pk, "training:error", {"id": model.pk}
@@ -1445,13 +1722,12 @@ def segtrain_from_collection(collection_pk=None, model_pk=None, task_group_pk=No
         if user:
             user.notify(_("Training finished!"), id="training-success", level="success")
     finally:
-        model.training = False
-        model.save()
+        finished_pk = _finish_training(model, discard=discard_empty_model)
         send_event(
             "collection",
             collection_pk,
             "training:done",
             {
-                "id": model.pk,
+                "id": finished_pk,
             },
         )

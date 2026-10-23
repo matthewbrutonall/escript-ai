@@ -117,6 +117,24 @@ shows in **non-legacy** UI. RTL beyond `html dir` is unfinished.
    Sanskritizing).
 4. Image few-shot / embedding retrieval for style priming.
 
+## Kraken training limits
+
+Recognition training (`train`, `train_from_collection`, and `train_`) and both segmentation trainers pass epoch limits from the Kraken training config into `KrakenTrainer`. The recognition tasks accept `epochs`, `quit_mode`, and `min_epochs` and forward them. Limits are checked before the trainer is created.
+
+A fixed run uses `epochs` as `max_epochs` and passes `min_epochs` through. `min_epochs` cannot exceed that maximum. An early-stopping run still uses Kraken's own early-stopping callback. Its ceiling is the configured `epochs` value when that value is at least 1. Otherwise the ceiling is `KRAKEN_EARLY_STOP_MAX_EPOCHS` (default 100). `min_epochs` cannot exceed the ceiling. A quit mode other than fixed or early, a non-integer count, a fixed run below 1 epoch, an early run with `epochs` of 0 or below -1, a negative lag, an early-stopping ceiling that is not a positive integer, or a minimum above the ceiling raises `TrainingLimitError` before fitting starts.
+
+Unconfigured runs keep the Kraken class defaults, with that ceiling applied to early stopping. App-launched PP-OCRv6 recognition is a fixed 100-epoch schedule and BLLA segmentation is a fixed 50-epoch schedule. VGSL recognition uses early stopping and, with its default `epochs=-1`, stops at the application ceiling of 100. Shorter schedules via `epochs`, `quit_mode`, and `min_epochs` are available only to direct task callers; the UI, API, and `OcrModel` methods do not expose those overrides. `KRAKEN_EARLY_STOP_MAX_EPOCHS` bounds the early-stopping fallback; it does not shorten fixed app-launched runs.
+
+Each fit writes checkpoints in its own `runs/<id>/` directory inside the model directory. The run keeps one file, the best `val_metric` checkpoint, and pruning stays inside that directory. That file is recorded as one model version, and the version names that run's file. The checkpoint stays on disk and is the conversion source. A later run does not overwrite or delete a file named by an earlier version.
+
+A named best checkpoint that is missing fails the task, emits a training-error event and user notice, and clears training state. Existing models and version files are preserved. A model that started without a weight file or version history is removed if that checkpoint is missing, so an unusable new model is not left available.
+
+Cancellation revokes the Celery task and sets training off. This application does not resume a fit, so the trainer does not write a last checkpoint for Lightning to pick up later.
+
+Training eligibility gates, held-out page partitioning, progress events, and the CPU/GPU device setting are unchanged. Held-out `ketos` report parsing is unchanged.
+
+Training follow-ups remain: the pre-existing `DidNotConverge` handler can delete an existing model when the best path is empty; collection segmentation can attempt restoration from an empty default-model path; cancelled/crashed runs can leave unreferenced run artifacts; and invalid-limit failures do not have consistent user-facing reporting across task types.
+
 ## See also
 
 [README.md](README.md) · [ARCHITECTURE.md](ARCHITECTURE.md) · [CONTRIBUTING.md](CONTRIBUTING.md)
