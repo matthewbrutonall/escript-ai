@@ -129,11 +129,13 @@ Each fit writes checkpoints in its own `runs/<id>/` directory inside the model d
 
 A named best checkpoint that is missing fails the task, emits a training-error event and user notice, and clears training state. Existing models and version files are preserved. A model that started without a weight file or version history is removed if that checkpoint is missing, so an unusable new model is not left available.
 
+An empty best-checkpoint path also fails the task and sends the existing no-convergence warning. It preserves models that started with weights or history; only a model that started with neither is discarded. A failed run restores the original file field, including an originally empty value. Rejecting unsupported D-FINE fine-tuning also preserves the supplied model and its history.
+
 Cancellation revokes the Celery task and sets training off. This application does not resume a fit, so the trainer does not write a last checkpoint for Lightning to pick up later.
 
 Training eligibility gates, held-out page partitioning, progress events, and the CPU/GPU device setting are unchanged. Held-out `ketos` report parsing is unchanged.
 
-Training follow-ups remain: the pre-existing `DidNotConverge` handler can delete an existing model when the best path is empty; collection segmentation can attempt restoration from an empty default-model path; cancelled/crashed runs can leave unreferenced run artifacts; and invalid-limit failures do not have consistent user-facing reporting across task types.
+Training follow-ups remain: collection segmentation can attempt restoration from an empty default-model path; cancelled/crashed runs can leave unreferenced run artifacts; and invalid-limit failures do not have consistent user-facing reporting across task types.
 
 ## See also
 

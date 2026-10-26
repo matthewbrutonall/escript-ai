@@ -34,6 +34,7 @@ from core.models import (
 )
 from core.tasks import (
     CheckpointMissing,
+    DidNotConverge,
     FrontendFeedback,
     KrakenTrainer,
     TrainingLimitError,
@@ -811,13 +812,14 @@ class TrainingPathTests(TestCase):
         with open(model.file.path, 'rb') as handle:
             self.assertEqual(handle.read(), b'fake-weights')
 
-    def _missing_checkpoint_failure(self, task, *, empty=False, history=False):
+    def _missing_checkpoint_failure(self, task, *, empty=False, history=False,
+                                    no_best=False, user_present=True):
         from contextlib import ExitStack
 
         def fit(self, *args, **kwargs):
             callback = self.checkpoint_callback
             destination = os.path.join(str(callback.dirpath), 'checkpoint_epoch=0.ckpt')
-            callback.best_model_path = destination
+            callback.best_model_path = '' if no_best else destination
             callback.best_model_score = 0.1
 
         segmenter = task in (segtrain, segtrain_from_collection)
@@ -831,9 +833,11 @@ class TrainingPathTests(TestCase):
         if empty:
             model.file = ''
             model.save()
+        original_name = model.file.name or ''
         before = list(model.versions or [])
         model_pk = model.pk
-        kwargs = {'model_pk': model_pk, 'user_pk': user.pk, 'epochs': 1}
+        model_pks_before = set(OcrModel.objects.values_list('pk', flat=True))
+        kwargs = {'model_pk': model_pk, 'user_pk': user.pk if user_present else None, 'epochs': 1}
         if collection_task:
             collection = VirtualCollection.objects.create(name='missing', owner=user)
             VirtualCollectionItem.objects.create(
@@ -858,21 +862,26 @@ class TrainingPathTests(TestCase):
             qualify = stack.enter_context(patch('core.tasks.qualify_model.delay'))
             result = task.apply(kwargs=kwargs, throw=False)
         self.assertTrue(result.failed(), result.result)
-        self.assertIsInstance(result.result, CheckpointMissing)
+        self.assertIsInstance(result.result, DidNotConverge if no_best else CheckpointMissing)
         self.assertEqual(result.result.created_without_artifact, empty and not history)
         events.assert_any_call(room, room_pk, 'training:error', {'id': model_pk})
         events.assert_any_call(room, room_pk, 'training:done', {'id': model_pk})
-        notify.assert_called_once()
-        self.assertEqual(notify.call_args.kwargs['id'], 'training-error')
-        self.assertEqual(notify.call_args.kwargs['level'], 'danger')
+        if user_present:
+            notify.assert_called_once()
+            self.assertEqual(notify.call_args.kwargs['id'], 'training-warning' if no_best else 'training-error')
+            self.assertEqual(notify.call_args.kwargs['level'], 'warning' if no_best else 'danger')
+        else:
+            notify.assert_not_called()
         qualify.assert_not_called()
         self.assertEqual(state['order'], [])
         if empty and not history:
             self.assertFalse(OcrModel.objects.filter(pk=model_pk).exists())
+            self.assertEqual(set(OcrModel.objects.values_list('pk', flat=True)), model_pks_before - {model_pk})
             return
         self.assertTrue(OcrModel.objects.filter(pk=model_pk).exists())
         model.refresh_from_db()
         self.assertFalse(model.training)
+        self.assertEqual(model.file.name or '', original_name)
         self.assertEqual(model.versions or [], before)
         with open(original_path, 'rb') as handle:
             self.assertEqual(handle.read(), b'fake-weights')
@@ -894,7 +903,72 @@ class TrainingPathTests(TestCase):
         self._missing_checkpoint_failure(train)
 
     def test_missing_checkpoint_preserves_history_without_current_file(self):
-        self._missing_checkpoint_failure(train, empty=True, history=True)
+        for task in (train, train_from_collection, segtrain, segtrain_from_collection):
+            with self.subTest(task=task.name):
+                self._missing_checkpoint_failure(task, empty=True, history=True)
+
+    def test_no_best_checkpoint_preserves_existing_models_and_fails(self):
+        for task in (train, train_from_collection, segtrain, segtrain_from_collection):
+            with self.subTest(task=task.name):
+                self._missing_checkpoint_failure(task, history=True, no_best=True)
+
+    def test_no_best_checkpoint_preserves_weights_without_history(self):
+        for task in (train, train_from_collection, segtrain, segtrain_from_collection):
+            with self.subTest(task=task.name):
+                self._missing_checkpoint_failure(task, no_best=True)
+
+    def test_no_best_checkpoint_preserves_history_and_originally_empty_file(self):
+        for task in (train, train_from_collection, segtrain, segtrain_from_collection):
+            with self.subTest(task=task.name):
+                self._missing_checkpoint_failure(task, empty=True, history=True, no_best=True)
+
+    def test_no_best_checkpoint_discards_only_new_empty_models(self):
+        for task in (train, train_from_collection, segtrain, segtrain_from_collection):
+            with self.subTest(task=task.name):
+                self._missing_checkpoint_failure(task, empty=True, no_best=True)
+
+    def test_no_best_checkpoint_without_user_preserves_models_and_fails(self):
+        for task in (train, train_from_collection, segtrain, segtrain_from_collection):
+            with self.subTest(task=task.name):
+                self._missing_checkpoint_failure(task, history=True, no_best=True, user_present=False)
+
+    def test_unsupported_dfine_fine_tuning_preserves_existing_segmentation_models(self):
+        for task in (segtrain, segtrain_from_collection):
+            with self.subTest(task=task.name):
+                user, document, part, layer, model = self._model(
+                    OcrModel.MODEL_JOB_SEGMENT, 'unsupported-dfine')
+                historical, decoy = self._plant_history(model)
+                original_name = model.file.name
+                original_path = model.file.path
+                versions = list(model.versions)
+                model.training = True
+                model.save()
+                kwargs = {'model_pk': model.pk, 'user_pk': user.pk}
+                if task is segtrain:
+                    kwargs.update(document_pk=document.pk, part_pks=[part.pk])
+                    room, room_pk = 'document', document.pk
+                else:
+                    collection = VirtualCollection.objects.create(name='dfine', owner=user)
+                    kwargs['collection_pk'] = collection.pk
+                    room, room_pk = 'collection', collection.pk
+                with patch('core.tasks.detect_model_architecture', return_value='DFINEModel'), \
+                        patch('core.tasks.construct_kraken_trainer') as trainer, \
+                        patch('core.tasks.send_event') as events, \
+                        patch.object(type(user), 'notify') as notify:
+                    result = task.apply(kwargs=kwargs, throw=False)
+                self.assertTrue(result.failed())
+                self.assertIsInstance(result.result, NotImplementedError)
+                trainer.assert_not_called()
+                events.assert_any_call(room, room_pk, 'training:error', {'id': model.pk})
+                self.assertEqual(notify.call_args.kwargs['id'], 'training-dfine-unsupported')
+                model.refresh_from_db()
+                self.assertFalse(model.training)
+                self.assertEqual(model.file.name, original_name)
+                self.assertEqual(model.versions, versions)
+                for path, expected in [(original_path, b'fake-weights'),
+                                       (historical, b'historical'), (decoy, b'decoy')]:
+                    with open(path, 'rb') as handle:
+                        self.assertEqual(handle.read(), expected)
 
     def test_two_runs_prune_only_inside_their_own_directories(self):
         """Lightning's real ``save_top_k`` pruning must not delete an earlier run."""
