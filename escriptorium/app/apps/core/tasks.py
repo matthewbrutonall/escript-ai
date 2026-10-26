@@ -63,13 +63,14 @@ User = get_user_model()
 
 
 class DidNotConverge(Exception):
-    pass
+    def __init__(self, created_without_artifact=False):
+        super().__init__('training produced no best checkpoint')
+        self.created_without_artifact = bool(created_without_artifact)
 
 
 class CheckpointMissing(Exception):
     """Lightning named a best file that is not on disk.
 
-    Distinct from ``DidNotConverge``. Those handlers delete the model.
     ``created_without_artifact`` is set only at the start of the run, when
     the model had no weight file and no version history. It is not inferred
     from the missing checkpoint.
@@ -493,9 +494,8 @@ def construct_kraken_trainer(config, *, accelerator, device, precision, callback
 def checkpoint_file_missing(best_path):
     """True when Lightning named a best file that is not on disk.
 
-    An empty ``best_path`` is not this case. Callers still treat that as
-    ``DidNotConverge``. A named file that is absent must not: those handlers
-    delete the model, including one that is being retrained.
+    An empty ``best_path`` is ``DidNotConverge`` instead. Both failures
+    preserve existing models, but have different user-facing notices.
     """
     if not best_path or os.path.isfile(best_path):
         return False
@@ -518,7 +518,7 @@ def _report_missing_checkpoint(model, user, room, room_pk, *, segmenter):
         user.notify(message, id="training-error", level="danger")
 
 
-def _finish_training(model, *, discard):
+def _finish_training(model, *, discard, restore_file=None):
     """Clear the training flag, or remove a model that started with no file.
 
     Deletion has to be the last database write. A later ``save()`` inserts
@@ -532,10 +532,12 @@ def _finish_training(model, *, discard):
     if discard and not (model.versions or []):
         logger.error(
             'Removing model %s because this run started with no weight file '
-            'and the best checkpoint is missing.',
+            'and training produced no usable checkpoint.',
             pk)
         model.delete()
         return pk
+    if restore_file is not None:
+        model.file = restore_file
     model.training = False
     model.save()
     return pk
@@ -620,6 +622,7 @@ def segtrain(model_pk=None, part_pks=[], document_pk=None, task_group_pk=None, u
     OcrModel = apps.get_model('core', 'OcrModel')
 
     model = OcrModel.objects.get(pk=model_pk)
+    original_file_name = model.file.name or ''
     started_without_artifact = False
 
     try:
@@ -640,10 +643,11 @@ def segtrain(model_pk=None, part_pks=[], document_pk=None, task_group_pk=None, u
             if user:
                 user.notify(_("D-FINE model fine-tuning is not supported at the moment."),
                             id="training-dfine-unsupported", level='warning')
-            model.delete()
+            _finish_training(model, discard=started_without_artifact, restore_file=original_file_name)
             raise NotImplementedError(_("D-FINE model fine-tuning is not supported at the moment."))
 
     discard_empty_model = False
+    restore_file_name = None
     try:
         model.training = True
         model.save()
@@ -712,7 +716,7 @@ def segtrain(model_pk=None, part_pks=[], document_pk=None, task_group_pk=None, u
             raise CheckpointMissing(created_without_artifact=started_without_artifact)
         if not best_path:
             logger.info(f'Model {os.path.split(model.file.path)[0]} did not improve.')
-            raise DidNotConverge
+            raise DidNotConverge(created_without_artifact=started_without_artifact)
 
         try:
             fb_best = next((cb.best_metric for cb in trainer.callbacks if isinstance(cb, FrontendFeedback)), 0.0)
@@ -733,14 +737,18 @@ def segtrain(model_pk=None, part_pks=[], document_pk=None, task_group_pk=None, u
     except CheckpointMissing as exc:
         _report_missing_checkpoint(model, user, 'document', document_pk, segmenter=True)
         discard_empty_model = exc.created_without_artifact
+        restore_file_name = original_file_name
         raise
-    except DidNotConverge:
+    except DidNotConverge as exc:
         send_event('document', ground_truth[0].document.pk, "training:error", {
             "id": model.pk,
         })
-        user.notify(_("The model did not converge, probably because of lack of data."),
-                    id="training-warning", level='warning')
-        model.delete()
+        if user:
+            user.notify(_("The model did not converge, probably because of lack of data."),
+                        id="training-warning", level='warning')
+        discard_empty_model = exc.created_without_artifact
+        restore_file_name = original_file_name
+        raise
 
     except Exception as e:
         send_event('document', document_pk, "training:error", {
@@ -760,7 +768,7 @@ def segtrain(model_pk=None, part_pks=[], document_pk=None, task_group_pk=None, u
                         id="training-success",
                         level='success')
     finally:
-        finished_pk = _finish_training(model, discard=discard_empty_model)
+        finished_pk = _finish_training(model, discard=discard_empty_model, restore_file=restore_file_name)
 
         send_event('document', document_pk, "training:done", {
             "id": finished_pk,
@@ -1081,7 +1089,7 @@ def train_(qs, document=None, transcription=None, model=None, user=None, collect
         raise CheckpointMissing(created_without_artifact=started_without_artifact)
     if not best_path:
         logger.info(f'Model {os.path.split(model.file.path)[0]} did not improve.')
-        raise DidNotConverge
+        raise DidNotConverge(created_without_artifact=started_without_artifact)
     else:
         fb_best = next((cb.best_metric for cb in trainer.callbacks if isinstance(cb, FrontendFeedback)), 0.0)
         best_score_val = float(best_score) if best_score is not None else fb_best
@@ -1119,9 +1127,12 @@ def train(transcription_pk=None, model_pk=None, task_group_pk=None,
     document = None
     model = None
     discard_empty_model = False
+    original_file_name = None
+    restore_file_name = None
 
     try:
         model = OcrModel.objects.get(pk=model_pk)
+        original_file_name = model.file.name or ''
         transcription = Transcription.objects.get(pk=transcription_pk)
         document = transcription.document
         from ai.gate import LayerNotEligible, assert_training_eligible
@@ -1157,8 +1168,9 @@ def train(transcription_pk=None, model_pk=None, task_group_pk=None,
         room_pk = document.pk if document is not None else None
         _report_missing_checkpoint(model, user, 'document', room_pk, segmenter=False)
         discard_empty_model = exc.created_without_artifact
+        restore_file_name = original_file_name
         raise
-    except DidNotConverge:
+    except DidNotConverge as exc:
         if document is not None:
             send_event('document', document.pk, "training:error", {
                 "id": model.pk if model is not None else None,
@@ -1166,8 +1178,9 @@ def train(transcription_pk=None, model_pk=None, task_group_pk=None,
         if user:
             user.notify(_("The model did not converge, probably because of lack of data."),
                         id="training-warning", level='warning')
-        if model is not None:
-            model.delete()
+        discard_empty_model = exc.created_without_artifact
+        restore_file_name = original_file_name
+        raise
 
     except Exception as e:
         if document is not None:
@@ -1187,7 +1200,7 @@ def train(transcription_pk=None, model_pk=None, task_group_pk=None,
                         id="training-success",
                         level='success')
     finally:
-        finished_pk = _finish_training(model, discard=discard_empty_model)
+        finished_pk = _finish_training(model, discard=discard_empty_model, restore_file=restore_file_name)
 
         if document is not None:
             send_event('document', document.pk, "training:done", {
@@ -1446,8 +1459,11 @@ def train_from_collection(collection_pk=None, model_pk=None, task_group_pk=None,
 
     model = None
     discard_empty_model = False
+    original_file_name = None
+    restore_file_name = None
     try:
         model = OcrModel.objects.get(pk=model_pk)
+        original_file_name = model.file.name or ''
         collection_items = VirtualCollectionItem.objects.filter(
             collection_id=collection_pk
         ).select_related("document_part", "transcription_layer")
@@ -1520,8 +1536,9 @@ def train_from_collection(collection_pk=None, model_pk=None, task_group_pk=None,
         _report_missing_checkpoint(
             model, user, "collection", collection_pk, segmenter=False)
         discard_empty_model = exc.created_without_artifact
+        restore_file_name = original_file_name
         raise
-    except DidNotConverge:
+    except DidNotConverge as exc:
         send_event(
             "collection", collection_pk, "training:error", {"id": model.pk}
         )
@@ -1531,7 +1548,9 @@ def train_from_collection(collection_pk=None, model_pk=None, task_group_pk=None,
                 id="training-warning",
                 level="warning",
             )
-        model.delete()
+        discard_empty_model = exc.created_without_artifact
+        restore_file_name = original_file_name
+        raise
     except Exception as e:
         send_event(
             "collection",
@@ -1554,7 +1573,7 @@ def train_from_collection(collection_pk=None, model_pk=None, task_group_pk=None,
         if user:
             user.notify(_("Training finished!"), id="training-success", level="success")
     finally:
-        finished_pk = _finish_training(model, discard=discard_empty_model)
+        finished_pk = _finish_training(model, discard=discard_empty_model, restore_file=restore_file_name)
         send_event(
             "collection",
             collection_pk,
@@ -1597,6 +1616,7 @@ def segtrain_from_collection(collection_pk=None, model_pk=None, task_group_pk=No
     OcrModel = apps.get_model("core", "OcrModel")
 
     model = OcrModel.objects.get(pk=model_pk)
+    original_file_name = model.file.name or ''
     started_without_artifact = False
 
     try:
@@ -1616,10 +1636,11 @@ def segtrain_from_collection(collection_pk=None, model_pk=None, task_group_pk=No
             if user:
                 user.notify(_("D-FINE model fine-tuning is not supported at the moment."),
                             id="training-dfine-unsupported", level='warning')
-            model.delete()
+            _finish_training(model, discard=started_without_artifact, restore_file=original_file_name)
             raise NotImplementedError(_("D-FINE model fine-tuning is not supported at the moment."))
 
     discard_empty_model = False
+    restore_file_name = None
     try:
         model.training = True
         model.save()
@@ -1705,7 +1726,7 @@ def segtrain_from_collection(collection_pk=None, model_pk=None, task_group_pk=No
             raise CheckpointMissing(created_without_artifact=started_without_artifact)
         if not best_path:
             logger.info(f"Model {os.path.split(model.file.path)[0]} did not improve.")
-            raise DidNotConverge
+            raise DidNotConverge(created_without_artifact=started_without_artifact)
 
         try:
             fb_best = next((cb.best_metric for cb in trainer.callbacks if isinstance(cb, FrontendFeedback)), 0.0)
@@ -1729,8 +1750,9 @@ def segtrain_from_collection(collection_pk=None, model_pk=None, task_group_pk=No
         _report_missing_checkpoint(
             model, user, "collection", collection_pk, segmenter=True)
         discard_empty_model = exc.created_without_artifact
+        restore_file_name = original_file_name
         raise
-    except DidNotConverge:
+    except DidNotConverge as exc:
         send_event(
             "collection", collection_pk, "training:error", {"id": model.pk}
         )
@@ -1740,7 +1762,9 @@ def segtrain_from_collection(collection_pk=None, model_pk=None, task_group_pk=No
                 id="training-warning",
                 level="warning",
             )
-        model.delete()
+        discard_empty_model = exc.created_without_artifact
+        restore_file_name = original_file_name
+        raise
     except Exception as e:
         send_event(
             "collection",
@@ -1763,7 +1787,7 @@ def segtrain_from_collection(collection_pk=None, model_pk=None, task_group_pk=No
         if user:
             user.notify(_("Training finished!"), id="training-success", level="success")
     finally:
-        finished_pk = _finish_training(model, discard=discard_empty_model)
+        finished_pk = _finish_training(model, discard=discard_empty_model, restore_file=restore_file_name)
         send_event(
             "collection",
             collection_pk,
