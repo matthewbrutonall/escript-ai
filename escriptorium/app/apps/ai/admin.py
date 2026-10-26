@@ -15,7 +15,7 @@ from .models import (
     AIUserKey, AIUserQuota, ExternalHTREngineConfig, ExternalHTRJob,
     ExternalHTRLineResult,
 )
-from .secrets import encrypt_key
+from .secrets import encrypt_key, validate_encryption_secret
 
 
 class AIUserKeyForm(forms.ModelForm):
@@ -32,6 +32,11 @@ class AIUserKeyForm(forms.ModelForm):
         raw = (cleaned.get('plaintext') or "").strip()
         if not self.instance.pk and not raw:
             raise forms.ValidationError("Provide a key when creating.")
+        if raw:
+            try:
+                validate_encryption_secret(settings.SECRET_KEY)
+            except ValueError as exc:
+                self.add_error('plaintext', str(exc))
         return cleaned
 
     def save(self, commit=True):

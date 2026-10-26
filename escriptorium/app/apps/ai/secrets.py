@@ -5,6 +5,12 @@ import base64
 import hashlib
 
 
+def validate_encryption_secret(secret):
+    if (not isinstance(secret, str) or not secret.strip()
+            or secret.strip() in {'a-beautiful-snowflake', 'escript-ai'}):
+        raise ValueError('Configure a private SECRET_KEY before storing or using user API keys.')
+
+
 def pick_api_key(*, is_local, user_key=None, env_key=None, default_key=None):
     """Precedence: per-user key → instance env → settings default."""
     if is_local:
@@ -17,7 +23,8 @@ def pick_api_key(*, is_local, user_key=None, env_key=None, default_key=None):
 
 def _fernet(secret: str):
     from cryptography.fernet import Fernet
-    digest = hashlib.sha256((secret or "escript-ai").encode()).digest()
+    validate_encryption_secret(secret)
+    digest = hashlib.sha256(secret.encode()).digest()
     return Fernet(base64.urlsafe_b64encode(digest))
 
 

@@ -23,8 +23,12 @@ class CrossDocumentError(ValueError):
     """
 
 
+class APIKeyUnavailable(RuntimeError):
+    """A configured user key cannot be used; shared credentials must not replace it."""
+
+
 def resolve_api_key(config, user=None):
-    """Per-user encrypted key → env key_ref → instance default. Never logged."""
+    """Use shared keys only when no user key exists. Never log key material."""
     from django.conf import settings
     from .secrets import decrypt_key, pick_api_key
 
@@ -36,12 +40,13 @@ def resolve_api_key(config, user=None):
             AIUserKey = apps.get_model('ai', 'AIUserKey')
             row = AIUserKey.objects.filter(
                 user=user, provider=config.provider).first()
-            if row and row.ciphertext:
+            if row is not None:
                 user_key = decrypt_key(row.ciphertext, settings.SECRET_KEY)
+                if not user_key.strip():
+                    raise ValueError('empty stored key')
         except Exception:
-            logger.exception("ai: could not decrypt per-user key for provider %s",
-                             getattr(config, 'provider', '?'))
-            user_key = None
+            raise APIKeyUnavailable(
+                'Stored API key could not be loaded. Ask an administrator to reset it.') from None
     env_key = None
     if getattr(config, 'key_ref', None):
         env_key = os.environ.get(config.key_ref)
