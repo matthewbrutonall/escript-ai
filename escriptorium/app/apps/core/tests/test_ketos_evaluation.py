@@ -46,6 +46,27 @@ class KetosEvaluationTests(SimpleTestCase):
         argv = run.call_args.args[0]
         self.assertEqual(argv[:6], [
             "test-ketos", "test", "-m", "model.safetensors", "-f", "binary"])
-        self.assertEqual(argv[6], build.call_args.kwargs["output_file"])
+        self.assertEqual(argv[6:], ["-n", build.call_args.kwargs["output_file"]])
         run.return_value.returncode = 1
         self.assertIsNone(_ketos_cer_from_qs(model, held_qs))
+
+    @patch("ai.ketos_hook.subprocess.run")
+    @patch("ai.ketos_hook.shutil.which", return_value="test-ketos")
+    @patch("core.tasks.build_binary_dataset")
+    @patch("core.tasks.make_recognition_segmentation", return_value=[])
+    def test_adapter_passes_model_evaluation_options(
+            self, segmentation, build, which, run):
+        model = SimpleNamespace(
+            file=SimpleNamespace(path="greek.safetensors"),
+            evaluation_normalization="NFD",
+            evaluation_normalize_whitespace=True)
+        held_qs = Mock()
+        held_qs.values.return_value = [{"content": "reviewed"}]
+        run.return_value = SimpleNamespace(
+            returncode=0, stdout=kraken_report(100, 3), stderr="")
+
+        self.assertEqual(_ketos_cer_from_qs(model, held_qs), 0.03)
+        self.assertEqual(run.call_args.args[0], [
+            "test-ketos", "test", "-m", "greek.safetensors",
+            "-f", "binary", "-u", "NFD", "-n",
+            build.call_args.kwargs["output_file"]])

@@ -231,6 +231,9 @@ class AILayerGate(models.Model):
     held_out_cer = models.FloatField(
         null=True, blank=True,
         help_text=_("Optional ketos test CER on held-out reviewed pages."))
+    held_out_evaluation = models.JSONField(
+        default=dict, blank=True,
+        help_text=_("Model and normalization options used for the held-out CER."))
     acknowledged_at = models.DateTimeField(null=True, blank=True)
     acknowledged_by = models.ForeignKey(
         User, null=True, blank=True, on_delete=models.SET_NULL)

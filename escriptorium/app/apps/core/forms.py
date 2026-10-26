@@ -519,7 +519,8 @@ class ModelUploadForm(BootstrapFormMixin, forms.ModelForm):
 
     class Meta:
         model = OcrModel
-        fields = ('name', 'file')
+        fields = ('name', 'file', 'evaluation_normalization',
+                  'evaluation_normalize_whitespace')
 
     def __init__(self, *args, **kwargs):
         self.user = kwargs.pop('user')

@@ -12,7 +12,8 @@ from ai.gate import (
 from ai.compare import disagreement_rows_from_layers, find_cheap_recognizer
 from ai.fewshot import fewshot_prompt_block, select_examples
 from ai.ketos_hook import (
-    eligible_collection_pairs, kept_training_parts, ketos_argv, parse_ketos_cer,
+    eligible_collection_pairs, evaluation_options, kept_training_parts,
+    ketos_argv, parse_ketos_cer,
     reserve_held_out_parts, run_ketos_test,
 )
 from ai.pipeline import DEFAULT_PROMPT, build_prompt
@@ -255,7 +256,7 @@ class KetosHookTests(unittest.TestCase):
             returncode=0, stdout="100\tCharacters\n3\tErrors\n", stderr="")
         self.assertEqual(run_ketos_test("model", ["eval.arrow"], ketos_bin="ketos"), 0.03)
         self.assertEqual(run.call_args.args[0], [
-            "ketos", "test", "-m", "model", "-f", "binary", "eval.arrow"])
+            "ketos", "test", "-m", "model", "-f", "binary", "-n", "eval.arrow"])
 
     @patch("ai.ketos_hook.subprocess.run")
     def test_failed_subprocess_does_not_store_partial_report(self, run):
@@ -278,6 +279,23 @@ class KetosHookTests(unittest.TestCase):
         self.assertIn("-m", argv)
         self.assertIn("/tmp/eval.arrow", argv)
         self.assertIn("binary", argv)
+
+    def test_evaluation_options_are_explicit_and_model_specific(self):
+        model = SimpleNamespace(
+            evaluation_normalization='NFD',
+            evaluation_normalize_whitespace=True)
+        self.assertEqual(evaluation_options(model), {
+            'normalization': 'NFD', 'normalize_whitespace': True})
+        self.assertEqual(ketos_argv('model', ['eval.arrow'], **evaluation_options(model)), [
+            'ketos', 'test', '-m', 'model', '-f', 'binary',
+            '-u', 'NFD', '-n', 'eval.arrow'])
+        self.assertEqual(evaluation_options(SimpleNamespace()), {
+            'normalization': None, 'normalize_whitespace': True})
+        self.assertEqual(ketos_argv('model', ['eval.arrow'], normalize_whitespace=False), [
+            'ketos', 'test', '-m', 'model', '-f', 'binary',
+            '--no-normalize-whitespace', 'eval.arrow'])
+        with self.assertRaises(ValueError):
+            ketos_argv('model', ['eval.arrow'], normalization='invalid')
 
     def test_collection_pairs_empty_when_all_held_out(self):
         items = [

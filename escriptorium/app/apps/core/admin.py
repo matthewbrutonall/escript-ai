@@ -114,7 +114,9 @@ class OcrModelAdmin(admin.ModelAdmin):
 
     fieldsets = (
         (None, {
-            'fields': ('name', 'job', 'owner', 'script', 'training', 'parent', 'public', 'file', 'file_size')
+            'fields': ('name', 'job', 'owner', 'script', 'training', 'parent', 'public',
+                       'file', 'file_size', 'evaluation_normalization',
+                       'evaluation_normalize_whitespace')
         }),
         ('Related Records', {
             'fields': ('documents_link', 'rights_link', 'finetuned_models_link'),

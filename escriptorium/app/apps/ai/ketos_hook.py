@@ -14,6 +14,7 @@ import subprocess
 logger = logging.getLogger(__name__)
 
 HELD_OUT_FRACTION = 0.15
+EVALUATION_NORMALIZATIONS = ('NFD', 'NFKD', 'NFC', 'NFKC')
 
 
 def reserve_held_out_parts(part_ids, fraction=HELD_OUT_FRACTION, rng=None):
@@ -88,19 +89,37 @@ def eligible_collection_pairs(items, held_out):
     return out
 
 
-def ketos_argv(model_path, eval_paths, format_type="binary"):
+def evaluation_options(model):
+    """Options recorded with a held-out result for this model."""
+    normalization = getattr(model, 'evaluation_normalization', '') or None
+    if normalization not in (None, *EVALUATION_NORMALIZATIONS):
+        raise ValueError(f'Unsupported evaluation normalization: {normalization}')
+    return {
+        'normalization': normalization,
+        'normalize_whitespace': bool(getattr(model, 'evaluation_normalize_whitespace', True)),
+    }
+
+
+def ketos_argv(model_path, eval_paths, format_type="binary",
+               normalization=None, normalize_whitespace=True):
     """Command list, or None if ketos cannot be run."""
     if not model_path or not eval_paths:
         return None
-    return [
-        "ketos", "test", "-m", str(model_path), "-f", format_type,
-        *[str(p) for p in eval_paths],
-    ]
+    if normalization not in (None, *EVALUATION_NORMALIZATIONS):
+        raise ValueError(f'Unsupported evaluation normalization: {normalization}')
+    argv = ["ketos", "test", "-m", str(model_path), "-f", format_type]
+    if normalization:
+        argv.extend(["-u", normalization])
+    argv.append("-n" if normalize_whitespace else "--no-normalize-whitespace")
+    return [*argv, *[str(p) for p in eval_paths]]
 
 
-def run_ketos_test(model_path, eval_paths, ketos_bin=None, format_type="binary"):
+def run_ketos_test(model_path, eval_paths, ketos_bin=None, format_type="binary",
+                   normalization=None, normalize_whitespace=True):
     """Return CER float or None. Never raises for a missing binary."""
-    argv = ketos_argv(model_path, eval_paths, format_type=format_type)
+    argv = ketos_argv(
+        model_path, eval_paths, format_type=format_type,
+        normalization=normalization, normalize_whitespace=normalize_whitespace)
     if argv is None:
         return None
     binary = ketos_bin or shutil.which("ketos")

@@ -914,7 +914,8 @@ class OcrModelSerializer(serializers.ModelSerializer):
         model = OcrModel
         fields = ('pk', 'name', 'file', 'file_size', 'job',
                   'owner', 'training', 'versions', 'documents',
-                  'accuracy_percent', 'rights', 'script', 'parent', 'can_share')
+                  'accuracy_percent', 'rights', 'script', 'parent', 'can_share',
+                  'evaluation_normalization', 'evaluation_normalize_whitespace')
 
     def create(self, data):
         # If quotas are enforced, assert that the user still has free disk storage
