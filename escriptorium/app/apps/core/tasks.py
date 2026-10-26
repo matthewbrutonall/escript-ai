@@ -144,6 +144,17 @@ def recognition_training_classes(architecture):
     return RECOGNITION_TRAINING_CLASSES.get(architecture, VGSL_RECOGNITION_CLASSES)
 
 
+def recognition_batch_size(architecture):
+    name = ('KRAKEN_TRAINING_BATCH_SIZE_PPOCR' if architecture == 'PPOCRv6Model'
+            else 'KRAKEN_TRAINING_BATCH_SIZE_VGSL')
+    value = getattr(settings, name, None)
+    if value is None:
+        value = getattr(settings, 'KRAKEN_TRAINING_BATCH_SIZE', None)
+    if value is not None and (type(value) is not int or value < 1):
+        raise TrainingLimitError('training batch size must be a positive integer')
+    return value
+
+
 @shared_task
 def qualify_model(model_pk):
     """Detects and persists an OcrModel's architecture from its file, off the request/training path."""
@@ -940,8 +951,6 @@ def train_(qs, document=None, transcription=None, model=None, user=None, collect
 
     AMP_MODE = getattr(settings, 'KRAKEN_TRAINING_PRECISION', '32')
 
-    BATCH_SIZE = getattr(settings, 'KRAKEN_TRAINING_BATCH_SIZE', 12)
-
     with tempfile.TemporaryDirectory() as tmp_dir:
 
         train_dir = Path(tmp_dir)
@@ -998,6 +1007,10 @@ def train_(qs, document=None, transcription=None, model=None, user=None, collect
          data_config_class,
          data_module_class,
          module_class) = recognition_training_classes(architecture)
+
+        BATCH_SIZE = recognition_batch_size(architecture)
+        if BATCH_SIZE is None:
+            BATCH_SIZE = train_config_class().batch_size
 
         logger.info(f'Starting recognition training on {accelerator}/{device} '
                     f'(precision: {AMP_MODE}, batch_size {BATCH_SIZE} '

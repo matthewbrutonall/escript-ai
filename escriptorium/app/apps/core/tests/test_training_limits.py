@@ -10,9 +10,12 @@ point at a PP-OCRv6 safetensors file. Run that process under an outer timeout
 so a regression cannot continue into a 100-epoch fit.
 """
 import inspect
+import json
 import os
 import shutil
 import tempfile
+import subprocess
+import sys
 import time
 import unittest
 from unittest.mock import MagicMock, patch
@@ -39,6 +42,7 @@ from core.tasks import (
     make_checkpoint_callback,
     recognition_training_classes,
     record_retained_checkpoint,
+    recognition_batch_size,
     segtrain,
     segtrain_from_collection,
     train,
@@ -60,6 +64,39 @@ def _limits_for(config_cls, **kwargs):
 
 class TrainingLimitTests(SimpleTestCase):
     """Config semantics and checkpoint callback fields. No database and no fit."""
+
+    @override_settings(KRAKEN_TRAINING_BATCH_SIZE=3,
+                       KRAKEN_TRAINING_BATCH_SIZE_PPOCR=7,
+                       KRAKEN_TRAINING_BATCH_SIZE_VGSL=2)
+    def test_architecture_batch_size_precedence(self):
+        self.assertEqual(recognition_batch_size('PPOCRv6Model'), 7)
+        self.assertEqual(recognition_batch_size('TorchVGSLModel'), 2)
+        self.assertEqual(recognition_batch_size(None), 2)
+        with override_settings(KRAKEN_TRAINING_BATCH_SIZE_PPOCR=None):
+            self.assertEqual(recognition_batch_size('PPOCRv6Model'), 3)
+        with override_settings(KRAKEN_TRAINING_BATCH_SIZE_PPOCR=None,
+                               KRAKEN_TRAINING_BATCH_SIZE=None):
+            self.assertIsNone(recognition_batch_size('PPOCRv6Model'))
+
+    @override_settings(KRAKEN_TRAINING_BATCH_SIZE_PPOCR=None)
+    def test_invalid_batch_size_is_refused(self):
+        for value in (0, -1, True, '4', 2.5):
+            with self.subTest(value=value), override_settings(KRAKEN_TRAINING_BATCH_SIZE=value):
+                with self.assertRaises(TrainingLimitError):
+                    recognition_batch_size('PPOCRv6Model')
+
+    def test_environment_settings_are_loaded_in_a_fresh_process(self):
+        names = ['KRAKEN_TRAINING_BATCH_SIZE', 'KRAKEN_TRAINING_BATCH_SIZE_PPOCR',
+                 'KRAKEN_TRAINING_BATCH_SIZE_VGSL', 'KRAKEN_TRAINING_PRECISION']
+        environment = os.environ.copy()
+        environment.update(dict(zip(names, ['3', '7', '2', 'bf16-mixed'])))
+        code = (
+            'import json; from escriptorium import settings; '
+            f'print(json.dumps([getattr(settings, name) for name in {names!r}]))')
+        result = subprocess.run(
+            [sys.executable, '-c', code], env=environment,
+            capture_output=True, text=True, check=True, timeout=30)
+        self.assertEqual(json.loads(result.stdout), [3, 7, 2, 'bf16-mixed'])
 
     @override_settings(KRAKEN_EARLY_STOP_MAX_EPOCHS=100)
     def test_fixed_and_early_limits(self):
@@ -218,6 +255,7 @@ class TrainingLimitTests(SimpleTestCase):
 def _fake_fit(state):
     def fit(self, *args, **kwargs):
         state['trainer'] = self
+        state['fitted_model'] = args[0]
         callback = self.checkpoint_callback
         self.assert_callback = callback
         destination = os.path.join(str(callback.dirpath), 'checkpoint_epoch=0.ckpt')
@@ -386,6 +424,34 @@ class TrainingPathTests(TestCase):
         )
         self._assert_trainer(state['trainer'], 100, 0, model)
         self._assert_retained(model, state, historical, decoy)
+
+    @override_settings(KRAKEN_TRAINING_BATCH_SIZE=None,
+                       KRAKEN_TRAINING_BATCH_SIZE_PPOCR=None,
+                       KRAKEN_TRAINING_BATCH_SIZE_VGSL=None)
+    def test_recognition_uses_architecture_batch_defaults(self):
+        for architecture, expected in [('PPOCRv6Model', 64), (None, 1)]:
+            with self.subTest(architecture=architecture):
+                _user, document, _part, layer, model = self._model(
+                    OcrModel.MODEL_JOB_RECOGNIZE, f'batch-{expected}')
+                state = {'order': []}
+                self._run_patches(
+                    self._recognition_patches(state, architecture),
+                    lambda: train_(LineTranscription.objects.filter(transcription=layer),
+                                   document=document, transcription=layer, model=model, epochs=1),
+                )
+                self.assertEqual(state['fitted_model'].config.batch_size, expected)
+
+    @override_settings(KRAKEN_TRAINING_BATCH_SIZE=3, KRAKEN_TRAINING_BATCH_SIZE_PPOCR=7)
+    def test_recognition_passes_batch_override_to_kraken(self):
+        _user, document, _part, layer, model = self._model(
+            OcrModel.MODEL_JOB_RECOGNIZE, 'batch-override')
+        state = {'order': []}
+        self._run_patches(
+            self._recognition_patches(state, 'PPOCRv6Model'),
+            lambda: train_(LineTranscription.objects.filter(transcription=layer),
+                           document=document, transcription=layer, model=model, epochs=1),
+        )
+        self.assertEqual(state['fitted_model'].config.batch_size, 7)
 
     def test_recognition_ppocr_explicit_one_epoch(self):
         _user, document, _part, layer, model = self._model(OcrModel.MODEL_JOB_RECOGNIZE, 'ppocr-one')
