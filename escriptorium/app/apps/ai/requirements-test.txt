@@ -1,0 +1,7 @@
+# Django-free unit suite only. ORM tests require the application environment.
+# Install: python -m pip install -r escriptorium/app/apps/ai/requirements-test.txt
+# Run from escriptorium/app/apps: python -m unittest ai.tests -v
+Pillow
+requests
+cryptography
+shapely

@@ -40,6 +40,11 @@ class KeyPrecedenceTests(unittest.TestCase):
 
 
 class EncryptTests(unittest.TestCase):
+    def test_public_or_missing_encryption_secrets_are_refused(self):
+        for secret in (None, '', '  ', 'a-beautiful-snowflake', 'escript-ai'):
+            with self.subTest(secret=secret), self.assertRaises(ValueError):
+                encrypt_key('test-key', secret)
+
     def test_roundtrip(self):
         token = encrypt_key("sk-test", "secret-for-tests")
         self.assertNotIn(b"sk-test", token)

@@ -5,6 +5,7 @@ Training still succeeds if ketos is missing. We never evaluate on unreviewed AI.
 from __future__ import annotations
 
 import logging
+import math
 import random
 import re
 import shutil
@@ -27,17 +28,38 @@ def reserve_held_out_parts(part_ids, fraction=HELD_OUT_FRACTION, rng=None):
 
 
 def parse_ketos_cer(output):
+    """Read Kraken's exact counts, or a legacy CER/accuracy summary.
+
+    Kraken 7.1 prints accuracy rounded to two decimals. Its adjacent character
+    and error counts retain the precision needed for a held-out CER.
+    """
     if not output:
         return None
-    m = re.search(r"\bCER\b[:\s=]+([0-9.]+)", output, re.I)
-    if not m:
-        m = re.search(r"character error rate[:\s=]+([0-9.]+)", output, re.I)
-    if not m:
-        return None
-    val = float(m.group(1))
-    if val > 1:
-        val = val / 100.0
-    return val
+    counts = re.search(
+        r"^\s*(\d+)[ \t]+Characters[ \t]*\r?\n"
+        r"[ \t]*(\d+)[ \t]+Errors[ \t]*$", output, re.I | re.M)
+    if counts:
+        characters, errors = map(int, counts.groups())
+        if not characters:
+            return None
+        return errors / characters
+
+    number = r"([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)"
+    cer = re.search(
+        rf"^[ \t]*(?:CER|character error rate)[:\s=]+{number}"
+        r"[ \t]*(%?)[ \t]*$", output, re.I | re.M)
+    if cer:
+        value = float(cer.group(1))
+        if cer.group(2) or value > 1:
+            value /= 100
+    else:
+        accuracy = re.search(
+            rf"^[ \t]*{number}%[ \t]+Character Accuracy[ \t]*$",
+            output, re.I | re.M)
+        if not accuracy:
+            return None
+        value = 1 - float(accuracy.group(1)) / 100
+    return value if math.isfinite(value) and value >= 0 else None
 
 
 def kept_training_parts(part_pks, held_out):
@@ -90,5 +112,8 @@ def run_ketos_test(model_path, eval_paths, ketos_bin=None, format_type="binary")
             argv, capture_output=True, text=True, timeout=3600, check=False)
     except (OSError, subprocess.TimeoutExpired) as e:
         logger.warning("ai: ketos test skipped (%s)", e)
+        return None
+    if proc.returncode != 0:
+        logger.warning("ai: ketos test failed (exit %s)", proc.returncode)
         return None
     return parse_ketos_cer((proc.stdout or "") + "\n" + (proc.stderr or ""))

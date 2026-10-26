@@ -1,6 +1,7 @@
 """Phase 2: conventions, CER disagreement, layer gate. No Django, no network."""
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from ai.conventions import conventions_prompt, merge_conventions
 from ai.gate import (
@@ -220,7 +221,50 @@ class KetosHookTests(unittest.TestCase):
         self.assertAlmostEqual(parse_ketos_cer("CER: 12.5"), 0.125)
         self.assertAlmostEqual(parse_ketos_cer("character error rate = 0.02"), 0.02)
 
-    def test_missing_ketos_returns_none(self):
+    def test_kraken_report_uses_exact_counts(self):
+        report = (
+            "=== report model ===\n\n"
+            "30000\tCharacters\n1\tErrors\n"
+            "100.00%\tCharacter Accuracy\n"
+            "100.00%\tCharacter Accuracy (Case-insensitive)\n"
+            "100.00%\tWord Accuracy\n")
+        self.assertAlmostEqual(parse_ketos_cer(report), 1 / 30000)
+
+    def test_accuracy_and_counts_allow_more_errors_than_characters(self):
+        self.assertEqual(parse_ketos_cer("10\tCharacters\n15\tErrors\n"), 1.5)
+        self.assertEqual(parse_ketos_cer("-50.00%\tCharacter Accuracy"), 1.5)
+        self.assertAlmostEqual(parse_ketos_cer("92.79%\tCharacter Accuracy"), 0.0721)
+
+    def test_explicit_percent_below_one_is_not_a_fraction(self):
+        self.assertEqual(parse_ketos_cer("CER: 0.5%"), 0.005)
+        self.assertEqual(parse_ketos_cer("CER: 0.5"), 0.5)
+
+    def test_invalid_or_unrelated_metrics_are_not_cer(self):
+        for output in (
+            "", "CER: 1.2.3", "CER: nan", "CER: inf", "CER: 1e999",
+            "CER: -0.1", "101%\tCharacter Accuracy",
+            "99%\tCharacter Accuracy (Case-insensitive)", "99%\tWord Accuracy",
+            "0\tCharacters\n0\tErrors\n100%\tCharacter Accuracy",
+        ):
+            with self.subTest(output=output):
+                self.assertIsNone(parse_ketos_cer(output))
+
+    @patch("ai.ketos_hook.subprocess.run")
+    def test_subprocess_success_reads_report(self, run):
+        run.return_value = SimpleNamespace(
+            returncode=0, stdout="100\tCharacters\n3\tErrors\n", stderr="")
+        self.assertEqual(run_ketos_test("model", ["eval.arrow"], ketos_bin="ketos"), 0.03)
+        self.assertEqual(run.call_args.args[0], [
+            "ketos", "test", "-m", "model", "-f", "binary", "eval.arrow"])
+
+    @patch("ai.ketos_hook.subprocess.run")
+    def test_failed_subprocess_does_not_store_partial_report(self, run):
+        run.return_value = SimpleNamespace(
+            returncode=1, stdout="CER: 0.01", stderr="failed")
+        self.assertIsNone(run_ketos_test("model", ["eval.arrow"], ketos_bin="ketos"))
+
+    @patch("ai.ketos_hook.shutil.which", return_value=None)
+    def test_missing_ketos_returns_none(self, which):
         self.assertIsNone(run_ketos_test("/tmp/m.mlmodel", ["/tmp/a.xml"], ketos_bin=""))
 
     def test_empty_eval_paths_does_not_build_argv(self):

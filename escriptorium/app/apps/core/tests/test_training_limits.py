@@ -10,9 +10,12 @@ point at a PP-OCRv6 safetensors file. Run that process under an outer timeout
 so a regression cannot continue into a 100-epoch fit.
 """
 import inspect
+import json
 import os
 import shutil
 import tempfile
+import subprocess
+import sys
 import time
 import unittest
 from unittest.mock import MagicMock, patch
@@ -37,14 +40,18 @@ from core.tasks import (
     allocate_training_run_dir,
     construct_kraken_trainer,
     make_checkpoint_callback,
+    model_file_path,
     recognition_training_classes,
     record_retained_checkpoint,
+    recognition_batch_size,
+    restore_base_model_file,
     segtrain,
     segtrain_from_collection,
     train,
     train_,
     train_from_collection,
     trainer_epoch_limits,
+    switch_model_file,
 )
 from core.tests.factory import CoreFactory
 from kraken.configs.ppocr import PPOCRv6RecognitionTrainingConfig
@@ -60,6 +67,39 @@ def _limits_for(config_cls, **kwargs):
 
 class TrainingLimitTests(SimpleTestCase):
     """Config semantics and checkpoint callback fields. No database and no fit."""
+
+    @override_settings(KRAKEN_TRAINING_BATCH_SIZE=3,
+                       KRAKEN_TRAINING_BATCH_SIZE_PPOCR=7,
+                       KRAKEN_TRAINING_BATCH_SIZE_VGSL=2)
+    def test_architecture_batch_size_precedence(self):
+        self.assertEqual(recognition_batch_size('PPOCRv6Model'), 7)
+        self.assertEqual(recognition_batch_size('TorchVGSLModel'), 2)
+        self.assertEqual(recognition_batch_size(None), 2)
+        with override_settings(KRAKEN_TRAINING_BATCH_SIZE_PPOCR=None):
+            self.assertEqual(recognition_batch_size('PPOCRv6Model'), 3)
+        with override_settings(KRAKEN_TRAINING_BATCH_SIZE_PPOCR=None,
+                               KRAKEN_TRAINING_BATCH_SIZE=None):
+            self.assertIsNone(recognition_batch_size('PPOCRv6Model'))
+
+    @override_settings(KRAKEN_TRAINING_BATCH_SIZE_PPOCR=None)
+    def test_invalid_batch_size_is_refused(self):
+        for value in (0, -1, True, '4', 2.5):
+            with self.subTest(value=value), override_settings(KRAKEN_TRAINING_BATCH_SIZE=value):
+                with self.assertRaises(TrainingLimitError):
+                    recognition_batch_size('PPOCRv6Model')
+
+    def test_environment_settings_are_loaded_in_a_fresh_process(self):
+        names = ['KRAKEN_TRAINING_BATCH_SIZE', 'KRAKEN_TRAINING_BATCH_SIZE_PPOCR',
+                 'KRAKEN_TRAINING_BATCH_SIZE_VGSL', 'KRAKEN_TRAINING_PRECISION']
+        environment = os.environ.copy()
+        environment.update(dict(zip(names, ['3', '7', '2', 'bf16-mixed'])))
+        code = (
+            'import json; from escriptorium import settings; '
+            f'print(json.dumps([getattr(settings, name) for name in {names!r}]))')
+        result = subprocess.run(
+            [sys.executable, '-c', code], env=environment,
+            capture_output=True, text=True, check=True, timeout=30)
+        self.assertEqual(json.loads(result.stdout), [3, 7, 2, 'bf16-mixed'])
 
     @override_settings(KRAKEN_EARLY_STOP_MAX_EPOCHS=100)
     def test_fixed_and_early_limits(self):
@@ -218,6 +258,7 @@ class TrainingLimitTests(SimpleTestCase):
 def _fake_fit(state):
     def fit(self, *args, **kwargs):
         state['trainer'] = self
+        state['fitted_model'] = args[0]
         callback = self.checkpoint_callback
         self.assert_callback = callback
         destination = os.path.join(str(callback.dirpath), 'checkpoint_epoch=0.ckpt')
@@ -386,6 +427,133 @@ class TrainingPathTests(TestCase):
         )
         self._assert_trainer(state['trainer'], 100, 0, model)
         self._assert_retained(model, state, historical, decoy)
+
+    def test_legacy_model_names_switch_after_conversion_on_all_trainer_sites(self):
+        for site in ('recognition', 'document-segmentation', 'collection-segmentation'):
+            with self.subTest(site=site):
+                job = (OcrModel.MODEL_JOB_RECOGNIZE if site == 'recognition'
+                       else OcrModel.MODEL_JOB_SEGMENT)
+                user, document, part, layer, model = self._model(job, site)
+                model.file.save(f'{site}.mlmodel', ContentFile(b'legacy-base'), save=True)
+                legacy_path = model.file.path
+                model.new_version(file=model.file.name)
+                model.save()
+                state = {'order': []}
+
+                def convert(paths, dest):
+                    self.assertTrue(str(dest).endswith('.safetensors'))
+                    with open(dest, 'wb') as handle:
+                        handle.write(b'converted-weights')
+
+                if site == 'recognition':
+                    patches = self._recognition_patches(state, 'PPOCRv6Model')
+                    def call():
+                        train_(LineTranscription.objects.filter(transcription=layer),
+                               document=document, transcription=layer, model=model, epochs=1)
+                elif site == 'document-segmentation':
+                    patches = self._segmentation_patches(state)
+                    def call():
+                        segtrain(model_pk=model.pk, part_pks=[part.pk], document_pk=document.pk,
+                                 epochs=1)
+                else:
+                    collection = VirtualCollection.objects.create(name='conversion', owner=user)
+                    VirtualCollectionItem.objects.create(
+                        collection=collection, document_part=part, transcription_layer=layer)
+                    patches = self._segmentation_patches(state)
+                    def call():
+                        segtrain_from_collection(collection_pk=collection.pk, model_pk=model.pk,
+                                                 epochs=1)
+                patches.append(patch('core.tasks.convert_models', side_effect=convert))
+                self._run_patches(patches, call)
+                model.refresh_from_db()
+                self.assertTrue(model.file.name.endswith('.safetensors'))
+                with open(model.file.path, 'rb') as handle:
+                    self.assertEqual(handle.read(), b'converted-weights')
+                with open(legacy_path, 'rb') as handle:
+                    self.assertEqual(handle.read(), b'legacy-base')
+                history = [v['data']['file'] for v in model.versions]
+                self.assertIn(os.path.relpath(legacy_path, settings.MEDIA_ROOT), history)
+
+    def test_restore_base_uses_its_extension_and_keeps_current_artifact(self):
+        _user, _document, _part, _layer, model = self._model(
+            OcrModel.MODEL_JOB_SEGMENT, 'restore-base')
+        current_path = model.file.path
+        source = os.path.join(os.path.dirname(current_path), 'base.mlmodel')
+        with open(source, 'wb') as handle:
+            handle.write(b'original-base')
+        restore_base_model_file(model, source)
+        model.refresh_from_db()
+        self.assertTrue(model.file.name.endswith('.mlmodel'))
+        with open(model.file.path, 'rb') as handle:
+            self.assertEqual(handle.read(), b'original-base')
+        with open(current_path, 'rb') as handle:
+            self.assertEqual(handle.read(), b'fake-weights')
+        with patch('core.tasks.shutil.copy', side_effect=AssertionError('copied onto itself')):
+            restore_base_model_file(model, model.file.path)
+        original_name = model.file.name
+        with self.assertRaises(FileNotFoundError):
+            restore_base_model_file(model, '')
+        model.refresh_from_db()
+        self.assertEqual(model.file.name, original_name)
+
+    def test_switching_extension_does_not_save_stale_training_state(self):
+        _user, _document, _part, _layer, model = self._model(
+            OcrModel.MODEL_JOB_RECOGNIZE, 'file-field-only')
+        OcrModel.objects.filter(pk=model.pk).update(training=True)
+        switch_model_file(model, '.mlmodel')
+        model.refresh_from_db()
+        self.assertTrue(model.training)
+
+    def test_real_legacy_conversion_reload_uses_persisted_safetensors_path(self):
+        from kraken.lib.vgsl import TorchVGSLModel
+        from kraken.models import convert_models, load_models
+
+        _user, _document, _part, _layer, model = self._model(
+            OcrModel.MODEL_JOB_RECOGNIZE, 'real-format')
+        model.file.save('real-format.mlmodel', ContentFile(b''), save=True)
+        source = model.file.path
+        TorchVGSLModel(vgsl='[1,48,0,1 Lbx2 O1c3]').save_model(source)
+        with open(source, 'rb') as handle:
+            original = handle.read()
+        destination = model_file_path(model, '.safetensors')
+        output = convert_models([source], destination)
+        self.assertEqual(str(output), destination)
+        switch_model_file(model, '.safetensors')
+        model.refresh_from_db()
+        self.assertEqual(model.file.path, destination)
+        loaded = load_models(model.file.path)
+        self.assertEqual(len(loaded), 1)
+        self.assertEqual(loaded[0].__class__.__name__, 'TorchVGSLModel')
+        with open(source, 'rb') as handle:
+            self.assertEqual(handle.read(), original)
+
+    @override_settings(KRAKEN_TRAINING_BATCH_SIZE=None,
+                       KRAKEN_TRAINING_BATCH_SIZE_PPOCR=None,
+                       KRAKEN_TRAINING_BATCH_SIZE_VGSL=None)
+    def test_recognition_uses_architecture_batch_defaults(self):
+        for architecture, expected in [('PPOCRv6Model', 64), (None, 1)]:
+            with self.subTest(architecture=architecture):
+                _user, document, _part, layer, model = self._model(
+                    OcrModel.MODEL_JOB_RECOGNIZE, f'batch-{expected}')
+                state = {'order': []}
+                self._run_patches(
+                    self._recognition_patches(state, architecture),
+                    lambda: train_(LineTranscription.objects.filter(transcription=layer),
+                                   document=document, transcription=layer, model=model, epochs=1),
+                )
+                self.assertEqual(state['fitted_model'].config.batch_size, expected)
+
+    @override_settings(KRAKEN_TRAINING_BATCH_SIZE=3, KRAKEN_TRAINING_BATCH_SIZE_PPOCR=7)
+    def test_recognition_passes_batch_override_to_kraken(self):
+        _user, document, _part, layer, model = self._model(
+            OcrModel.MODEL_JOB_RECOGNIZE, 'batch-override')
+        state = {'order': []}
+        self._run_patches(
+            self._recognition_patches(state, 'PPOCRv6Model'),
+            lambda: train_(LineTranscription.objects.filter(transcription=layer),
+                           document=document, transcription=layer, model=model, epochs=1),
+        )
+        self.assertEqual(state['fitted_model'].config.batch_size, 7)
 
     def test_recognition_ppocr_explicit_one_epoch(self):
         _user, document, _part, layer, model = self._model(OcrModel.MODEL_JOB_RECOGNIZE, 'ppocr-one')

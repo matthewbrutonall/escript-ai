@@ -144,6 +144,17 @@ def recognition_training_classes(architecture):
     return RECOGNITION_TRAINING_CLASSES.get(architecture, VGSL_RECOGNITION_CLASSES)
 
 
+def recognition_batch_size(architecture):
+    name = ('KRAKEN_TRAINING_BATCH_SIZE_PPOCR' if architecture == 'PPOCRv6Model'
+            else 'KRAKEN_TRAINING_BATCH_SIZE_VGSL')
+    value = getattr(settings, name, None)
+    if value is None:
+        value = getattr(settings, 'KRAKEN_TRAINING_BATCH_SIZE', None)
+    if value is not None and (type(value) is not int or value < 1):
+        raise TrainingLimitError('training batch size must be a positive integer')
+    return value
+
+
 @shared_task
 def qualify_model(model_pk):
     """Detects and persists an OcrModel's architecture from its file, off the request/training path."""
@@ -336,6 +347,28 @@ def allocate_training_run_dir(model_dir):
     run_dir = os.path.join(model_dir, 'runs', uuid.uuid4().hex)
     os.makedirs(run_dir, exist_ok=False)
     return run_dir
+
+
+def model_file_path(model, ext):
+    return os.path.splitext(model.file.path)[0] + ext
+
+
+def switch_model_file(model, ext):
+    name = os.path.splitext(model.file.name)[0] + ext
+    if name != model.file.name:
+        model.file.name = name
+        model.save(update_fields=['file'])
+    # Keep the original artifact: a historical version may still reference it.
+
+
+def restore_base_model_file(model, load):
+    if not load or not os.path.isfile(load):
+        raise FileNotFoundError('base model file is missing')
+    ext = os.path.splitext(str(load))[1]
+    dest = model_file_path(model, ext)
+    if not os.path.exists(dest) or not os.path.samefile(load, dest):
+        shutil.copy(load, dest)
+    switch_model_file(model, ext)
 
 
 def make_checkpoint_callback(model_dir):
@@ -685,15 +718,17 @@ def segtrain(model_pk=None, part_pks=[], document_pk=None, task_group_pk=None, u
             fb_best = next((cb.best_metric for cb in trainer.callbacks if isinstance(cb, FrontendFeedback)), 0.0)
             best_score_val = float(best_score) if best_score is not None else fb_best
             record_retained_checkpoint(model, best_path)
-            logger.info(f'Converting best model {best_path} (accuracy: {best_score_val}) to {model.file.path}.')
-            convert_models([best_path], model.file.path)
+            dest = model_file_path(model, '.safetensors')
+            logger.info(f'Converting best model {best_path} (accuracy: {best_score_val}) to {dest}.')
+            convert_models([best_path], dest)
+            switch_model_file(model, '.safetensors')
             model.training_accuracy = best_score_val
         except FileNotFoundError:
             logger.info(f'Model {os.path.split(model.file.path)[0]} did not improve.')
             if user:
                 user.notify(_("Training didn't get better results than base model!"),
                             id="seg-no-gain-error", level='warning')
-            shutil.copy(load, model.file.path)
+            restore_base_model_file(model, load)
 
     except CheckpointMissing as exc:
         _report_missing_checkpoint(model, user, 'document', document_pk, segmenter=True)
@@ -940,8 +975,6 @@ def train_(qs, document=None, transcription=None, model=None, user=None, collect
 
     AMP_MODE = getattr(settings, 'KRAKEN_TRAINING_PRECISION', '32')
 
-    BATCH_SIZE = getattr(settings, 'KRAKEN_TRAINING_BATCH_SIZE', 12)
-
     with tempfile.TemporaryDirectory() as tmp_dir:
 
         train_dir = Path(tmp_dir)
@@ -999,6 +1032,10 @@ def train_(qs, document=None, transcription=None, model=None, user=None, collect
          data_module_class,
          module_class) = recognition_training_classes(architecture)
 
+        BATCH_SIZE = recognition_batch_size(architecture)
+        if BATCH_SIZE is None:
+            BATCH_SIZE = train_config_class().batch_size
+
         logger.info(f'Starting recognition training on {accelerator}/{device} '
                     f'(precision: {AMP_MODE}, batch_size {BATCH_SIZE} '
                     f', workers: {LOAD_THREADS}, arch: {module_class.__name__}) '
@@ -1049,8 +1086,10 @@ def train_(qs, document=None, transcription=None, model=None, user=None, collect
         fb_best = next((cb.best_metric for cb in trainer.callbacks if isinstance(cb, FrontendFeedback)), 0.0)
         best_score_val = float(best_score) if best_score is not None else fb_best
         record_retained_checkpoint(model, best_path)
-        logger.info(f'Converting best model {best_path} (accuracy: {best_score_val}) to {model.file.path}.')
-        convert_models([best_path], model.file.path)
+        dest = model_file_path(model, '.safetensors')
+        logger.info(f'Converting best model {best_path} (accuracy: {best_score_val}) to {dest}.')
+        convert_models([best_path], dest)
+        switch_model_file(model, '.safetensors')
         model.training_accuracy = best_score_val
 
 
@@ -1672,8 +1711,10 @@ def segtrain_from_collection(collection_pk=None, model_pk=None, task_group_pk=No
             fb_best = next((cb.best_metric for cb in trainer.callbacks if isinstance(cb, FrontendFeedback)), 0.0)
             best_score_val = float(best_score) if best_score is not None else fb_best
             record_retained_checkpoint(model, best_path)
-            logger.info(f"Converting best model {best_path} (accuracy: {best_score_val}) to {model.file.path}.")
-            convert_models([best_path], model.file.path)
+            dest = model_file_path(model, '.safetensors')
+            logger.info(f"Converting best model {best_path} (accuracy: {best_score_val}) to {dest}.")
+            convert_models([best_path], dest)
+            switch_model_file(model, '.safetensors')
             model.training_accuracy = best_score_val
         except FileNotFoundError:
             logger.info(f"Model {os.path.split(model.file.path)[0]} did not improve.")
@@ -1683,7 +1724,7 @@ def segtrain_from_collection(collection_pk=None, model_pk=None, task_group_pk=No
                     id="seg-no-gain-error",
                     level="warning",
                 )
-            shutil.copy(load, model.file.path)
+            restore_base_model_file(model, load)
     except CheckpointMissing as exc:
         _report_missing_checkpoint(
             model, user, "collection", collection_pk, segmenter=True)
