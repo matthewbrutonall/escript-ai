@@ -40,15 +40,18 @@ from core.tasks import (
     allocate_training_run_dir,
     construct_kraken_trainer,
     make_checkpoint_callback,
+    model_file_path,
     recognition_training_classes,
     record_retained_checkpoint,
     recognition_batch_size,
+    restore_base_model_file,
     segtrain,
     segtrain_from_collection,
     train,
     train_,
     train_from_collection,
     trainer_epoch_limits,
+    switch_model_file,
 )
 from core.tests.factory import CoreFactory
 from kraken.configs.ppocr import PPOCRv6RecognitionTrainingConfig
@@ -424,6 +427,105 @@ class TrainingPathTests(TestCase):
         )
         self._assert_trainer(state['trainer'], 100, 0, model)
         self._assert_retained(model, state, historical, decoy)
+
+    def test_legacy_model_names_switch_after_conversion_on_all_trainer_sites(self):
+        for site in ('recognition', 'document-segmentation', 'collection-segmentation'):
+            with self.subTest(site=site):
+                job = (OcrModel.MODEL_JOB_RECOGNIZE if site == 'recognition'
+                       else OcrModel.MODEL_JOB_SEGMENT)
+                user, document, part, layer, model = self._model(job, site)
+                model.file.save(f'{site}.mlmodel', ContentFile(b'legacy-base'), save=True)
+                legacy_path = model.file.path
+                model.new_version(file=model.file.name)
+                model.save()
+                state = {'order': []}
+
+                def convert(paths, dest):
+                    self.assertTrue(str(dest).endswith('.safetensors'))
+                    with open(dest, 'wb') as handle:
+                        handle.write(b'converted-weights')
+
+                if site == 'recognition':
+                    patches = self._recognition_patches(state, 'PPOCRv6Model')
+                    def call():
+                        train_(LineTranscription.objects.filter(transcription=layer),
+                               document=document, transcription=layer, model=model, epochs=1)
+                elif site == 'document-segmentation':
+                    patches = self._segmentation_patches(state)
+                    def call():
+                        segtrain(model_pk=model.pk, part_pks=[part.pk], document_pk=document.pk,
+                                 epochs=1)
+                else:
+                    collection = VirtualCollection.objects.create(name='conversion', owner=user)
+                    VirtualCollectionItem.objects.create(
+                        collection=collection, document_part=part, transcription_layer=layer)
+                    patches = self._segmentation_patches(state)
+                    def call():
+                        segtrain_from_collection(collection_pk=collection.pk, model_pk=model.pk,
+                                                 epochs=1)
+                patches.append(patch('core.tasks.convert_models', side_effect=convert))
+                self._run_patches(patches, call)
+                model.refresh_from_db()
+                self.assertTrue(model.file.name.endswith('.safetensors'))
+                with open(model.file.path, 'rb') as handle:
+                    self.assertEqual(handle.read(), b'converted-weights')
+                with open(legacy_path, 'rb') as handle:
+                    self.assertEqual(handle.read(), b'legacy-base')
+                history = [v['data']['file'] for v in model.versions]
+                self.assertIn(os.path.relpath(legacy_path, settings.MEDIA_ROOT), history)
+
+    def test_restore_base_uses_its_extension_and_keeps_current_artifact(self):
+        _user, _document, _part, _layer, model = self._model(
+            OcrModel.MODEL_JOB_SEGMENT, 'restore-base')
+        current_path = model.file.path
+        source = os.path.join(os.path.dirname(current_path), 'base.mlmodel')
+        with open(source, 'wb') as handle:
+            handle.write(b'original-base')
+        restore_base_model_file(model, source)
+        model.refresh_from_db()
+        self.assertTrue(model.file.name.endswith('.mlmodel'))
+        with open(model.file.path, 'rb') as handle:
+            self.assertEqual(handle.read(), b'original-base')
+        with open(current_path, 'rb') as handle:
+            self.assertEqual(handle.read(), b'fake-weights')
+        with patch('core.tasks.shutil.copy', side_effect=AssertionError('copied onto itself')):
+            restore_base_model_file(model, model.file.path)
+        original_name = model.file.name
+        with self.assertRaises(FileNotFoundError):
+            restore_base_model_file(model, '')
+        model.refresh_from_db()
+        self.assertEqual(model.file.name, original_name)
+
+    def test_switching_extension_does_not_save_stale_training_state(self):
+        _user, _document, _part, _layer, model = self._model(
+            OcrModel.MODEL_JOB_RECOGNIZE, 'file-field-only')
+        OcrModel.objects.filter(pk=model.pk).update(training=True)
+        switch_model_file(model, '.mlmodel')
+        model.refresh_from_db()
+        self.assertTrue(model.training)
+
+    def test_real_legacy_conversion_reload_uses_persisted_safetensors_path(self):
+        from kraken.lib.vgsl import TorchVGSLModel
+        from kraken.models import convert_models, load_models
+
+        _user, _document, _part, _layer, model = self._model(
+            OcrModel.MODEL_JOB_RECOGNIZE, 'real-format')
+        model.file.save('real-format.mlmodel', ContentFile(b''), save=True)
+        source = model.file.path
+        TorchVGSLModel(vgsl='[1,48,0,1 Lbx2 O1c3]').save_model(source)
+        with open(source, 'rb') as handle:
+            original = handle.read()
+        destination = model_file_path(model, '.safetensors')
+        output = convert_models([source], destination)
+        self.assertEqual(str(output), destination)
+        switch_model_file(model, '.safetensors')
+        model.refresh_from_db()
+        self.assertEqual(model.file.path, destination)
+        loaded = load_models(model.file.path)
+        self.assertEqual(len(loaded), 1)
+        self.assertEqual(loaded[0].__class__.__name__, 'TorchVGSLModel')
+        with open(source, 'rb') as handle:
+            self.assertEqual(handle.read(), original)
 
     @override_settings(KRAKEN_TRAINING_BATCH_SIZE=None,
                        KRAKEN_TRAINING_BATCH_SIZE_PPOCR=None,
