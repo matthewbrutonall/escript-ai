@@ -1635,7 +1635,7 @@ def segtrain_from_collection(collection_pk=None, model_pk=None, task_group_pk=No
         load = model.file.path
     except ValueError:  # model is empty
         started_without_artifact = not (model.versions or [])
-        load = getattr(settings, "SEGMENTATION_DEFAULT_MODEL", "")
+        load = SEGMENTATION_DEFAULT_MODEL
         model.file = model.file.field.upload_to(model, slugify(model.name) + ".safetensors")
 
     model_dir = os.path.join(settings.MEDIA_ROOT, os.path.split(model.file.path)[0])

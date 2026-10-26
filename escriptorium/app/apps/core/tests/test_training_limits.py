@@ -38,6 +38,7 @@ from core.tasks import (
     DidNotConverge,
     FrontendFeedback,
     KrakenTrainer,
+    SEGMENTATION_DEFAULT_MODEL,
     TrainingLimitError,
     allocate_training_run_dir,
     construct_kraken_trainer,
@@ -702,6 +703,36 @@ class TrainingPathTests(TestCase):
             ),
         )
         self._assert_trainer(state['trainer'], 50, 4, model)
+
+    def test_collection_segmentation_without_model_loads_bundled_baseline(self):
+        user, document, part, layer, model = self._model(
+            OcrModel.MODEL_JOB_SEGMENT, 'collection-base')
+        model.file = ''
+        model.save()
+        collection = VirtualCollection.objects.create(name='collection-base', owner=user)
+        VirtualCollectionItem.objects.create(
+            collection=collection, document_part=part, transcription_layer=layer)
+        state = {'order': []}
+
+        def convert(paths, dest):
+            with open(dest, 'wb') as handle:
+                handle.write(b'trained-weights')
+
+        with patch('core.tasks.BLLASegmentationModel') as kraken_model, \
+                patch('core.tasks.BLLASegmentationDataModule'), \
+                patch('core.tasks.make_segmentation_training_data', return_value=[]), \
+                patch('core.tasks.convert_models', side_effect=convert), \
+                patch.object(KrakenTrainer, 'fit', _fake_fit(state)), \
+                patch('core.tasks.qualify_model.delay'), \
+                patch('core.tasks.send_event'):
+            segtrain_from_collection(collection_pk=collection.pk, model_pk=model.pk)
+
+        self.assertEqual(kraken_model.load_from_weights.call_args.args[0],
+                         SEGMENTATION_DEFAULT_MODEL)
+        kraken_model.assert_not_called()
+        model.refresh_from_db()
+        self.assertFalse(model.training)
+        self.assertTrue(model.file.name.endswith('.safetensors'))
 
     def test_invalid_limits_do_not_construct_a_trainer(self):
         _user, document, part, layer, model = self._model(OcrModel.MODEL_JOB_RECOGNIZE, 'invalid')
