@@ -18,6 +18,7 @@ import subprocess
 import sys
 import time
 import unittest
+from contextlib import ExitStack
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
@@ -776,6 +777,58 @@ class TrainingPathTests(TestCase):
                 )
         seg_model.refresh_from_db()
         self.assertEqual(seg_model.versions or [], [])
+
+    def test_invalid_limits_report_reason_on_all_training_tasks(self):
+        reason = 'epochs must be >= 1 when quit is fixed, not 0.'
+        for task in (train, train_from_collection, segtrain, segtrain_from_collection):
+            with self.subTest(task=task.name):
+                segmenter = task in (segtrain, segtrain_from_collection)
+                collection_task = task in (train_from_collection, segtrain_from_collection)
+                job = OcrModel.MODEL_JOB_SEGMENT if segmenter else OcrModel.MODEL_JOB_RECOGNIZE
+                user, document, part, layer, model = self._model(job, 'invalid-feedback')
+                original_file = model.file.name
+                original_versions = list(model.versions or [])
+                kwargs = {'model_pk': model.pk, 'user_pk': user.pk, 'epochs': 0}
+                if collection_task:
+                    collection = VirtualCollection.objects.create(
+                        name='invalid-feedback', owner=user)
+                    VirtualCollectionItem.objects.create(
+                        collection=collection, document_part=part, transcription_layer=layer)
+                    room, room_pk = 'collection', collection.pk
+                    kwargs['collection_pk'] = collection.pk
+                else:
+                    room, room_pk = 'document', document.pk
+                    kwargs['part_pks'] = [part.pk]
+                    kwargs['document_pk' if segmenter else 'transcription_pk'] = (
+                        document.pk if segmenter else layer.pk)
+
+                with ExitStack() as stack:
+                    if segmenter:
+                        stack.enter_context(patch(
+                            'core.tasks._schedule_overrides',
+                            side_effect=TrainingLimitError(reason)))
+                        stack.enter_context(patch(
+                            'core.tasks.make_segmentation_training_data', return_value=[]))
+                    else:
+                        stack.enter_context(patch(
+                            'core.tasks.train_', side_effect=TrainingLimitError(reason)))
+                    events = stack.enter_context(patch('core.tasks.send_event'))
+                    notify = stack.enter_context(patch.object(type(user), 'notify'))
+                    trainer = stack.enter_context(patch(
+                        'core.tasks.KrakenTrainer', side_effect=AssertionError('constructed')))
+                    result = task.apply(kwargs=kwargs, throw=False)
+
+                self.assertTrue(result.failed(), result.result)
+                self.assertIsInstance(result.result, TrainingLimitError)
+                events.assert_any_call(room, room_pk, 'training:error', {'id': model.pk})
+                self.assertIn(reason, notify.call_args.args[0])
+                self.assertEqual(notify.call_args.kwargs['id'], 'training-limits-invalid')
+                self.assertEqual(notify.call_args.kwargs['level'], 'danger')
+                trainer.assert_not_called()
+                model.refresh_from_db()
+                self.assertFalse(model.training)
+                self.assertEqual(model.file.name, original_file)
+                self.assertEqual(model.versions or [], original_versions)
 
     def test_record_retained_checkpoint_refuses_missing_and_outside_files(self):
         _user, _document, _part, _layer, model = self._model(OcrModel.MODEL_JOB_RECOGNIZE, 'record')

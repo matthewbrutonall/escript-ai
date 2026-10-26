@@ -520,6 +520,15 @@ def _report_missing_checkpoint(model, user, room, room_pk, *, segmenter):
         user.notify(message, id="training-error", level="danger")
 
 
+def _report_invalid_training_limits(model, user, room, room_pk, error):
+    if model is not None and room_pk is not None:
+        send_event(room, room_pk, "training:error", {"id": model.pk})
+    if user is not None:
+        user.notify(
+            _("Training limits are invalid: %(reason)s") % {"reason": str(error)},
+            id="training-limits-invalid", level="danger")
+
+
 def _finish_training(model, *, discard, restore_file=None):
     """Clear the training flag, or remove a model that started with no file.
 
@@ -736,6 +745,9 @@ def segtrain(model_pk=None, part_pks=[], document_pk=None, task_group_pk=None, u
                             id="seg-no-gain-error", level='warning')
             restore_base_model_file(model, load)
 
+    except TrainingLimitError as exc:
+        _report_invalid_training_limits(model, user, 'document', document_pk, exc)
+        raise
     except CheckpointMissing as exc:
         _report_missing_checkpoint(model, user, 'document', document_pk, segmenter=True)
         discard_empty_model = exc.created_without_artifact
@@ -1174,7 +1186,9 @@ def train(transcription_pk=None, model_pk=None, task_group_pk=None,
                     **evaluation_options(model),
                 }
                 gate.save(update_fields=['held_out_cer', 'held_out_evaluation'])
-    except TrainingLimitError:
+    except TrainingLimitError as exc:
+        _report_invalid_training_limits(
+            model, user, 'document', document.pk if document is not None else None, exc)
         raise
     except CheckpointMissing as exc:
         room_pk = document.pk if document is not None else None
@@ -1542,7 +1556,8 @@ def train_from_collection(collection_pk=None, model_pk=None, task_group_pk=None,
             quit_mode=quit_mode,
             min_epochs=min_epochs,
         )
-    except TrainingLimitError:
+    except TrainingLimitError as exc:
+        _report_invalid_training_limits(model, user, 'collection', collection_pk, exc)
         raise
     except CheckpointMissing as exc:
         _report_missing_checkpoint(
@@ -1758,6 +1773,9 @@ def segtrain_from_collection(collection_pk=None, model_pk=None, task_group_pk=No
                     level="warning",
                 )
             restore_base_model_file(model, load)
+    except TrainingLimitError as exc:
+        _report_invalid_training_limits(model, user, 'collection', collection_pk, exc)
+        raise
     except CheckpointMissing as exc:
         _report_missing_checkpoint(
             model, user, "collection", collection_pk, segmenter=True)
