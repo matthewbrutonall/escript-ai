@@ -1,8 +1,8 @@
 # `ai` — Escript AI transcription app
 
-Self-contained Django app that adds AI-assisted transcription alongside kraken.
-**Additive: no change to `core` models.** Writes `LineTranscription` rows via
-the ORM (the way `DocumentPart.transcribe` already does).
+Django app that adds AI-assisted transcription alongside kraken. It writes
+`LineTranscription` rows via the ORM and extends the core model and training
+paths for held-out evaluation.
 
 This is part of **Escript AI**, an independent project **derived from**
 eScriptorium. It is not an official eScriptorium module.
@@ -21,6 +21,7 @@ Design: `../../../../ARCHITECTURE.md`. Tests and contribution rules:
 | `conventions.py` | Diplomatic toggles appended to the prompt |
 | `triage.py` | AI vs kraken CER + disagreement sample |
 | `gate.py` | Layer state `raw → sampled → training-eligible` |
+| `ketos_hook.py` | Held-out page selection, evaluation flags, and CER parsing |
 | `assignment.py` | Colour-key JSON health; scrambled crops do not stamp |
 | `passim_fallback.py` | Witness→OCR align; unmatched lines stay empty |
 | `fixthis.py` | One-line re-read prompt + parse |
@@ -75,6 +76,18 @@ python manage.py test ai.django_integration_tests
 ```
 
 Do not add tests that call Gemini, Anthropic, or OpenAI. Mock `requests.post`. The ORM checks mock the engine client.
+
+## Held-out evaluation
+
+Recognition model upload and model API fields accept a Unicode normalization
+form and a whitespace normalization choice for held-out `ketos test` runs.
+Follow the model card: for a card specifying `-u NFD -n`, choose NFD and leave
+whitespace normalization enabled. The default leaves Unicode text unchanged
+and normalizes whitespace, matching Kraken's default. The gate records the
+model ID, data format, and both options with a successful held-out CER. A
+later successful training run clears the old CER if evaluation has no result.
+Older CER values have no recorded options and should not be compared without
+checking the original run.
 
 `ai.pylaia_operator_smoke` is not part of either command above. It skips unless `PYLAIA_OPERATOR_SMOKE=1`, and then it calls a local PyLaia decode service that you start yourself. Empty recognized text is valid. It is process evidence, not an accuracy result. See `docs/external-htr-operator-workflow.md`.
 

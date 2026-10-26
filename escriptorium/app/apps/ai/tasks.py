@@ -131,6 +131,8 @@ def _write_layer_gate(job, transcription, comparison, rows, written_pks=None):
         rows, written_pks=written_pks, comparison=comparison)
     gate.sample_line_pks = summary['sample_line_pks']
     gate.mean_cer = summary['mean_cer']
+    gate.held_out_cer = None
+    gate.held_out_evaluation = {}
     gate.save()
     AILineDisagreement.objects.filter(gate=gate).delete()
     Line = apps.get_model('core', 'Line')

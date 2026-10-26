@@ -119,7 +119,7 @@ class AIDocumentPolicyAdmin(admin.ModelAdmin):
 
 @admin.register(AILayerGate)
 class AILayerGateAdmin(admin.ModelAdmin):
-    list_display = ('transcription', 'state', 'mean_cer', 'job', 'updated_at')
+    list_display = ('transcription', 'state', 'mean_cer', 'held_out_cer', 'job', 'updated_at')
     list_filter = ('state',)
     actions = ['acknowledge_sample_action', 'mark_eligible_action']
 

@@ -83,7 +83,7 @@ class CheckpointMissing(Exception):
 
 def _ketos_cer_from_qs(model, held_qs):
     """Build a binary eval set from held-out lines and run ketos test if possible."""
-    from ai.ketos_hook import run_ketos_test
+    from ai.ketos_hook import evaluation_options, run_ketos_test
     ground_truth = list(held_qs.values(
         'content',
         baseline=F('line__baseline'),
@@ -106,7 +106,9 @@ def _ketos_cer_from_qs(model, held_qs):
         except Exception:
             logger.exception("ai: could not build ketos eval set")
             return None
-        return run_ketos_test(model_path, [str(eval_file)], format_type='binary')
+        return run_ketos_test(
+            model_path, [str(eval_file)], format_type='binary',
+            **evaluation_options(model))
 
 
 def detect_model_architecture(file_path):
@@ -1153,6 +1155,10 @@ def train(transcription_pk=None, model_pk=None, task_group_pk=None,
               .exclude(Q(content='') | Q(content=None)))
         train_(qs, document, transcription, model=model, user=user,
                epochs=epochs, quit_mode=quit_mode, min_epochs=min_epochs)
+        if gate is not None:
+            gate.held_out_cer = None
+            gate.held_out_evaluation = {}
+            gate.save(update_fields=['held_out_cer', 'held_out_evaluation'])
         if gate is not None and gate.held_out_part_pks:
             held_qs = (LineTranscription.objects
                        .filter(transcription=transcription,
@@ -1160,8 +1166,14 @@ def train(transcription_pk=None, model_pk=None, task_group_pk=None,
                        .exclude(Q(content='') | Q(content=None)))
             cer = _ketos_cer_from_qs(model, held_qs)
             if cer is not None:
+                from ai.ketos_hook import evaluation_options
                 gate.held_out_cer = cer
-                gate.save(update_fields=['held_out_cer'])
+                gate.held_out_evaluation = {
+                    'model_pk': model.pk,
+                    'format_type': 'binary',
+                    **evaluation_options(model),
+                }
+                gate.save(update_fields=['held_out_cer', 'held_out_evaluation'])
     except TrainingLimitError:
         raise
     except CheckpointMissing as exc:

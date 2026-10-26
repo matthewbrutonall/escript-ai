@@ -2200,6 +2200,14 @@ class OcrModel(ExportModelOperationsMixin("OcrModel"), Versioned, models.Model):
     # Detected kraken model architecture (e.g. 'DFINEModel', 'VGSLModel'), populated asynchronously
     # by core.tasks.qualify_model whenever the file changes. None until qualified.
     architecture = models.CharField(max_length=64, null=True, blank=True)
+    EVALUATION_NORMALIZATION_CHOICES = (
+        ('NFD', 'NFD'), ('NFKD', 'NFKD'), ('NFC', 'NFC'), ('NFKC', 'NFKC'))
+    evaluation_normalization = models.CharField(
+        max_length=4, blank=True, default='', choices=EVALUATION_NORMALIZATION_CHOICES,
+        help_text=_("Unicode normalization for held-out ketos evaluation; use the model card's convention."))
+    evaluation_normalize_whitespace = models.BooleanField(
+        default=True,
+        help_text=_("Normalize whitespace in held-out ketos evaluation when the model card requires it."))
 
     MODEL_JOB_SEGMENT = 1
     MODEL_JOB_RECOGNIZE = 2
@@ -2225,6 +2233,8 @@ class OcrModel(ExportModelOperationsMixin("OcrModel"), Versioned, models.Model):
         "documents",
         "script",
         "training",
+        "evaluation_normalization",
+        "evaluation_normalize_whitespace",
         "parent",
     )
     version_history_max_length = None  # keep em all
@@ -2258,6 +2268,8 @@ class OcrModel(ExportModelOperationsMixin("OcrModel"), Versioned, models.Model):
             public=False,
             script=self.script,
             parent=self,
+            evaluation_normalization=self.evaluation_normalization,
+            evaluation_normalize_whitespace=self.evaluation_normalize_whitespace,
             versions=[],
             file_size=self.file.size,
         )

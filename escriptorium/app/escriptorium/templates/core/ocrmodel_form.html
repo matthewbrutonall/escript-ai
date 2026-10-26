@@ -8,6 +8,9 @@
         {% csrf_token %}
         {% render_field form.file %}
         {% render_field form.name %}
+        <p>{% trans 'Use the text evaluation rules stated on the model card. Otherwise keep the defaults.' %}</p>
+        {% render_field form.evaluation_normalization %}
+        {% render_field form.evaluation_normalize_whitespace %}
         <button type="submit" value="" class="nav-item btn btn-success" {% if not has_disk_storage_left %}disabled title="You don't have any disk storage left"{% endif %}>{% trans 'Upload' %}</button>
     </form>
 </div>

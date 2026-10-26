@@ -39,9 +39,11 @@ class AILayerGateSerializer(serializers.ModelSerializer):
         model = AILayerGate
         fields = (
             'pk', 'transcription', 'transcription_name', 'state', 'mean_cer',
+            'held_out_cer', 'held_out_evaluation',
             'sample_size', 'sample_lines', 'ack_phrase', 'comparison',
             'acknowledged_at',
         )
+        read_only_fields = ('held_out_cer', 'held_out_evaluation')
 
     def get_sample_size(self, obj):
         return len(obj.sample_line_pks or [])

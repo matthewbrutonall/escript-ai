@@ -24,6 +24,7 @@ from django.conf import settings
 from django.core.files.base import ContentFile
 from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 
+from ai.models import AILayerGate
 from core.models import (
     Line,
     LineTranscription,
@@ -311,6 +312,37 @@ class TrainingPathTests(TestCase):
         model.file.save(f'{name}.safetensors', ContentFile(b'fake-weights'), save=True)
         self.addCleanup(shutil.rmtree, os.path.dirname(model.file.path), True)
         return user, document, part, layer, model
+
+    def test_held_out_cer_records_options_and_clears_stale_result(self):
+        user, document, held_part, layer, model = self._model(
+            OcrModel.MODEL_JOB_RECOGNIZE, 'evaluation-options')
+        train_part = self.factory.make_part(document=document)
+        model.evaluation_normalization = 'NFD'
+        model.evaluation_normalize_whitespace = True
+        model.save(update_fields=['evaluation_normalization',
+                                  'evaluation_normalize_whitespace'])
+        gate = AILayerGate.objects.create(
+            transcription=layer, state=AILayerGate.STATE_TRAINING_ELIGIBLE,
+            held_out_part_pks=[held_part.pk])
+        kwargs = {
+            'transcription_pk': layer.pk, 'model_pk': model.pk,
+            'part_pks': [held_part.pk, train_part.pk],
+        }
+        with patch('core.tasks.train_'), \
+                patch('core.tasks._ketos_cer_from_qs', side_effect=[0.12, None]), \
+                patch('core.tasks.send_event'), \
+                patch('core.tasks.qualify_model.delay'):
+            self.assertTrue(train.apply(kwargs=kwargs, throw=True).successful())
+            gate.refresh_from_db()
+            self.assertEqual(gate.held_out_cer, 0.12)
+            self.assertEqual(gate.held_out_evaluation, {
+                'model_pk': model.pk, 'format_type': 'binary',
+                'normalization': 'NFD', 'normalize_whitespace': True})
+
+            self.assertTrue(train.apply(kwargs=kwargs, throw=True).successful())
+            gate.refresh_from_db()
+            self.assertIsNone(gate.held_out_cer)
+            self.assertEqual(gate.held_out_evaluation, {})
 
     def _plant_history(self, model):
         directory = os.path.dirname(model.file.path)
