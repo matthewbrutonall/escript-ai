@@ -1,6 +1,6 @@
 # Escript AI
 
-**Escript AI** helps archives turn scanned pages into editable, reviewable
+**Escript AI** is a powerful workbench for the reading of text with AI. Designed primarily, but not limited to, use by archivists and researchers, it helps  turn scanned pages into editable, reviewable
 text.
 
 Upload page images, let the system make a first draft, correct the text in the
