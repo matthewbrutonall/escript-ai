@@ -208,6 +208,18 @@
                         </EscrButton>
                         <EscrButton
                             color="secondary"
+                            :label="$t('externalHtr.open')"
+                            size="small"
+                            data-external-htr-open
+                            :disabled="loading && loading.images"
+                            :on-click="toggleExternalHtr"
+                        >
+                            <template #button-icon>
+                                <TranscribeIcon />
+                            </template>
+                        </EscrButton>
+                        <EscrButton
+                            color="secondary"
                             :label="$t('images.align')"
                             size="small"
                             :disabled="loading && loading.images"
@@ -301,6 +313,13 @@
                         </template>
                     </EscrButton>
                 </div>
+
+                <ExternalHtrPanel
+                    v-if="externalHtrOpen"
+                    :document-id="id"
+                    :part-ids="selectedParts"
+                    :on-imported="onExternalHtrImported"
+                />
 
                 <!-- image grid -->
                 <div
@@ -563,6 +582,7 @@ import AlignIcon from "../../components/Icons/AlignIcon/AlignIcon.vue";
 import AlignModal from "../../components/AlignModal/AlignModal.vue";
 import ConfirmModal from "../../components/ConfirmModal/ConfirmModal.vue";
 import EscrButton from "../../components/Button/Button.vue";
+import ExternalHtrPanel from "../../components/ExternalHtrPanel/ExternalHtrPanel.vue";
 import EscrLoader from "../../components/Loader/Loader.vue";
 import EscrPage from "../Page/Page.vue";
 import EscrTable from "../../components/Table/Table.vue";
@@ -613,6 +633,7 @@ export default {
         DownloadArchiveModal,
         DownloadIcon,
         EscrButton,
+        ExternalHtrPanel,
         EscrLoader,
         EscrPage,
         EscrTable,
@@ -692,6 +713,7 @@ export default {
     data() {
         return {
             contextMenuOpen: null,
+            externalHtrOpen: false,
             displayMode: "grid",
             importProgress: "",
             isReorderMode: false,
@@ -966,6 +988,16 @@ export default {
         }
     },
     methods: {
+        toggleExternalHtr() {
+            this.externalHtrOpen = !this.externalHtrOpen;
+        },
+        async onExternalHtrImported() {
+            try {
+                await this.fetchDocument();
+            } catch (error) {
+                this.addError(error);
+            }
+        },
         ...mapActions("alerts", ["addError"]),
         ...mapActions("document", [
             "closeShareModal",

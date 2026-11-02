@@ -136,6 +136,12 @@
         title="{% trans 'Start transcribing selected images.' %}"
       {% endif %}
     ><i class="fas fa-language mr-1"></i>{% trans "Transcribe" %}</button>
+    <button
+      type="button"
+      id="external-htr-open"
+      class="btn btn-sm btn-outline-primary mr-1"
+      data-external-htr-open
+    >{% trans "External HTR" %}</button>
     {% if TEXT_ALIGNMENT_ENABLED %}
       <button
         id="align-selected"
@@ -151,6 +157,41 @@
     {% endif %}
   </div>
 </div>
+
+<section id="external-htr-panel" class="card mt-2 mb-2" data-external-htr-panel hidden>
+  <div class="card-body">
+    <h2 class="h5">{% trans "External HTR" %}</h2>
+    <p class="mb-1">{% trans "This action is separate from Transcribe. It sends the selected pages to one enabled engine and can import a new transcription layer afterwards." %}</p>
+    <p class="mb-2">{% trans "A failure stays on that engine. It is not sent to another engine or to a hosted service." %}</p>
+    <div class="form-row">
+      <div class="form-group col-md-4">
+        <label for="external-htr-engine">{% trans "Engine" %}</label>
+        <select id="external-htr-engine" class="form-control form-control-sm" data-external-htr-engine></select>
+      </div>
+      <div class="form-group col-md-4">
+        <label for="external-htr-model">{% trans "Model" %}</label>
+        <select id="external-htr-model" class="form-control form-control-sm" data-external-htr-model></select>
+      </div>
+      <div class="form-group col-md-4 d-flex align-items-end">
+        <button type="button" class="btn btn-sm btn-primary" data-external-htr-start>{% trans "Recognise selected pages" %}</button>
+      </div>
+    </div>
+    <p data-external-htr-licence></p>
+    <p data-external-htr-line-height></p>
+    <p class="text-danger" data-external-htr-message></p>
+    <p data-external-htr-status></p>
+    <div data-external-htr-pages></div>
+    <button type="button" class="btn btn-sm btn-secondary mr-2" data-external-htr-import disabled>{% trans "Import new layer" %}</button>
+    <a data-external-htr-editor href="{% url 'document-part-edit' pk=document.pk %}">{% trans "Open in the editor" %}</a>
+    <form class="form-inline mt-2" data-external-htr-review hidden>
+      <label class="mr-2" for="external-htr-phrase">{% trans "Type exactly: I reviewed the sample" %}</label>
+      <input id="external-htr-phrase" class="form-control form-control-sm mr-2" type="text" autocomplete="off" data-external-htr-phrase>
+      <button type="submit" class="btn btn-sm btn-primary" data-external-htr-acknowledge>{% trans "Acknowledge sample" %}</button>
+    </form>
+    <button type="button" class="btn btn-sm btn-secondary mt-2" data-external-htr-eligible hidden>{% trans "Mark training-eligible" %}</button>
+    <p class="mt-2 mb-0">{% trans "After import, reload this page before Export so the new layer is listed. Machine text stays out of training until you review the sample." %}</p>
+  </div>
+</section>
 
 <div id="cards-container" class="mt-2 d-flex flex-row flex-nowrap {{ document.read_direction }}">
   <div class="droppable js-drop"></div>
@@ -238,7 +279,204 @@
     bootImageCards(DOCUMENT_ID, '{{has_disk_storage_left}}', '{{has_cpu_minutes_left}}', {{document.show_confidence_viz|lower}});
     bootLazyload();
     bootHelp();
+    bootExternalHtr();
   });
+
+  function bootExternalHtr() {
+    var documentId = {{ document.pk }};
+    var panel = document.querySelector("[data-external-htr-panel]");
+    var engineSelect = document.querySelector("[data-external-htr-engine]");
+    var modelSelect = document.querySelector("[data-external-htr-model]");
+    var startButton = document.querySelector("[data-external-htr-start]");
+    var importButton = document.querySelector("[data-external-htr-import]");
+    var statusNode = document.querySelector("[data-external-htr-status]");
+    var pagesNode = document.querySelector("[data-external-htr-pages]");
+    var messageNode = document.querySelector("[data-external-htr-message]");
+    var licenceNode = document.querySelector("[data-external-htr-licence]");
+    var lineHeightNode = document.querySelector("[data-external-htr-line-height]");
+    var engineName = "";
+    var reviewForm = document.querySelector("[data-external-htr-review]");
+    var phraseInput = document.querySelector("[data-external-htr-phrase]");
+    var eligibleButton = document.querySelector("[data-external-htr-eligible]");
+    var run = null;
+    var models = [];
+    var timer = null;
+    if (!panel || !engineSelect) return;
+
+    document.querySelector("[data-external-htr-open]").addEventListener("click", function() {
+      panel.hidden = !panel.hidden;
+      if (!panel.hidden && !engineSelect.options.length) loadEngines();
+    });
+    engineSelect.addEventListener("change", loadModels);
+    modelSelect.addEventListener("change", showLicence);
+    startButton.addEventListener("click", startRun);
+    importButton.addEventListener("click", importRun);
+    reviewForm.addEventListener("submit", acknowledge);
+    eligibleButton.addEventListener("click", markEligible);
+
+    function csrfToken() {
+      var match = document.cookie.match(/(?:^|; )csrftoken=([^;]+)/);
+      return match ? decodeURIComponent(match[1]) : "";
+    }
+    function selectedPartIds() {
+      var ids = [];
+      $("#cards-container .card").each(function() {
+        var card = $(this).data("partCard");
+        if (card && card.selected && typeof card.pk === "number") ids.push(card.pk);
+      });
+      return ids;
+    }
+    function showError(error) {
+      messageNode.textContent = error && error.message ? error.message : "External HTR could not be completed.";
+    }
+    function api(path, body) {
+      var options = { credentials: "same-origin", headers: { "Accept": "application/json" } };
+      if (body !== undefined) {
+        options.method = "POST";
+        options.headers["Content-Type"] = "application/json";
+        options.headers["X-CSRFToken"] = csrfToken();
+        options.body = JSON.stringify(body);
+      }
+      return fetch("/api/documents/" + documentId + path, options).then(function(response) {
+        return response.json().catch(function() { return {}; }).then(function(data) {
+          if (!response.ok) throw new Error(data.message || "External HTR could not be completed.");
+          return data;
+        });
+      });
+    }
+    function loadEngines() {
+      api("/external-htr/engines/").then(function(data) {
+        engineSelect.innerHTML = "";
+        var placeholder = document.createElement("option");
+        placeholder.value = "";
+        placeholder.textContent = "Choose an engine";
+        engineSelect.appendChild(placeholder);
+        (data.engines || []).forEach(function(engine) {
+          var option = document.createElement("option");
+          option.value = String(engine.id);
+          option.textContent = engine.name + (engine.available ? "" : " (unavailable)");
+          option.disabled = !engine.available;
+          engineSelect.appendChild(option);
+        });
+        loadRecent();
+      }).catch(showError);
+    }
+    function loadRecent() {
+      api("/external-htr/runs/").then(function(data) {
+        var latest = (data.runs || [])[0];
+        if (!latest) return;
+        run = { id: latest.id, status: latest.status, pages: [] };
+        if (["completed", "partial", "failed"].indexOf(latest.status) === -1) poll();
+        else loadRun();
+      }).catch(showError);
+    }
+    function loadModels() {
+      models = [];
+      engineName = "";
+      modelSelect.innerHTML = "";
+      if (!engineSelect.value) return;
+      api("/external-htr/engines/" + engineSelect.value + "/models/").then(function(data) {
+        engineName = data.engine || "";
+        models = data.models || [];
+        models.forEach(function(model) {
+          var option = document.createElement("option");
+          option.value = model.model_id;
+          option.textContent = model.display_name;
+          modelSelect.appendChild(option);
+        });
+        showLicence();
+      }).catch(showError);
+    }
+    function showLicence() {
+      var chosen = models.filter(function(model) { return model.model_id === modelSelect.value; })[0];
+      licenceNode.textContent = chosen ? "Licence reported by the engine: " + (chosen.licence || "—") : "";
+      if (!chosen) {
+        lineHeightNode.textContent = "";
+        return;
+      }
+      if (typeof chosen.line_height === "number" && chosen.line_height > 0) {
+        lineHeightNode.textContent = "Line images are resized to " + chosen.line_height + " pixels high before they are sent.";
+      } else if (engineName === "pylaia") {
+        lineHeightNode.textContent = "This model did not report a usable line height, so recognition cannot start.";
+      } else {
+        lineHeightNode.textContent = "";
+      }
+    }
+    function startRun() {
+      messageNode.textContent = "";
+      var ids = selectedPartIds();
+      if (!engineSelect.value || !modelSelect.value || !ids.length) {
+        showError(new Error("Choose an engine, a model, and at least one page."));
+        return;
+      }
+      var chosen = models.filter(function(model) { return model.model_id === modelSelect.value; })[0];
+      if (engineName === "pylaia" && !(chosen && typeof chosen.line_height === "number" && chosen.line_height > 0)) {
+        showError(new Error("This model did not report a usable line height, so recognition cannot start."));
+        return;
+      }
+      api("/external-htr/runs/", {
+        config_id: Number(engineSelect.value),
+        model_id: modelSelect.value,
+        part_ids: ids
+      }).then(function(data) {
+        run = { id: data.id, status: data.status, pages: [] };
+        render();
+        poll();
+      }).catch(showError);
+    }
+    function poll() {
+      if (timer) clearInterval(timer);
+      loadRun();
+      timer = setInterval(loadRun, 2000);
+    }
+    function loadRun() {
+      if (!run) return;
+      api("/external-htr/runs/" + run.id + "/").then(function(data) {
+        run = data;
+        render();
+        if (["completed", "partial", "failed"].indexOf(data.status) !== -1 && timer) {
+          clearInterval(timer);
+          timer = null;
+        }
+      }).catch(showError);
+    }
+    function render() {
+      if (!run) return;
+      statusNode.textContent = "Status: " + run.status + (run.code ? " (" + run.code + ")" : "") + (run.message ? " — " + run.message : "");
+      pagesNode.innerHTML = "";
+      (run.pages || []).forEach(function(page) {
+        var block = document.createElement("p");
+        var lines = (page.lines || []).map(function(line) {
+          return line.line_id + ": " + line.status + (line.code ? " (" + line.code + ")" : "") + (line.empty ? " empty text" : "") + ", " + (line.text_length || 0) + " characters";
+        }).join("; ");
+        block.textContent = "Page " + page.part_id + " " + page.status + (page.code ? " (" + page.code + ")" : "") +
+          "; requested " + (page.requested || 0) + ", skipped " + (page.skipped || 0) +
+          ", results " + (page.results || 0) + ", empty " + (page.empty_text || 0) +
+          ", warnings " + (page.warnings || 0) + ", attempts " + (page.attempts || 0) +
+          (lines ? "; " + lines : "");
+        pagesNode.appendChild(block);
+      });
+      importButton.disabled = !(run.status === "completed" || run.status === "partial") || run.imported;
+      reviewForm.hidden = !(run.imported && run.gate_state === "raw");
+      eligibleButton.hidden = !(run.imported && run.gate_state === "sampled");
+      if (run.imported) {
+        statusNode.textContent += " Imported layer: " + (run.layer_name || run.transcription_id) + ". Review gate: " + (run.gate_state || "—") + ".";
+      }
+    }
+    function importRun() {
+      if (!run) return;
+      api("/external-htr/runs/" + run.id + "/import/", {}).then(loadRun).catch(showError);
+    }
+    function acknowledge(event) {
+      event.preventDefault();
+      if (!run || !run.gate_id) return;
+      api("/ai-gates/" + run.gate_id + "/acknowledge/", { phrase: phraseInput.value }).then(loadRun).catch(showError);
+    }
+    function markEligible() {
+      if (!run || !run.gate_id) return;
+      api("/ai-gates/" + run.gate_id + "/mark_eligible/", {}).then(loadRun).catch(showError);
+    }
+  }
 </script>
 {% endif %}
 {% endblock %}

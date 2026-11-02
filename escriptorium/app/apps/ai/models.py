@@ -328,8 +328,9 @@ class ExternalHTREngineConfig(models.Model):
     """Address of an external line-recognition process.
 
     Stored configuration only. Transcription jobs do not read this table.
-    Saving the row does not call the endpoint. The admin probe may call the
-    configured endpoint for an explicit test. Do not put secrets in metadata.
+    The external HTR action calls only an enabled row. Saving the row does
+    not call the endpoint. The admin probe may call the configured endpoint
+    for an explicit test. Do not put secrets in metadata.
     """
     TIER_PRODUCTION = "production"
     TIER_API = "api"
@@ -345,7 +346,8 @@ class ExternalHTREngineConfig(models.Model):
         help_text=_("Base URL of the engine process. Routes are not called from here."))
     enabled = models.BooleanField(
         default=False,
-        help_text=_("Transcription jobs do not read this flag."))
+        help_text=_("The external HTR action calls only an enabled engine. "
+                    "The Transcribe action does not read this flag."))
     tier = models.CharField(max_length=16, choices=TIER_CHOICES)
     experimental = models.BooleanField(default=False)
     timeout_seconds = models.PositiveIntegerField(
@@ -370,11 +372,12 @@ class ExternalHTREngineConfig(models.Model):
 
 
 class ExternalHTRJob(models.Model):
-    """Audit row for a future external HTR action.
+    """Audit row for one page of an external HTR action.
 
-    Transcription jobs do not read this table. Saving a row does not call
-    an engine and does not write a transcription layer. Do not store API
-    keys, endpoint URLs, document paths, base64 images, or raw responses.
+    Transcription jobs do not read this table. The external HTR action
+    reads these rows. Saving a row does not call an engine. Import creates
+    a transcription layer in a separate step. Do not store API keys,
+    endpoint URLs, document paths, base64 images, or raw responses.
     """
     STATUS_PLANNED = "planned"
     STATUS_SENT = "sent"
@@ -422,10 +425,14 @@ class ExternalHTRJob(models.Model):
         default=False,
         help_text=_("True after a transcription layer has been created from this audit. "
                     "Stays true if that layer is later removed."))
-    imported_transcription = models.OneToOneField(
+    imported_transcription = models.ForeignKey(
         "core.Transcription", null=True, blank=True, on_delete=models.SET_NULL,
-        related_name="external_htr_import",
+        related_name="external_htr_imports",
         help_text=_("Layer created from this audit. Empty until import succeeds."))
+    run = models.ForeignKey(
+        "ExternalHTRRun", null=True, blank=True, on_delete=models.CASCADE,
+        related_name="page_jobs",
+        help_text=_("Run that owns this page audit. Empty for an operator audit."))
     created_by = models.ForeignKey(
         User, null=True, blank=True, on_delete=models.SET_NULL,
         related_name="external_htr_jobs")
@@ -488,3 +495,71 @@ class ExternalHTRLineResult(models.Model):
         warnings = self.warnings
         if not isinstance(warnings, list) or any(not isinstance(item, str) for item in warnings):
             raise ValidationError({"warnings": _("warnings must be a list of strings.")})
+
+
+class ExternalHTRRun(models.Model):
+    """One user-started external HTR recognition across selected pages.
+
+    Transcription jobs do not read this table. The external HTR action
+    reads these rows. A failed call stays on this engine. Do not store API
+    keys, endpoint URLs, document paths, base64 images, recognized text,
+    or raw responses.
+    """
+    STATUS_QUEUED = "queued"
+    STATUS_RUNNING = "running"
+    STATUS_COMPLETED = "completed"
+    STATUS_PARTIAL = "partial"
+    STATUS_FAILED = "failed"
+    STATUS_CHOICES = (
+        (STATUS_QUEUED, "queued"),
+        (STATUS_RUNNING, "running"),
+        (STATUS_COMPLETED, "completed"),
+        (STATUS_PARTIAL, "partial"),
+        (STATUS_FAILED, "failed"),
+    )
+
+    document = models.ForeignKey(
+        "core.Document", on_delete=models.CASCADE, related_name="external_htr_runs")
+    config = models.ForeignKey(
+        ExternalHTREngineConfig, on_delete=models.PROTECT, related_name="runs")
+    created_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="external_htr_runs")
+    model_id = models.CharField(
+        max_length=256,
+        help_text=_("Contract model id returned by the engine. Not a file path."))
+    engine = models.CharField(
+        max_length=256, blank=True, default="",
+        help_text=_("Engine name reported by capabilities. Not chosen by the user."))
+    status = models.CharField(
+        max_length=16, choices=STATUS_CHOICES, default=STATUS_QUEUED)
+    code = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text=_("Fixed status code. Do not store an endpoint, a path, or a response body."))
+    message = models.CharField(
+        max_length=256, blank=True, default="",
+        help_text=_("Fixed status text. Do not store API keys, endpoints, document paths, or raw responses."))
+    part_ids = models.JSONField(
+        default=list, blank=True,
+        help_text=_("Page ids for this run. Do not store images."))
+    pages = models.JSONField(
+        default=list, blank=True,
+        help_text=_("Per-page counts and line flags. Do not store recognized text, endpoints, or images."))
+    imported = models.BooleanField(
+        default=False,
+        help_text=_("True after a transcription layer has been created from this run. "
+                    "Stays true if that layer is later removed."))
+    imported_transcription = models.ForeignKey(
+        "core.Transcription", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="external_htr_run_import",
+        help_text=_("Layer created from this run. Empty until import succeeds."))
+    task_id = models.CharField(max_length=64, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "external HTR run"
+
+    def __str__(self):
+        return f"ExternalHTRRun#{self.pk} {self.status}"

@@ -1,7 +1,8 @@
 # External HTR operator check
 
-This is a manual check for an operator. It is not a workflow in the
-application, and it does not add a Transcribe option. The current
+This is a manual check for an operator. The application also has an
+External HTR action on the document images page. That action is separate
+from Transcribe and does not add a Transcribe option. The current
 Transcribe action and `ai_transcribe` are unchanged.
 
 The engine check, the request export, the file-based live check, and
@@ -16,9 +17,11 @@ audit. That command does not call an engine, and it is not the Transcribe
 action. A person still has to acknowledge the review sample and mark the
 layer eligible before training.
 
-`external-htr-integration.md` describes a future action that would send
-lines to an engine and write a layer in the same task. That send is not
-implemented. Completing the steps below does not implement it.
+`external-htr-integration.md` describes the External HTR action. It queues
+recognition for selected pages and imports a new layer only when a person
+asks. The operator commands below remain available. A failure is not sent
+to another engine. Completing only the steps below does not start that
+action.
 
 Run `manage.py` from `escriptorium/app`. `<config_id>` is the numeric id
 of an `ExternalHTREngineConfig` row, not its name.

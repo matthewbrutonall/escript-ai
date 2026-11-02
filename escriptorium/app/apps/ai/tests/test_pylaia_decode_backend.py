@@ -1,8 +1,11 @@
 """Injected PyLaia decode backend. DecodeRunner.run is mocked. No live decode."""
 import base64
+import io
 import json
+import pickle
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest import mock
 
@@ -15,6 +18,8 @@ from ai.external_engines.pylaia.decoder import (
     DecodeRunError,
     DecodedLine,
     DecodeRunResult,
+    declared_line_height,
+    line_height_from_config,
 )
 from ai.external_engines.pylaia.engine import handle
 from ai.htr_engine_contract import parse_error, parse_model, parse_model_list, parse_recognize_request
@@ -192,10 +197,48 @@ class DecodeBackendTests(unittest.TestCase):
         self.assertEqual(model.model_id, "configured")
         self.assertTrue(model.experimental)
         self.assertEqual(model.alphabet_note, "")
+        self.assertIsNone(model.input.line_height)
         self.assertNotIn(SECRET, json.dumps(body))
         self.assertEqual(missing, 404)
         self.assertEqual(parse_error(missing_body).code, "model_not_found")
         self.assertNotIn(SECRET, json.dumps(missing_body))
+
+    def test_model_config_reports_its_line_height_and_a_plain_file_does_not(self):
+        config = {
+            "kwargs": {
+                "image_sequencer": "none-16",
+                "cnn_poolsize": [[2, 2], [2, 2], [0, 0], [2, 2]],
+            }
+        }
+        self.assertEqual(line_height_from_config(config), 128)
+        self.assertIsNone(line_height_from_config({"kwargs": {"image_sequencer": "none-16"}}))
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            model = root / "model"
+            blob = io.BytesIO()
+            with zipfile.ZipFile(blob, "w") as archive:
+                archive.writestr("archive/data.pkl", pickle.dumps(config))
+            model.write_bytes(blob.getvalue())
+            self.assertEqual(declared_line_height(model), 128)
+            (root / "plain").mkdir()
+            model_dir = _model_dir(root / "plain")
+            work_root = root / "work"
+            work_root.mkdir()
+            plain = DecodePyLaiaBackend(
+                model_id="configured",
+                model_dir=model_dir,
+                work_root=work_root,
+            )
+            self.assertEqual(plain._line_height, None)
+            (model_dir / "model").write_bytes(blob.getvalue())
+            declared = DecodePyLaiaBackend(
+                model_id="configured",
+                model_dir=model_dir,
+                work_root=work_root,
+            )
+            _status, body = handle("GET", "/v1/models", backend=declared)
+        self.assertEqual(body["models"][0]["input"], {"line_height": 128})
+        self.assertNotIn(str(model), json.dumps(body))
 
     def test_wrong_model_and_duplicate_runner_lines_do_not_return_text(self):
         raw = _request_bytes("line-a", model_id="other")

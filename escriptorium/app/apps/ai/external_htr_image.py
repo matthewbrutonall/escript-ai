@@ -186,3 +186,44 @@ def _png(image, box, mode: str) -> LineImage:
 
 def _fail(code: str) -> LineImage:
     return LineImage(None, code)
+
+
+def scale_line_png(payload: str, line_height: int) -> str | None:
+    """Return ``payload`` scaled to ``line_height``, keeping its aspect ratio.
+
+    A crop that is already that height is returned unchanged. A result
+    wider than the encoder ceiling is refused. This does not replace the
+    crop with the page.
+    """
+    if (
+        isinstance(line_height, bool)
+        or not isinstance(line_height, int)
+        or line_height < 1
+        or line_height > MAX_HEIGHT
+    ):
+        return None
+    if not isinstance(payload, str) or payload.startswith("data:"):
+        return None
+    try:
+        raw = base64.standard_b64decode(payload)
+        with getattr(Image, "open")(io.BytesIO(raw)) as image:
+            image.load()
+            width = image.width
+            height = image.height
+            if width < 1 or height < 1:
+                return None
+            if height == line_height:
+                return payload
+            scaled_width = max(1, round(width * line_height / height))
+            if scaled_width > MAX_WIDTH:
+                return None
+            resample = getattr(getattr(Image, "Resampling", Image), "LANCZOS")
+            scaled = image.resize((scaled_width, line_height), resample)
+            buffer = io.BytesIO()
+            scaled.save(buffer, format="PNG")
+    except Exception:
+        return None
+    encoded = base64.standard_b64encode(buffer.getvalue()).decode("ascii")
+    if not encoded or encoded.startswith("data:") or len(encoded) % 4 != 0:
+        return None
+    return encoded

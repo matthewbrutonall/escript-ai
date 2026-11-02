@@ -18,6 +18,7 @@ from ai.external_engines.pylaia.decoder import (
     DecodeRunError,
     DecodeRunner,
     LineImage,
+    declared_line_height,
     prepare_decode,
 )
 
@@ -87,6 +88,7 @@ class DecodePyLaiaBackend:
             raise DecodeLayoutError("model_dir")
         self._model_dir = model_dir
         self._work_root = work_root
+        self._line_height = declared_line_height(model_dir / "model")
         self._runner = DecodeRunner(timeout_seconds=timeout_seconds)
 
     def capabilities(self) -> dict:
@@ -144,7 +146,9 @@ class DecodePyLaiaBackend:
             "source": "configured",
             "scripts": [],
             "languages": [],
-            "input": {},
+            "input": (
+                {"line_height": self._line_height} if self._line_height else {}
+            ),
             "alphabet_note": "",
             "experimental": True,
         }
