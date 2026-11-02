@@ -2,17 +2,22 @@
 
 This module prepares the file layout and argument list for
 ``pylaia-htr-decode-ctc``. ``DecodeRunner`` can start that program from an
-argument list. It does not load a model. The HTTP server does not call
-``prepare_decode`` or ``DecodeRunner``. ``--backend decode`` calls
-``check_model_layout`` before listening.
+argument list. It does not import PyLaia or load checkpoint weights. It
+reads the small model config only to report a fixed line height. The HTTP
+server does not call ``prepare_decode`` or ``DecodeRunner``. ``--backend
+decode`` calls ``check_model_layout`` before listening.
 Stdout lines are ``{image file name} {text}``. An empty transcription is the
 file name, a space, and no further characters. A line with no space is rejected.
 """
 from __future__ import annotations
 
+import io
 import json
 import os
+import pickle
+import re
 import subprocess
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
@@ -471,3 +476,129 @@ def _write_new(path: Path, payload: bytes) -> None:
         raise DecodeLayoutError("write") from None
     finally:
         os.close(fd)
+
+
+_MAX_DECLARED_HEIGHT = 1024
+_MAX_CONFIG_BYTES = 1_048_576
+_SEQUENCER_HEIGHT = re.compile(r"^[A-Za-z0-9]+-([1-9][0-9]*)$")
+
+
+class _ConfigValue:
+    """Stand-in for a class stored in a model config. It does not call that class."""
+
+    def __new__(cls, *args, **kwargs):
+        value = object.__new__(cls)
+        value.args = args
+        return value
+
+    def __init__(self, *args, **kwargs):
+        return None
+
+    def __setstate__(self, state):
+        self.state = state
+
+
+class _ConfigUnpickler(pickle.Unpickler):
+    """Load a model config without importing its declared classes."""
+
+    def find_class(self, module, name):
+        return _ConfigValue
+
+
+def declared_line_height(model_file: Path) -> int | None:
+    """Return the fixed input height stored in a PyLaia model config.
+
+    A file that is not a small config archive returns ``None``. This does
+    not open a checkpoint and does not import PyLaia.
+    """
+    if not isinstance(model_file, Path):
+        return None
+    try:
+        if not model_file.is_file() or model_file.stat().st_size > _MAX_CONFIG_BYTES:
+            return None
+        raw = model_file.read_bytes()
+    except OSError:
+        return None
+    if not raw.startswith(b"PK"):
+        return None
+    try:
+        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+            data = archive.read("archive/data.pkl")
+    except (OSError, zipfile.BadZipFile, KeyError, RuntimeError):
+        return None
+    if len(data) > _MAX_CONFIG_BYTES:
+        return None
+    try:
+        loaded = _ConfigUnpickler(io.BytesIO(data)).load()
+    except (pickle.UnpicklingError, AttributeError, EOFError, ValueError, TypeError):
+        return None
+    return line_height_from_config(loaded)
+
+
+def line_height_from_config(loaded) -> int | None:
+    """Derive input height from ``image_sequencer`` and vertical pool sizes."""
+    sequencer = _find(loaded, "image_sequencer")
+    pools = _find(loaded, "cnn_poolsize")
+    if not isinstance(sequencer, str):
+        return None
+    match = _SEQUENCER_HEIGHT.fullmatch(sequencer)
+    if match is None:
+        return None
+    feature_height = int(match.group(1))
+    factor = _vertical_factor(pools)
+    if factor is None:
+        return None
+    height = feature_height * factor
+    if height < 1 or height > _MAX_DECLARED_HEIGHT:
+        return None
+    return height
+
+
+def _vertical_factor(pools):
+    if not isinstance(pools, (list, tuple)) or not pools or len(pools) > 8:
+        return None
+    factor = 1
+    for pair in pools:
+        if isinstance(pair, (str, bytes)) or not isinstance(pair, (list, tuple)) or not pair:
+            return None
+        numbers = list(_integers(pair[0]))
+        if len(numbers) != 1 or numbers[0] < 0 or numbers[0] > 64:
+            return None
+        if numbers[0] > 0:
+            factor *= numbers[0]
+    return factor
+
+
+def _find(value, key):
+    if isinstance(value, dict):
+        if key in value:
+            return value[key]
+        for item in value.values():
+            found = _find(item, key)
+            if found is not None:
+                return found
+    elif isinstance(value, (list, tuple)) and not isinstance(value, (str, bytes)):
+        for item in value:
+            found = _find(item, key)
+            if found is not None:
+                return found
+    state = getattr(value, "state", None)
+    if isinstance(state, dict):
+        return _find(state, key)
+    return None
+
+
+def _integers(value):
+    if isinstance(value, bool):
+        return
+    if isinstance(value, int):
+        yield value
+        return
+    args = getattr(value, "args", None)
+    if isinstance(args, tuple):
+        for item in args:
+            yield from _integers(item)
+        return
+    if isinstance(value, (list, tuple)) and not isinstance(value, (str, bytes)):
+        for item in value:
+            yield from _integers(item)

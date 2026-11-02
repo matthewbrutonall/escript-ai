@@ -673,6 +673,37 @@ class DocumentViewSet(ModelViewSet):
         from ai.serializers import AITranscribeSerializer
         return self.get_process_response(request, AITranscribeSerializer)
 
+    @action(detail=True, methods=['get'], url_path='external-htr/engines')
+    def external_htr_engines(self, request, pk=None):
+        from ai.external_htr_user import list_engines
+        return list_engines(self.get_object(), request.user)
+
+    @action(detail=True, methods=['get'],
+            url_path='external-htr/engines/(?P<config_id>[0-9]+)/models')
+    def external_htr_models(self, request, pk=None, config_id=None):
+        from ai.external_htr_user import list_models
+        return list_models(self.get_object(), request.user, config_id)
+
+    @action(detail=True, methods=['get', 'post'], url_path='external-htr/runs')
+    def external_htr_runs(self, request, pk=None):
+        from ai.external_htr_user import list_runs, start_run
+        document = self.get_object()
+        if request.method == 'GET':
+            return list_runs(document, request.user)
+        return start_run(document, request.user, request.data)
+
+    @action(detail=True, methods=['get'],
+            url_path='external-htr/runs/(?P<run_id>[0-9]+)')
+    def external_htr_run_detail(self, request, pk=None, run_id=None):
+        from ai.external_htr_user import get_run
+        return get_run(self.get_object(), request.user, run_id)
+
+    @action(detail=True, methods=['post'],
+            url_path='external-htr/runs/(?P<run_id>[0-9]+)/import')
+    def external_htr_run_import(self, request, pk=None, run_id=None):
+        from ai.external_htr_user import import_run
+        return import_run(self.get_object(), request.user, run_id)
+
     @action(detail=True, methods=['post'])
     def ai_fix(self, request, pk=None):
         from ai.serializers import AIFixSerializer

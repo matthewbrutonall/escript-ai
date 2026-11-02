@@ -19,6 +19,7 @@ from ai.external_htr_image import (
     CODE_TOO_LARGE,
     MAX_PAD,
     encode_line_image,
+    scale_line_png,
 )
 from ai.htr_engine_contract import parse_recognize_request
 
@@ -247,6 +248,26 @@ class IsolationTests(unittest.TestCase):
             "Image.open",
         ):
             self.assertNotIn(banned, text, banned)
+
+    def test_scale_line_png_changes_only_the_height(self):
+        image = Image.new("RGB", (40, 20), (255, 255, 255))
+        image.putpixel((0, 0), (1, 2, 3))
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        payload = base64.standard_b64encode(buffer.getvalue()).decode("ascii")
+        scaled = scale_line_png(payload, 128)
+        self.assertIsNotNone(scaled)
+        self.assertNotEqual(scaled, payload)
+        opened = Image.open(io.BytesIO(base64.standard_b64decode(scaled)))
+        opened.load()
+        self.assertEqual(opened.size, (256, 128))
+        self.assertEqual(scale_line_png(scaled, 128), scaled)
+        self.assertIsNone(scale_line_png(payload, 0))
+        wide = Image.new("L", (4000, 2), 0)
+        wide_buffer = io.BytesIO()
+        wide.save(wide_buffer, format="PNG")
+        wide_payload = base64.standard_b64encode(wide_buffer.getvalue()).decode("ascii")
+        self.assertIsNone(scale_line_png(wide_payload, 128))
 
     def test_stage1_does_not_import_the_helper(self):
         command = (AI_DIR / "management" / "commands" / "plan_external_htr.py").read_text()

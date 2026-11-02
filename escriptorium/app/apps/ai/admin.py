@@ -13,7 +13,7 @@ from .models import (
     AIBackendConfig, AIDocumentPolicy, AIExample, AIJob, AILayerGate,
     AILineDisagreement, AISegSuggestion, AIUsageLedger,
     AIUserKey, AIUserQuota, ExternalHTREngineConfig, ExternalHTRJob,
-    ExternalHTRLineResult,
+    ExternalHTRLineResult, ExternalHTRRun,
 )
 from .secrets import encrypt_key, validate_encryption_secret
 
@@ -86,7 +86,7 @@ class ExternalHTRJobAdmin(admin.ModelAdmin):
     )
     list_filter = ("status",)
     search_fields = ("model_id", "engine")
-    raw_id_fields = ("document", "part", "config", "created_by")
+    raw_id_fields = ("document", "part", "config", "created_by", "run")
     readonly_fields = ("imported", "imported_transcription")
 
 
@@ -95,6 +95,18 @@ class ExternalHTRLineResultAdmin(admin.ModelAdmin):
     list_display = ("pk", "job", "line_id", "status", "position", "timing_ms")
     list_filter = ("status",)
     raw_id_fields = ("job",)
+
+
+@admin.register(ExternalHTRRun)
+class ExternalHTRRunAdmin(admin.ModelAdmin):
+    list_display = ("pk", "status", "document", "model_id", "imported", "created_at")
+    list_filter = ("status", "imported")
+    search_fields = ("model_id", "engine")
+    raw_id_fields = ("document", "config", "created_by", "imported_transcription")
+    readonly_fields = (
+        "imported", "imported_transcription", "pages", "part_ids",
+        "code", "message", "task_id", "engine",
+    )
 
 
 @admin.register(AIBackendConfig)

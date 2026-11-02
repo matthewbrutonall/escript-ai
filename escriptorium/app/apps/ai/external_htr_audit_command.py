@@ -17,7 +17,7 @@ from ai.external_htr_audit import (
     record_external_htr_apply,
     record_external_htr_plan,
 )
-from ai.external_htr_image import encode_line_image
+from ai.external_htr_image import encode_line_image, scale_line_png
 from ai.external_htr_live import (
     MESSAGE_APPLY,
     MESSAGE_CLIENT,
@@ -117,6 +117,9 @@ def execute_external_htr_audit(
     record_apply=record_external_htr_apply,
     run=run_external_htr_live,
     fetch_policy=None,
+    created_by=None,
+    audit_run=None,
+    line_height=None,
 ) -> tuple[int, str]:
     """Audit one document part. A disabled config returns before the page opens.
 
@@ -162,7 +165,7 @@ def execute_external_htr_audit(
                 part_id=part_pk,
                 engine=engine,
                 model_id=model_id,
-                encode_line=_encode_loaded_page(page),
+                encode_line=_encode_loaded_page(page, line_height),
             )
         except Exception:
             return _fail(CODE_INTERNAL)
@@ -177,7 +180,7 @@ def execute_external_htr_audit(
             document=document,
             config=config,
             part=part,
-            created_by=None,
+            created_by=created_by,
         )
     except ExternalHtrAuditError as exc:
         return _fail(_public_code(getattr(exc, "code", None), CODE_INTERNAL))
@@ -185,6 +188,12 @@ def execute_external_htr_audit(
         return _fail(CODE_INTERNAL)
     if job is None:
         return _fail(CODE_INTERNAL)
+    if audit_run is not None:
+        try:
+            job.run = audit_run
+            job.save(update_fields=["run", "updated_at"])
+        except Exception:
+            return _fail(CODE_INTERNAL)
     request = getattr(built, "request", None)
     if not _sendable(built, request):
         if getattr(job, "status", None) == STATUS_PLANNED:
@@ -374,7 +383,7 @@ def _usable_page(page) -> bool:
     return callable(getattr(page, "crop", None))
 
 
-def _encode_loaded_page(page):
+def _encode_loaded_page(page, line_height=None):
     def encode(line):
         try:
             result = encode_line_image(page, line)
@@ -385,6 +394,8 @@ def _encode_loaded_page(page):
             return None
         if image.startswith("data:"):
             return None
+        if line_height is not None:
+            image = scale_line_png(image, line_height)
         return image
 
     return encode

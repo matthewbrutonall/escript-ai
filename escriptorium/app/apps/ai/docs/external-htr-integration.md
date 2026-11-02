@@ -1,17 +1,19 @@
 # External HTR transcription integration
 
-This note describes a future action that would send selected document lines
-to an `ExternalHTREngineConfig` and write a new transcription layer. That
-send is not implemented. Writing a layer from an audit that is already
-stored is the operator command `import_external_htr_audit`. Saving an
-engine row, running the contract check, or starting the optional PyLaia
-smoke service does not transcribe a document. Existing transcription jobs,
-views, and the Transcribe action do not read that table and do not call
-these routes.
+The External HTR action on the document images page sends selected lines
+to one enabled `ExternalHTREngineConfig` and, when a person asks, writes
+a new transcription layer. It is not part of Transcribe or `ai_transcribe`.
+Existing transcription jobs do not read that table and do not call these
+routes. Saving an engine row, running the contract check, or starting the
+optional PyLaia smoke service does not by itself transcribe a document.
 
-The operator procedure that is available now is
-`external-htr-operator-workflow.md`. It checks an engine and can import a
-completed audit. It does not implement the send described below.
+`import_external_htr_audit` still writes a layer from an audit that is
+already stored. The images-page action is a separate path: a background
+task calls the engine, and a later request imports the run.
+
+The operator procedure remains
+`external-htr-operator-workflow.md`. HTRflow is not integrated.
+`htrflow-follow-up.md` records the page-level seam for that later work.
 
 `external_htr_writeback_plan.py` is separate from that action. It can plan
 a new layer from a completed audit. It does not send a request, create the
@@ -158,24 +160,32 @@ the existing correction signal. That record does not mark the layer
 training-eligible.
 
 `import_external_htr_audit` previews that import, or applies it with
-`--apply`. The engine-calling task in the next section is still not
-implemented.
+`--apply`. The images-page action is separate. Its background task calls
+the engine, and import waits for a person.
 
-## Proposed first integration
+## External HTR action
 
-Add a new explicit task. Do not change `ai_transcribe` or the current
-Transcribe action.
+The action is a new explicit task. It does not change `ai_transcribe` or
+the current Transcribe action.
 
-The operator chooses document parts and one enabled
+The user chooses document parts and one enabled
 `ExternalHTREngineConfig`. The task loads capabilities and the model list
-from that endpoint. The operator chooses one `model_id` from that list.
+from that endpoint. The user chooses one `model_id` from that list.
 The id is not a file path, and it is not taken from `metadata`.
 
-For each selected part, crop each existing line with the line mask already
-stored on the part. Use the same tight crop the per-line path already uses
-(`crop_line`). Do not send the colour-keyed region image used by the
+For each selected part, use `encode_line_image` with the line geometry
+already stored on the part. It rejects unusable geometry rather than
+falling back to the whole page. Do not use `crop_line`, whose empty-box
+fallback can return the whole page. Do not send the colour-keyed region image used by the
 hosted VLM path. Encode each crop as PNG, then as standard base64 with no
 `data:` prefix and no whitespace. A line with no usable mask is not sent.
+
+A PyLaia model must report `input.line_height`. The action reads that
+height from the model list before it queues a job. A PyLaia model that
+does not report a usable height is refused, and no run is created. When
+the height is reported, each sent crop is resized to that height and its
+aspect ratio is kept. The height is not a fixed value in the application.
+A failure still stays on that engine.
 
 Send those images to `POST /v1/recognize` through `recognize_lines`. Set
 `line_id` to the line primary key as a string. Send only preprocessing
@@ -188,7 +198,8 @@ Write the text into a new `core.Transcription` layer created for this run.
 Do not append it to the layer used by the existing Transcribe action, and
 do not overwrite a kraken layer. The planner only proposes that layer.
 `import_external_htr_writeback` can create it from an audit that is
-already stored. This task does not exist yet. Stamp each written line with
+already stored. The images-page import uses a separate helper and does not
+call that writer from the background task. Stamp each written line with
 
 `external-htr:<engine>:<model_id>`
 
@@ -198,17 +209,18 @@ response provenance. A response whose provenance does not match its header
 is not written. `confidence` stays engine-specific and is not a rank.
 `timing_ms` of 0 means the engine did not measure that interval.
 
-The layer starts as draft text. `import_external_htr_audit --apply`
-records a raw gate and its review sample for a layer it creates from an
-audit that is already stored. A person still has to acknowledge that
-sample and mark the layer training-eligible. The operator task in this
-section does not exist yet and does not add another gate.
+The layer starts as draft text. `import_external_htr_audit --apply` and
+the images-page import each record a raw gate and a review sample. A
+person still has to acknowledge that sample and mark the layer
+training-eligible. Import does not acknowledge the sample and does not
+add another gate.
 
 ## Safety
 
 Call the endpoint only when `enabled` is true. The default stays false.
 Nothing in import, save, or the existing Transcribe button selects an
-external engine.
+external engine. The separate External HTR action does, and only for an
+enabled row.
 
 Do not put secrets in `metadata`. The client continues to ignore that
 field. The model bundle stays outside the repository and outside the row.

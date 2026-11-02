@@ -294,3 +294,6 @@ def ai_seg_review(self, instance_pks, ai_config_pk=None, user_pk=None,
         notify_user(user, _("AI segmentation review done!"),
                     id="ai-seg-review-success", level='success')
     return {"cost": total_cost, "suggestions": n_sugg, "errors": part_errors}
+
+
+from ai.external_htr_tasks import external_htr_recognize  # noqa: F401
