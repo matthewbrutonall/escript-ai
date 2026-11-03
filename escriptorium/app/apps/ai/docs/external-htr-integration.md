@@ -13,7 +13,10 @@ task calls the engine, and a later request imports the run.
 
 The operator procedure remains
 `external-htr-operator-workflow.md`. HTRflow is not integrated.
-`htrflow-follow-up.md` records the page-level seam for that later work.
+`htrflow-follow-up.md` records why the line contract cannot represent a
+page of regions, line geometry, and line text, and the separate page
+contract used when an engine row is explicitly marked for page recognition.
+That path is not an accepted integration.
 
 `external_htr_writeback_plan.py` is separate from that action. It can plan
 a new layer from a completed audit. It does not send a request, create the

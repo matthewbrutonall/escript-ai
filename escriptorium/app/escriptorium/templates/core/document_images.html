@@ -394,6 +394,14 @@
         lineHeightNode.textContent = "";
         return;
       }
+      if (engineName === "htrflow") {
+        if (chosen.num_beams !== undefined && chosen.num_beams !== null && chosen.num_beams !== 1) {
+          lineHeightNode.textContent = "This model does not use one beam, so recognition cannot start.";
+        } else {
+          lineHeightNode.textContent = "This engine reads the whole page, including its layout and line text. It does not send separate line images.";
+        }
+        return;
+      }
       if (typeof chosen.line_height === "number" && chosen.line_height > 0) {
         lineHeightNode.textContent = "Line images are resized to " + chosen.line_height + " pixels high before they are sent.";
       } else if (engineName === "pylaia") {
@@ -410,6 +418,10 @@
         return;
       }
       var chosen = models.filter(function(model) { return model.model_id === modelSelect.value; })[0];
+      if (engineName === "htrflow" && chosen && chosen.num_beams !== undefined && chosen.num_beams !== null && chosen.num_beams !== 1) {
+        showError(new Error("This model does not use one beam, so recognition cannot start."));
+        return;
+      }
       if (engineName === "pylaia" && !(chosen && typeof chosen.line_height === "number" && chosen.line_height > 0)) {
         showError(new Error("This model did not report a usable line height, so recognition cannot start."));
         return;
