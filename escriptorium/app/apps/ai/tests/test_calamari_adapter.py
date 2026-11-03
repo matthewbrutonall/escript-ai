@@ -1,4 +1,4 @@
-"""Calamari stays on the line contract and is not integrated. No network."""
+"""Calamari stays on the line contract. No network."""
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,8 +11,8 @@ PACKAGE = AI_DIR / "external_engines" / "calamari"
 
 
 class AdapterTests(unittest.TestCase):
-    def test_integration_flag_stays_false(self):
-        self.assertIs(CALAMARI_INTEGRATED, False)
+    def test_integration_flag_is_true(self):
+        self.assertIs(CALAMARI_INTEGRATED, True)
         text = (AI_DIR / "calamari_adapter.py").read_text(encoding="utf-8")
         self.assertNotIn("import django", text)
         self.assertNotIn("urllib", text)

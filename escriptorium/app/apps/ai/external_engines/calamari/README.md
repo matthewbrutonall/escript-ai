@@ -1,6 +1,6 @@
 # Calamari line wrapper
 
-This is the external-engine shape for a Calamari line service. The default command is not a recognizer. Calamari is not installed in the Escript AI app image, and this package does not import it. Transcription jobs do not start it. Do not deploy it as HTR. `CALAMARI_INTEGRATED` stays false until a real checkpoint and a manual workflow are both verified.
+This is the external-engine shape for a Calamari line service. The default command is not a recognizer. Calamari is not installed in the Escript AI app image, and this package does not import it. Transcription jobs do not start it. `CALAMARI_INTEGRATED` is true. A real checkpoint and a manual workflow were verified.
 
 `backend.py` answers `capabilities`, `list_models`, `get_model`, and `recognize`. The default `UnavailableCalamariBackend` does not read a directory. The HTTP routes call that object and do not contain recognition code.
 
