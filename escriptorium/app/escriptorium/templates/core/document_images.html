@@ -353,9 +353,10 @@
         engineSelect.appendChild(placeholder);
         (data.engines || []).forEach(function(engine) {
           var option = document.createElement("option");
-          option.value = String(engine.id);
-          option.textContent = engine.name + (engine.available ? "" : " (unavailable)");
-          option.disabled = !engine.available;
+          var placeholder = engine.placeholder === true;
+          option.value = placeholder ? "pylaia" : String(engine.id);
+          option.textContent = engine.name + (placeholder || engine.available ? "" : " (unavailable)");
+          option.disabled = !engine.available && !placeholder;
           engineSelect.appendChild(option);
         });
         loadRecent();
@@ -374,6 +375,13 @@
       models = [];
       engineName = "";
       modelSelect.innerHTML = "";
+      if (engineSelect.value === "pylaia") {
+        engineName = "pylaia";
+        startButton.disabled = true;
+        showLicence();
+        return;
+      }
+      startButton.disabled = false;
       if (!engineSelect.value) return;
       api("/external-htr/engines/" + engineSelect.value + "/models/").then(function(data) {
         engineName = data.engine || "";

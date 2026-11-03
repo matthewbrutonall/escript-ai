@@ -12,15 +12,15 @@
                 <select
                     data-external-htr-engine
                     :disabled="busy"
-                    :value="configId"
+                    :value="configId || (engineName === 'pylaia' ? 'pylaia' : '')"
                     @change="onEngineChange"
                 >
                     <option value="">{{ $t("externalHtr.chooseEngine") }}</option>
                     <option
                         v-for="engine in engines"
-                        :key="engine.id"
-                        :value="String(engine.id)"
-                        :disabled="!engine.available"
+                        :key="engine.placeholder ? 'pylaia' : engine.id"
+                        :value="engine.placeholder ? 'pylaia' : String(engine.id)"
+                        :disabled="!engine.available && !engine.placeholder"
                     >
                         {{ engineLabel(engine) }}
                     </option>
@@ -278,6 +278,7 @@ export default {
     },
     methods: {
         engineLabel(engine) {
+            if (engine.placeholder) return engine.name;
             const suffix = engine.available ? "" : ` (${this.$t("externalHtr.unavailable")})`;
             return `${engine.name}${suffix}`;
         },
@@ -315,10 +316,17 @@ export default {
             }
         },
         onEngineChange(event) {
-            this.configId = event.target.value;
-            this.engineName = "";
+            const value = event.target.value;
             this.modelId = "";
             this.models = [];
+            this.error = "";
+            if (value === "pylaia") {
+                this.configId = "";
+                this.engineName = "pylaia";
+                return;
+            }
+            this.configId = value;
+            this.engineName = "";
             if (this.configId) this.loadModels();
         },
         onModelChange(event) {

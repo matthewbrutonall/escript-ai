@@ -202,6 +202,99 @@ class ExternalHtrRunOrmTests(TestCase):
         self.assertEqual(run.code, "unavailable")
         self.assertEqual(run.message, "recognition job was not queued")
 
+    def test_pylaia_menu_needs_no_row_and_a_saved_row_keeps_the_line_height_rule(self):
+        htrflow = ExternalHTREngineConfig.objects.create(
+            name="HTRflow",
+            endpoint_url="http://127.0.0.1:9/",
+            enabled=True,
+            tier=ExternalHTREngineConfig.TIER_RESEARCH,
+            experimental=True,
+            timeout_seconds=10,
+            metadata={"task": "recognize_page", "engine": "htrflow"},
+        )
+        before = ExternalHTREngineConfig.objects.count()
+        with patch("urllib.request.urlopen", side_effect=AssertionError("urlopen")):
+            body = self.client.get(self._url("external-htr/engines/")).json()
+        self.assertEqual(ExternalHTREngineConfig.objects.count(), before)
+        names = [row["name"] for row in body["engines"]]
+        self.assertIn("HTRflow", names)
+        self.assertEqual(names.count("PyLaia"), 1)
+        placeholder = next(row for row in body["engines"] if row["name"] == "PyLaia")
+        self.assertIsNone(placeholder["id"])
+        self.assertTrue(placeholder["placeholder"])
+        self.assertFalse(placeholder["available"])
+        self.assertFalse(placeholder["enabled"])
+        self.assertNotIn("endpoint_url", json.dumps(body))
+        htrflow_row = next(row for row in body["engines"] if row["id"] == htrflow.pk)
+        self.assertTrue(htrflow_row["available"])
+        self.assertNotIn("placeholder", htrflow_row)
+
+        config = ExternalHTREngineConfig.objects.create(
+            name="PyLaia",
+            endpoint_url="http://127.0.0.1:9/",
+            enabled=True,
+            tier=ExternalHTREngineConfig.TIER_RESEARCH,
+            experimental=True,
+            timeout_seconds=10,
+            metadata={},
+        )
+        listed = self.client.get(self._url("external-htr/engines/")).json()["engines"]
+        self.assertFalse(any(row.get("placeholder") for row in listed))
+        self.assertTrue(any(
+            row["id"] == config.pk and row["name"] == "PyLaia" and row["available"] is True
+            for row in listed
+        ))
+        self.assertTrue(any(row["id"] == htrflow.pk and row["name"] == "HTRflow" for row in listed))
+
+        bare = SimpleNamespace(
+            engine="pylaia",
+            models=(SimpleNamespace(
+                model_id="huginmunin",
+                display_name="Huginmunin",
+                licence="unspecified",
+                experimental=True,
+                input=SimpleNamespace(line_height=None),
+            ),),
+        )
+        ready = SimpleNamespace(
+            engine="pylaia",
+            models=(SimpleNamespace(
+                model_id="huginmunin",
+                display_name="Huginmunin",
+                licence="unspecified",
+                experimental=True,
+                input=SimpleNamespace(line_height=128),
+            ),),
+        )
+        caps = SimpleNamespace(engine="pylaia")
+        with patch("ai.htr_engine_client.fetch_capabilities", return_value=caps), patch(
+            "ai.htr_engine_client.fetch_models", return_value=bare,
+        ), patch("urllib.request.urlopen", side_effect=AssertionError("urlopen")):
+            refused_models = self.client.get(
+                self._url("external-htr/engines/%s/models/" % config.pk),
+            )
+            refused_run = start_run(
+                self.document, self.owner,
+                {"config_id": config.pk, "model_id": "huginmunin", "part_ids": [self.part.pk]},
+                queue=lambda _run_id: (_ for _ in ()).throw(AssertionError("queued")),
+            )
+        self.assertEqual(refused_models.status_code, 200)
+        self.assertEqual(refused_models.json()["engine"], "pylaia")
+        self.assertIsNone(refused_models.json()["models"][0]["line_height"])
+        self.assertEqual(refused_run.status_code, 400)
+        self.assertEqual(refused_run.data["code"], "model_line_height")
+        self.assertEqual(ExternalHTRRun.objects.count(), 0)
+
+        with patch("ai.htr_engine_client.fetch_capabilities", return_value=caps), patch(
+            "ai.htr_engine_client.fetch_models", return_value=ready,
+        ), patch("urllib.request.urlopen", side_effect=AssertionError("urlopen")):
+            accepted = self.client.get(self._url("external-htr/engines/%s/models/" % config.pk))
+        self.assertEqual(accepted.status_code, 200)
+        model = accepted.json()["models"][0]
+        self.assertEqual(model["model_id"], "huginmunin")
+        self.assertEqual(model["line_height"], 128)
+        self.assertEqual(ExternalHTRRun.objects.count(), 0)
+
     def test_pylaia_line_height_is_required_before_a_page_is_opened(self):
         config = self._config("http://127.0.0.1:9/")
         bare = SimpleNamespace(
