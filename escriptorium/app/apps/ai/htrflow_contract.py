@@ -3,7 +3,7 @@
 The line contract cannot represent a page of regions, line geometry, and
 line text. This module checks the page-model list and the beam width.
 It does not open a network connection, read an image, or write a
-transcription. HTRflow is not integrated into Escript AI.
+transcription. The page workflow is integrated.
 """
 from __future__ import annotations
 

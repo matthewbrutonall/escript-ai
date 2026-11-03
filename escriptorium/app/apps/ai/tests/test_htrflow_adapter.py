@@ -69,10 +69,10 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(plan.code, CODE_INVALID)
         self.assertEqual(plan.lines, ())
 
-    def test_module_does_not_call_an_engine_or_claim_integration(self):
-        self.assertIs(HTRFLOW_INTEGRATED, False)
+    def test_module_does_not_call_an_engine(self):
+        self.assertIs(HTRFLOW_INTEGRATED, True)
         text = MODULE.read_text(encoding="utf-8")
-        self.assertIn("HTRflow is not integrated", text)
+        self.assertIn("does not call HTRflow", text)
         tree = ast.parse(text)
         modules = []
         for node in ast.walk(tree):

@@ -2,7 +2,7 @@
 
 Calls ``GET /v1/page-models`` and ``POST /v1/recognize-page``. It does not
 retry, does not follow a redirect, and does not read ``metadata``. Tests
-replace ``urllib.request.urlopen``. HTRflow is not integrated into Escript AI.
+replace ``urllib.request.urlopen``. The page workflow is integrated.
 """
 from __future__ import annotations
 

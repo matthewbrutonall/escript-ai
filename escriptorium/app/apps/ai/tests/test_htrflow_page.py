@@ -303,14 +303,21 @@ class ContractTests(unittest.TestCase):
         self.assertNotIn("secret.example", str(redirected.exception))
         self.assertEqual(redirected.exception.code, "invalid_response")
 
-    def test_modules_do_not_call_line_recognition_or_claim_integration(self):
-        self.assertIs(HTRFLOW_INTEGRATED, False)
+    def test_modules_do_not_call_line_recognition(self):
+        self.assertIs(HTRFLOW_INTEGRATED, True)
         adapter = (AI_DIR / "htrflow_adapter.py").read_text(encoding="utf-8")
-        self.assertIn("HTRflow is not integrated", adapter)
+        self.assertIn("does not call HTRflow", adapter)
         follow = (AI_DIR / "docs" / "htrflow-follow-up.md").read_text(encoding="utf-8")
-        self.assertIn("HTRflow is not integrated into Escript AI.", follow)
+        self.assertIn("HTRflow page recognition is integrated into Escript AI.", follow)
         self.assertIn("Line.external_id", follow)
-        self.assertIn("Geometry validation is not complete.", follow)
+        self.assertIn(
+            "The checked page coordinates matched the source image, so the parser does not rescale them.",
+            follow,
+        )
+        self.assertIn(
+            "Each polygon contains ink, and no polygon point falls outside the image.",
+            follow,
+        )
         self.assertNotIn("Stage 2 roadmap", follow)
         for name in ("htrflow_contract.py", "htrflow_alto.py"):
             self._assert_isolated(AI_DIR / name, {"django", "urllib", "requests", "socket", "celery"})

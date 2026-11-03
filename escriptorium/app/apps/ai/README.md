@@ -36,10 +36,10 @@ Design: `../../../../ARCHITECTURE.md`. Tests and contribution rules:
 | `serializers.py` / `views.py` | DRF: transcribe, `GET /api/ai-backends/`, document `ai-gates` |
 | `htr_engine_contract.py` | External HTR engine contract, v1. Not imported by existing transcription jobs, views, or adapters |
 | `htr_engine_client.py` | GET capabilities and models, plus `recognize_lines` (`POST /v1/recognize`). Not imported by transcription jobs |
-| `htrflow_contract.py` | Page-model list and beam check. Separate from `recognize_lines`. Does not call an endpoint. HTRflow is not integrated into Escript AI |
+| `htrflow_contract.py` | Page-model list and beam check. Separate from `recognize_lines`. Does not call an endpoint. The page workflow is integrated |
 | `htrflow_alto.py` | Reads one ALTO page into geometry and line text. Does not call an endpoint or write a transcription |
 | `htrflow_client.py` | `GET /v1/page-models` and `POST /v1/recognize-page`. Sends `num_beams` 1. Not used unless an engine row is marked for page recognition |
-| `docs/htrflow-follow-up.md` | Why the line contract cannot represent this page output, and the page contract. HTRflow is not integrated into Escript AI |
+| `docs/htrflow-follow-up.md` | Why the line contract cannot represent this page output, and the page contract. The page workflow is integrated and is not deployed to the public site |
 | `docs/htr-engine-contract.md` | Wrapper-facing examples for that contract. Not a running service |
 | `docs/external-htr-integration.md` | Distinguishes the writeback planner and `import_external_htr_audit` from the future task that would call an engine. That task is not implemented. Transcription jobs do not use the planner, the writer, or the import command |
 | `docs/external-htr-operator-workflow.md` | Operator steps to export a request JSON, run a file-based live check, record an audit, and import that audit. The engine check does not write a transcription layer. `import_external_htr_audit` previews by default; `--apply` creates one fresh layer. It does not change Transcribe |
