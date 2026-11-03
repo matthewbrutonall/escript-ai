@@ -222,6 +222,15 @@ def _line(element, region_id, order, seen_ids, width, height):
 
 
 def _string(element):
+    """Read line text from ``String`` elements.
+
+    One ``String`` is that element's ``CONTENT``, spaces included. HTRflow
+    0.2.6 ``WordLevelTrOCR`` emits one ``String`` per piece of
+    ``line.split(" ")`` and stores an empty piece as a single space. It
+    does not emit a space element or a second copy of the line. Several
+    strings are joined by reversing that split, in document order. They
+    are not sorted by position and their contents are not concatenated.
+    """
     parts = []
     confidence = None
     for child in element.iter():
@@ -232,7 +241,10 @@ def _string(element):
             parts.append(content)
         if confidence is None:
             confidence = _confidence(child.get("WC"))
-    return "".join(parts), confidence
+    if len(parts) <= 1:
+        return (parts[0] if parts else ""), confidence
+    pieces = ["" if part == " " else part for part in parts]
+    return " ".join(pieces), confidence
 
 
 def _confidence(value):
