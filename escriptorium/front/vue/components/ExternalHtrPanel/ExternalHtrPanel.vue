@@ -12,14 +12,14 @@
                 <select
                     data-external-htr-engine
                     :disabled="busy"
-                    :value="configId || (engineName === 'pylaia' ? 'pylaia' : '')"
+                    :value="engineSelectValue"
                     @change="onEngineChange"
                 >
                     <option value="">{{ $t("externalHtr.chooseEngine") }}</option>
                     <option
                         v-for="engine in engines"
-                        :key="engine.placeholder ? 'pylaia' : engine.id"
-                        :value="engine.placeholder ? 'pylaia' : String(engine.id)"
+                        :key="engine.placeholder ? engine.engine : engine.id"
+                        :value="engine.placeholder ? engine.engine : String(engine.id)"
                         :disabled="!engine.available && !engine.placeholder"
                     >
                         {{ engineLabel(engine) }}
@@ -258,6 +258,13 @@ export default {
             if (beams === undefined || beams === null) return false;
             return beams !== 1;
         },
+        engineSelectValue() {
+            if (this.configId) return this.configId;
+            if (this.engineName === "pylaia" || this.engineName === "calamari") {
+                return this.engineName;
+            }
+            return "";
+        },
         canStart() {
             return !this.busy && this.configId && this.modelId && this.partIds.length > 0
                 && !this.lineHeightBlocked && !this.beamBlocked;
@@ -320,9 +327,9 @@ export default {
             this.modelId = "";
             this.models = [];
             this.error = "";
-            if (value === "pylaia") {
+            if (value === "pylaia" || value === "calamari") {
                 this.configId = "";
-                this.engineName = "pylaia";
+                this.engineName = value;
                 return;
             }
             this.configId = value;
