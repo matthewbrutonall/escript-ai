@@ -10,6 +10,7 @@ from rest_framework import status
 from rest_framework.response import Response
 
 from ai.external_htr_dispatch import is_htrflow_page_config
+from ai.external_htr_menu import engine_menu
 from ai.external_htr_policy import review_document_endpoint
 from ai.external_htr_run import (
     CODE_CONFIG,
@@ -59,8 +60,9 @@ def list_engines(document, user):
         return denied
     from ai.models import ExternalHTREngineConfig
 
+    configs = list(ExternalHTREngineConfig.objects.order_by("name"))
     engines = []
-    for config in ExternalHTREngineConfig.objects.order_by("name"):
+    for config in configs:
         enabled = config.enabled is True
         engines.append({
             "id": config.pk,
@@ -70,7 +72,7 @@ def list_engines(document, user):
             "enabled": enabled,
             "available": enabled and config.tier != "api",
         })
-    return Response({"engines": engines})
+    return Response({"engines": engine_menu(configs, engines)})
 
 
 def list_models(document, user, config_id):

@@ -36,6 +36,13 @@ model list only. It does not recognize a line.
 The URL is the base only. Routes are joined by the client. A single-label
 host such as `http://pylaia-smoke:8766` cannot be saved.
 
+The images-page engine menu lists saved rows. When none of those rows is
+PyLaia, the menu adds one PyLaia entry with no id, no endpoint, and no
+models. That entry does not create a config row, and recognition stays
+disabled. A saved PyLaia row replaces it. Models for that row load through
+the line contract, and a model without a usable `input.line_height` is
+refused before a page image is opened.
+
 ### Client
 
 `htr_engine_client.py` can `GET /v1/capabilities`, `GET /v1/models`,
