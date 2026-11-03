@@ -260,6 +260,8 @@ const en = {
         licence: "Licence reported by the engine: {licence}",
         lineHeight: "Line images are resized to {height} pixels high before they are sent.",
         lineHeightMissing: "This model did not report a usable line height, so recognition cannot start.",
+        pageLevel: "This engine reads the whole page, including its layout and line text. It does not send separate line images.",
+        beamRefused: "This model does not use one beam, so recognition cannot start.",
         start: "Recognise selected pages",
         status: "Status: {status}",
         page: "Page",

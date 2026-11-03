@@ -58,7 +58,20 @@
             {{ $t("externalHtr.licence", { licence: selectedModel.licence || "—" }) }}
         </p>
         <p
-            v-if="selectedModel && selectedModel.line_height"
+            v-if="engineName === 'htrflow' && !beamBlocked"
+            data-external-htr-page
+        >
+            {{ $t("externalHtr.pageLevel") }}
+        </p>
+        <p
+            v-if="beamBlocked"
+            class="escr-external-htr-error"
+            data-external-htr-beam
+        >
+            {{ $t("externalHtr.beamRefused") }}
+        </p>
+        <p
+            v-if="selectedModel && selectedModel.line_height && engineName !== 'htrflow'"
             data-external-htr-line-height
         >
             {{ $t("externalHtr.lineHeight", { height: selectedModel.line_height }) }}
@@ -239,9 +252,15 @@ export default {
             const height = this.selectedModel.line_height;
             return typeof height !== "number" || height < 1;
         },
+        beamBlocked() {
+            if (this.engineName !== "htrflow" || !this.selectedModel) return false;
+            const beams = this.selectedModel.num_beams;
+            if (beams === undefined || beams === null) return false;
+            return beams !== 1;
+        },
         canStart() {
             return !this.busy && this.configId && this.modelId && this.partIds.length > 0
-                && !this.lineHeightBlocked;
+                && !this.lineHeightBlocked && !this.beamBlocked;
         },
         canImport() {
             return !this.busy && this.run && ["completed", "partial"].includes(this.run.status)

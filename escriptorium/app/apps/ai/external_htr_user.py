@@ -9,6 +9,7 @@ from __future__ import annotations
 from rest_framework import status
 from rest_framework.response import Response
 
+from ai.external_htr_dispatch import is_htrflow_page_config
 from ai.external_htr_policy import review_document_endpoint
 from ai.external_htr_run import (
     CODE_CONFIG,
@@ -27,6 +28,7 @@ from ai.external_htr_run import (
     MESSAGE_PERMISSION,
     MESSAGE_RESPONSE,
     MESSAGE_TIER,
+    MESSAGE_UNAVAILABLE,
     _message,
     _public,
 )
@@ -34,6 +36,8 @@ from ai.htr_engine_client import EngineClientError
 from ai.htr_engine_contract import ContractError
 
 CODE_INVALID = "invalid_request"
+CODE_BEAM = "beam_width_refused"
+MESSAGE_BEAM = "model beam width was not accepted"
 MESSAGE_PAGES = "pages were not accepted"
 MESSAGE_TOO_MANY = "too many pages"
 MESSAGE_MODEL_ID = "model was not accepted"
@@ -80,6 +84,8 @@ def list_models(document, user, config_id):
     refused = _refused(document, config)
     if refused is not None:
         return refused
+    if is_htrflow_page_config(config):
+        return _page_models(config)
     try:
         from ai.htr_engine_client import fetch_capabilities, fetch_models
         capabilities = fetch_capabilities(config)
@@ -147,7 +153,10 @@ def start_run(document, user, payload, queue=None):
         return _error(CODE_INVALID, MESSAGE_MODEL_ID)
     if len(model_id) > 256:
         return _error(CODE_INVALID, MESSAGE_MODEL_ID)
-    blocked_model = _pylaia_line_height(config, model_id)
+    if is_htrflow_page_config(config):
+        blocked_model = _htrflow_beams(config, model_id)
+    else:
+        blocked_model = _pylaia_line_height(config, model_id)
     if blocked_model is not None:
         return blocked_model
     part_ids, part_error = _part_ids(document, payload.get("part_ids"))
@@ -202,9 +211,14 @@ def import_run(document, user, run_id):
     run = _run(document, run_id)
     if run is None:
         return Response({"code": CODE_INTERNAL, "message": "recognition was not found"}, status=404)
-    from ai.external_htr_run_import import import_external_htr_run
+    if run.engine == "htrflow":
+        from ai.htrflow_run_import import import_htrflow_run
 
-    result = import_external_htr_run(run.pk)
+        result = import_htrflow_run(run.pk)
+    else:
+        from ai.external_htr_run_import import import_external_htr_run
+
+        result = import_external_htr_run(run.pk)
     body = {
         "code": result.code,
         "message": result.message,
@@ -349,6 +363,75 @@ def _reported_line_height(model):
     if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 1024:
         return None
     return value
+
+
+_PAGE_MESSAGES = {
+    "disabled": MESSAGE_DISABLED,
+    "timeout": MESSAGE_UNAVAILABLE,
+    "unavailable": MESSAGE_UNAVAILABLE,
+    "invalid_response": MESSAGE_RESPONSE,
+    "http_error": MESSAGE_UNAVAILABLE,
+    "invalid_request": "recognition request was not accepted",
+    CODE_BEAM: MESSAGE_BEAM,
+}
+
+
+def _page_models(config):
+    """List page pipelines. Does not open a page image."""
+    try:
+        from ai.htrflow_client import HtrflowClientError, fetch_page_models
+
+        listed = fetch_page_models(config)
+    except HtrflowClientError as exc:
+        code = exc.code if isinstance(getattr(exc, "code", None), str) else CODE_RESPONSE
+        safe = code if code in _PAGE_MESSAGES else CODE_RESPONSE
+        return _error(safe, _PAGE_MESSAGES.get(safe, MESSAGE_RESPONSE))
+    except Exception:
+        return _error(CODE_RESPONSE, MESSAGE_RESPONSE)
+    if getattr(listed, "engine", None) != "htrflow" or not isinstance(getattr(listed, "models", None), tuple):
+        return _error(CODE_RESPONSE, MESSAGE_RESPONSE)
+    from ai.htrflow_contract import public_num_beams
+
+    models = []
+    for model in listed.models:
+        models.append({
+            "model_id": model.model_id,
+            "display_name": model.display_name or model.model_id,
+            "licence": model.licence if isinstance(model.licence, str) else "",
+            "experimental": model.experimental is True,
+            "num_beams": public_num_beams(model),
+            "task": "recognize_page",
+        })
+    return Response({"engine": "htrflow", "models": models})
+
+
+def _htrflow_beams(config, model_id):
+    """Refuse a reported beam width other than 1 before a run is queued.
+
+    A failed model-list call does not block the queue. The worker records
+    that failure. This check does not open a page image.
+    """
+    try:
+        from ai.htrflow_client import fetch_page_models
+
+        listed = fetch_page_models(config)
+    except Exception:
+        return None
+    if getattr(listed, "engine", None) != "htrflow" or not isinstance(getattr(listed, "models", None), tuple):
+        return _error(CODE_RESPONSE, MESSAGE_RESPONSE)
+    chosen = None
+    for model in listed.models:
+        if getattr(model, "model_id", None) == model_id:
+            chosen = model
+            break
+    if chosen is None:
+        return _error(CODE_MODEL, MESSAGE_MODEL)
+    if getattr(chosen, "beams_present", False):
+        from ai.htrflow_contract import beam_refusal
+
+        if beam_refusal(getattr(chosen, "num_beams", None)):
+            return _error(CODE_BEAM, MESSAGE_BEAM)
+    return None
 
 
 def _pylaia_line_height(config, model_id):

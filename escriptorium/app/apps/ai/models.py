@@ -433,6 +433,10 @@ class ExternalHTRJob(models.Model):
         "ExternalHTRRun", null=True, blank=True, on_delete=models.CASCADE,
         related_name="page_jobs",
         help_text=_("Run that owns this page audit. Empty for an operator audit."))
+    layout = models.JSONField(
+        default=dict, blank=True,
+        help_text=_("Polygons and engine ids for one page. "
+                    "Do not store an image, recognized text, or an endpoint."))
     created_by = models.ForeignKey(
         User, null=True, blank=True, on_delete=models.SET_NULL,
         related_name="external_htr_jobs")
