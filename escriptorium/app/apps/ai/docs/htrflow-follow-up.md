@@ -34,3 +34,9 @@ Those checks use the ALTO page rectangle. The checked page coordinates matched t
 `HTRFLOW_INTEGRATED` is true. The checked browser run selected the engine, recognised one page, imported a new layer, and left that layer raw and training-ineligible. This is not a character-error rate, and it is not a deployment to the public site.
 
 Calamari is listed as a line-recognition choice and is not integrated. Loghi, TrOCR, DRetHTR, and Laypa remain future candidates without adapters. The HTRflow page contract is unchanged.
+
+## SATRN page pipeline
+
+`satrn-riksarkivet` is a separate HTRflow page pipeline. It uses the `Satrn` adapter in HTRflow 0.2.6 and the model repository `Riksarkivet/satrn_htr` at revision `a40c7093232eaa47a83ce6469fc4abd033486bdc`. The weights at that revision are MIT. It is not a line adapter, and it does not replace `handwriting-english-large` or the other TrOCR page pipelines.
+
+The images page lists it only when `GET /v1/page-models` returns that `model_id`. A missing service, a missing model file, or any reported beam width other than the integer 1 leaves it unavailable. The worker calls only the selected id. It does not fall back to TrOCR. A successful import stamps `external-htr:htrflow:satrn-riksarkivet`, leaves the new layer raw, and does not mark it training-eligible. This note does not state a character-error rate. The operator page service is not part of this repository.
