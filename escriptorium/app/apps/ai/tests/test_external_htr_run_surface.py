@@ -72,12 +72,12 @@ class SurfaceTests(unittest.TestCase):
         self.assertIn("OneToOneField", previous)
         self.assertNotIn("AlterField", previous)
 
-    def test_public_notes_keep_the_line_crop_rule_and_do_not_claim_htrflow(self):
+    def test_public_notes_keep_the_line_crop_rule_and_record_htrflow(self):
         integration = (AI_DIR / "docs" / "external-htr-integration.md").read_text(encoding="utf-8")
         self.assertIn("Do not use `crop_line`, whose empty-box", integration)
         self.assertNotIn("Stage 2 roadmap", integration)
         follow = (AI_DIR / "docs" / "htrflow-follow-up.md").read_text(encoding="utf-8")
-        self.assertIn("HTRflow is not integrated into Escript AI.", follow)
+        self.assertIn("HTRflow page recognition is integrated into Escript AI.", follow)
         self.assertIn("Line.external_id", follow)
         for name in ("Calamari", "Loghi", "TrOCR", "DRetHTR", "Laypa"):
             self.assertIn(name, follow, name)

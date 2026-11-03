@@ -2,8 +2,7 @@
 
 The trusted document and page ids are supplied by the caller. ALTO does
 not contain them. This module does not open a network connection, read a
-page image, or write a transcription. HTRflow is not integrated into
-Escript AI.
+page image, or write a transcription. The page workflow is integrated.
 """
 from __future__ import annotations
 

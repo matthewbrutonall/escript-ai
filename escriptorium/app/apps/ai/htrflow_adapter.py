@@ -1,15 +1,14 @@
-"""Plan how a future HTRflow page result could be imported.
+"""Plan how an HTRflow page result is imported.
 
-HTRflow is not integrated. This module does not call HTRflow, open a
-network connection, or write a transcription. A later parser can turn
-ALTO or PAGE XML into the payload accepted here. Unknown line ids are
+The page workflow is integrated. This module does not call HTRflow, open a
+network connection, or write a transcription. Unknown line ids are
 skipped. This planner does not create layout lines.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-HTRFLOW_INTEGRATED = False
+HTRFLOW_INTEGRATED = True
 
 CODE_READY = "htrflow_planned"
 CODE_MISMATCH = "part_mismatch"
