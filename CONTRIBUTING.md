@@ -39,7 +39,7 @@ These tests **must not** touch the network or a provider API. They use
 | External HTR contract check (not used by transcription jobs) | `escriptorium/app/apps/ai/htr_engine_contract_check.py` |
 | External HTR contract check command (not used by transcription jobs) | `escriptorium/app/apps/ai/management/commands/check_external_htr_engine.py` |
 | PyLaia wrapper skeleton (no PyLaia dependency, not a recognizer; runtime belongs in a separate engine container) | `escriptorium/app/apps/ai/external_engines/pylaia/` |
-| Calamari line wrapper (no Calamari dependency, not integrated; `CALAMARI_INTEGRATED` stays false) | `escriptorium/app/apps/ai/calamari_adapter.py`, `escriptorium/app/apps/ai/external_engines/calamari/` |
+| Calamari line wrapper (`CALAMARI_INTEGRATED` is true; the app image does not install Calamari) | `escriptorium/app/apps/ai/calamari_adapter.py`, `escriptorium/app/apps/ai/external_engines/calamari/` |
 | Design | `ARCHITECTURE.md` |
 
 Do not inject AI into `DocumentPart.transcribe()` (that path is kraken). Do not

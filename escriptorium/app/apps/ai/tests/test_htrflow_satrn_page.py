@@ -217,7 +217,7 @@ class SatrnPageTests(unittest.TestCase):
         self.assertIn("This note does not state a character-error rate.", follow)
         self.assertIn("The operator page service is not part of this repository.", follow)
         self.assertIn(
-            "Calamari is listed as a line-recognition choice and is not integrated.",
+            "Calamari is listed as a line-recognition choice and is integrated.",
             follow,
         )
         self.assertNotIn("Stage 2 roadmap", follow)

@@ -48,9 +48,9 @@ no endpoint, and no models. That entry does not create a config row, and
 recognition stays disabled. A saved Calamari row replaces only that entry.
 Its models load through the line contract (`recognize_lines`,
 `POST /v1/recognize`). The HTRflow page contract is unchanged. Calamari is
-not integrated. `CALAMARI_INTEGRATED` stays false until a real checkpoint
-and a manual workflow are both verified. The app image does not install
-Calamari. See `external_engines/calamari/README.md`.
+integrated. `CALAMARI_INTEGRATED` is true. A real checkpoint and a manual
+workflow were verified. The app image does not install Calamari. See
+`external_engines/calamari/README.md`.
 
 ### Client
 
