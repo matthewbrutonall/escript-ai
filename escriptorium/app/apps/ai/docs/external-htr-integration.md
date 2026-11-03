@@ -43,6 +43,15 @@ disabled. A saved PyLaia row replaces it. Models for that row load through
 the line contract, and a model without a usable `input.line_height` is
 refused before a page image is opened.
 
+When no saved row is Calamari, the menu adds one Calamari entry with no id,
+no endpoint, and no models. That entry does not create a config row, and
+recognition stays disabled. A saved Calamari row replaces only that entry.
+Its models load through the line contract (`recognize_lines`,
+`POST /v1/recognize`). The HTRflow page contract is unchanged. Calamari is
+not integrated. `CALAMARI_INTEGRATED` stays false until a real checkpoint
+and a manual workflow are both verified. The app image does not install
+Calamari. See `external_engines/calamari/README.md`.
+
 ### Client
 
 `htr_engine_client.py` can `GET /v1/capabilities`, `GET /v1/models`,

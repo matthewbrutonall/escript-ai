@@ -219,11 +219,18 @@ class ExternalHtrRunOrmTests(TestCase):
         names = [row["name"] for row in body["engines"]]
         self.assertIn("HTRflow", names)
         self.assertEqual(names.count("PyLaia"), 1)
+        self.assertEqual(names.count("Calamari"), 1)
         placeholder = next(row for row in body["engines"] if row["name"] == "PyLaia")
         self.assertIsNone(placeholder["id"])
         self.assertTrue(placeholder["placeholder"])
         self.assertFalse(placeholder["available"])
         self.assertFalse(placeholder["enabled"])
+        calamari = next(row for row in body["engines"] if row["name"] == "Calamari")
+        self.assertIsNone(calamari["id"])
+        self.assertEqual(calamari["engine"], "calamari")
+        self.assertTrue(calamari["placeholder"])
+        self.assertFalse(calamari["available"])
+        self.assertFalse(calamari["enabled"])
         self.assertNotIn("endpoint_url", json.dumps(body))
         htrflow_row = next(row for row in body["engines"] if row["id"] == htrflow.pk)
         self.assertTrue(htrflow_row["available"])
@@ -239,11 +246,17 @@ class ExternalHtrRunOrmTests(TestCase):
             metadata={},
         )
         listed = self.client.get(self._url("external-htr/engines/")).json()["engines"]
-        self.assertFalse(any(row.get("placeholder") for row in listed))
+        self.assertEqual([row["name"] for row in listed].count("PyLaia"), 1)
         self.assertTrue(any(
             row["id"] == config.pk and row["name"] == "PyLaia" and row["available"] is True
+            and not row.get("placeholder")
             for row in listed
         ))
+        remaining = [row for row in listed if row.get("placeholder")]
+        self.assertEqual([row["engine"] for row in remaining], ["calamari"])
+        self.assertEqual(remaining[0]["name"], "Calamari")
+        self.assertIsNone(remaining[0]["id"])
+        self.assertNotIn("endpoint_url", json.dumps(listed))
         self.assertTrue(any(row["id"] == htrflow.pk and row["name"] == "HTRflow" for row in listed))
 
         bare = SimpleNamespace(

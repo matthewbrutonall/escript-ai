@@ -354,7 +354,7 @@
         (data.engines || []).forEach(function(engine) {
           var option = document.createElement("option");
           var placeholder = engine.placeholder === true;
-          option.value = placeholder ? "pylaia" : String(engine.id);
+          option.value = placeholder ? engine.engine : String(engine.id);
           option.textContent = engine.name + (placeholder || engine.available ? "" : " (unavailable)");
           option.disabled = !engine.available && !placeholder;
           engineSelect.appendChild(option);
@@ -375,8 +375,8 @@
       models = [];
       engineName = "";
       modelSelect.innerHTML = "";
-      if (engineSelect.value === "pylaia") {
-        engineName = "pylaia";
+      if (engineSelect.value === "pylaia" || engineSelect.value === "calamari") {
+        engineName = engineSelect.value;
         startButton.disabled = true;
         showLicence();
         return;
