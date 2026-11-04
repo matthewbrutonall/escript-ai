@@ -117,7 +117,10 @@ def main(argv: list[str] | None = None) -> int:
         default="unavailable",
         help="Backend to construct. The default is unavailable.",
     )
-    parser.add_argument("--model-dir", help="SavedModel directory for --backend predict.")
+    parser.add_argument(
+        "--model-dir",
+        help="Converted runtime directory for --backend predict. It contains model.keras and no .pb file.",
+    )
     parser.add_argument("--work-root", help="Writable work directory for --backend predict.")
     parser.add_argument("--output-dir", help="Loghi output directory to clean after a request.")
     parser.add_argument(

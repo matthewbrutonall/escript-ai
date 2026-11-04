@@ -142,9 +142,10 @@ class LoghiClient:
         pending = {identifier: line_id for line_id, identifier, _image in posts}
         found = {}
         deadline = self._clock() + self._timeout
-        failures = 0
+        transport_misses = 0
         while pending and self._clock() < deadline:
             progress = False
+            saw_response = False
             for identifier, line_id in list(pending.items()):
                 status, payload = self._call(
                     "GET",
@@ -152,18 +153,21 @@ class LoghiClient:
                     None,
                     {},
                 )
+                if status != 0:
+                    saw_response = True
                 outcome = _interpret(line_id, status, payload)
                 if outcome is None:
-                    if status == 0:
-                        failures += 1
                     continue
                 progress = True
-                failures = 0
                 found[line_id] = outcome
                 del pending[identifier]
             if not pending:
                 break
-            if failures >= _MAX_ATTEMPTS and not found:
+            if saw_response:
+                transport_misses = 0
+            else:
+                transport_misses += 1
+            if transport_misses >= _MAX_ATTEMPTS and not found:
                 raise ClientFailure("unavailable")
             if not progress:
                 self._sleep(min(_POLL_SECONDS, max(0.0, deadline - self._clock())))
@@ -310,12 +314,20 @@ def _sleep(seconds: float) -> None:
     time.sleep(seconds)
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse a redirect instead of following it off loopback."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        del req, fp, code, msg, headers, newurl
+        raise ClientFailure("internal")
+
+
 class _UrllibTransport:
-    """Loopback HTTP. Redirects are refused by not using a redirect handler."""
+    """Loopback HTTP. A redirect is a failure."""
 
     def __call__(self, method, url, body, headers, timeout):
         request = urllib.request.Request(url, data=body, headers=dict(headers), method=method)
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
         try:
             with opener.open(request, timeout=timeout) as response:
                 return response.status, response.read()

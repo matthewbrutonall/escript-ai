@@ -34,6 +34,7 @@ class AdapterTests(unittest.TestCase):
         optional = (escriptorium / "docker-compose.loghi.yml").read_text(encoding="utf-8")
         self.assertNotIn("\n    ports:", optional)
         self.assertIn("internal: true", optional)
+        self.assertIn("loghi.local", optional)
         self.assertIn("loghi-work:", optional)
         self.assertIn("entrypoint.sh", optional)
         entry = (PACKAGE / "entrypoint.sh").read_text(encoding="utf-8")

@@ -43,17 +43,22 @@ def main(argv: list[str] | None = None) -> int:
             _download(file_id, target)
             if _sha1(target) != expected:
                 target.unlink(missing_ok=True)
+                _drop_licence(root)
                 print("FAILED: checksum", file=sys.stderr)
                 return 1
         (root / "licence.txt").write_text(LICENCE_TEXT, encoding="utf-8")
     except Exception:
-        licence = root / "licence.txt"
-        if licence.is_file():
-            licence.unlink(missing_ok=True)
+        _drop_licence(root)
         print("FAILED: download", file=sys.stderr)
         return 1
     print("OK")
     return 0
+
+
+def _drop_licence(root: Path) -> None:
+    licence = root / "licence.txt"
+    if licence.is_file():
+        licence.unlink(missing_ok=True)
 
 
 def _download(file_id: int, target: Path) -> None:

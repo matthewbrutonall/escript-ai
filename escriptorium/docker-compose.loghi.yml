@@ -1,7 +1,7 @@
 # Optional Loghi-HTR line service.
 #
 # This file is not loaded by `docker compose up`. From escriptorium/:
-#   export LOGHI_MODEL_DIR=/absolute/path/to/globalise-2023-08
+#   export LOGHI_MODEL_DIR=/absolute/path/to/globalise-2023-08-runtime
 #   docker compose -f docker-compose.loghi.yml build
 #   docker compose -f docker-compose.loghi.yml up -d
 #   docker compose -f docker-compose.loghi.yml down
@@ -23,7 +23,9 @@ services:
       dockerfile: external_engines/loghi/Dockerfile
     pull_policy: never
     networks:
-      - loghi
+      loghi:
+        aliases:
+          - loghi.local
     environment:
       CUDA_VISIBLE_DEVICES: ""
       HIP_VISIBLE_DEVICES: ""

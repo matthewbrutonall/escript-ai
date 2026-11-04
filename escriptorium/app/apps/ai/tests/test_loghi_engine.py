@@ -4,6 +4,7 @@ import json
 import struct
 import threading
 import unittest
+import unittest.mock
 import zlib
 from contextlib import redirect_stderr
 from io import StringIO
@@ -20,7 +21,9 @@ from ai.external_engines.loghi.client import (
     LineJob,
     LineOutcome,
     LoghiClient,
+    _NoRedirect,
 )
+from ai.external_engines.loghi.provision_model import main as provision_main
 from ai.external_engines.loghi.engine import handle
 from ai.external_engines.loghi.layout import (
     CHANNELS,
@@ -353,6 +356,80 @@ class ClientTests(unittest.TestCase):
                 client.recognize((LineJob("one", RGBA),))
         self.assertEqual(caught.exception.code, "unavailable")
         self.assertNotIn("down", str(caught.exception))
+
+    def test_one_failed_poll_does_not_abort_a_multi_line_page(self):
+        gets = []
+
+        def transport(method, url, body, headers, timeout):
+            del body, headers, timeout
+            if method == "POST":
+                return 202, b"{}"
+            gets.append(url)
+            if len(gets) <= 4:
+                raise OSError("reset")
+            return 200, json.dumps({
+                "status": "finished",
+                "predicted_text": "ok",
+                "confidence": 0.2,
+            }).encode("utf-8")
+
+        lines = tuple(LineJob(str(number), RGBA) for number in range(4))
+        with TemporaryDirectory() as tmp:
+            client = LoghiClient(
+                "http://127.0.0.1:5000",
+                Path(tmp),
+                transport=transport,
+                sleep=lambda _seconds: None,
+                identifier_factory=_ids("g", "a", "b", "c", "d", "e"),
+            )
+            result = client.recognize(lines)
+        self.assertEqual([row.text for row in result], ["ok", "ok", "ok", "ok"])
+        self.assertGreater(len(gets), 4)
+
+    def test_three_unanswered_polls_are_unavailable(self):
+        gets = []
+
+        def transport(method, url, body, headers, timeout):
+            del body, headers, timeout
+            if method == "POST":
+                return 202, b"{}"
+            gets.append(url)
+            raise OSError("reset")
+
+        lines = tuple(LineJob(str(number), RGBA) for number in range(4))
+        with TemporaryDirectory() as tmp:
+            client = LoghiClient(
+                "http://127.0.0.1:5000",
+                Path(tmp),
+                transport=transport,
+                sleep=lambda _seconds: None,
+                identifier_factory=_ids("g", "a", "b", "c", "d", "e"),
+            )
+            with self.assertRaises(ClientFailure) as caught:
+                client.recognize(lines)
+        self.assertEqual(caught.exception.code, "unavailable")
+        self.assertEqual(len(gets), 12)
+
+    def test_a_redirect_is_refused(self):
+        with self.assertRaises(ClientFailure) as caught:
+            _NoRedirect().redirect_request(None, None, 302, "found", {}, "http://example.test/")
+        self.assertEqual(caught.exception.code, "internal")
+
+    def test_a_checksum_miss_removes_an_existing_licence(self):
+        def bad_download(_file_id, target):
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(b"not-the-file")
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "licence.txt").write_text("CC-BY-4.0\n", encoding="utf-8")
+            with unittest.mock.patch(
+                "ai.external_engines.loghi.provision_model._download",
+                bad_download,
+            ):
+                code = provision_main([str(root)])
+            self.assertEqual(code, 1)
+            self.assertFalse((root / "licence.txt").exists())
 
     def test_the_upstream_url_must_be_loopback(self):
         with TemporaryDirectory() as tmp:

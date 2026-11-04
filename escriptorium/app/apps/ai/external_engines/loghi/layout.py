@@ -42,13 +42,10 @@ SOURCE_CHECKSUMS: dict[str, str] = {
     "variables/variables.index": "50efba2af3af321e935713f1e3e83872d1df4903184097ead458f8cfc9aab397",
 }
 
-# Keras 2 file from utils/convert-v2-to-v3 at the pinned source, before the
-# service image rewrote it. TensorFlow 2.15.0 and Keras 2.15.0. Not mounted.
+# Keras 2 intermediate file. Not mounted.
 KERAS2_MODEL_SHA256 = "d542cbf1a98986202fb475b97687e0ccd9be05516e74780c57da99ce8b6c4662"
 
-# Files the service mounts. model.keras is the Keras 3 rewrite. tokenizer.json
-# was written by that image from charlist.txt. The layer weights match the
-# Keras 2 layer group. Optimizer state is not included.
+# Mounted runtime files. Not the Dataverse set and not the Keras 2 file.
 CHECKSUMS: dict[str, str] = {
     "charlist.txt": "f1877392e09591cf40517c5ef636d6011a1c2b61e4a240b508167d0c94ff6754",
     "config.json": "faef1031298f813ab0b6352631a0397c45aa386769809a929cc8b4d8507d6c59",
