@@ -79,15 +79,19 @@ class PredictCalamariBackend:
         work_root: Path,
         timeout_seconds: int = 30,
         runner: PredictRunner | None = None,
+        device: str = "cpu",
     ) -> None:
         if not isinstance(model_dir, Path) or not isinstance(work_root, Path):
             raise LayoutError("unsafe_path")
+        if device not in {"cpu", "gpu"}:
+            raise LayoutError("device")
         report = inspect_model_dir(model_dir)
         if not report.checkpoints:
             raise LayoutError(report.code)
         self._checkpoints = {item.model_id: item for item in report.checkpoints}
         self._work_root = work_root
-        self._runner = runner or PredictRunner(timeout_seconds=timeout_seconds)
+        self._device = device
+        self._runner = runner or PredictRunner(timeout_seconds=timeout_seconds, device=device)
 
     def capabilities(self) -> dict:
         return copy.deepcopy(_CAPABILITIES)
@@ -139,6 +143,7 @@ class PredictCalamariBackend:
                 request,
                 checkpoint,
                 PredictRunResult(model_id=checkpoint.model_id, lines=tuple(merged)),
+                device=self._device,
             )
         except LayoutError as exc:
             return BackendFailure(_mapped(exc.code))
@@ -189,7 +194,7 @@ def _line_images(request) -> tuple[LineImage, ...]:
     return tuple(images)
 
 
-def _recognize_response(request, checkpoint: Checkpoint, result: PredictRunResult) -> dict | BackendFailure:
+def _recognize_response(request, checkpoint: Checkpoint, result: PredictRunResult, device: str = "cpu") -> dict | BackendFailure:
     if result.model_id != request.model_id:
         return BackendFailure("internal")
     found = {}
@@ -224,7 +229,7 @@ def _recognize_response(request, checkpoint: Checkpoint, result: PredictRunResul
             "api_version": "1",
         },
         "timing_ms": 0,
-        "resources": {"device": "cpu"},
+        "resources": {"device": device if device in {"cpu", "gpu"} else "cpu"},
     }
 
 

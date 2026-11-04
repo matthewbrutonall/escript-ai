@@ -2,6 +2,7 @@
 import base64
 import io
 import json
+import os
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -129,6 +130,58 @@ class PredictRouteTests(unittest.TestCase):
         with self.assertRaises(Exception) as caught:
             _select_backend(args)
         self.assertIn("predict flags require --backend predict", str(caught.exception))
+
+    def test_require_licence_refuses_an_unlabelled_directory(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            models = root / "models"
+            work = root / "work"
+            models.mkdir()
+            work.mkdir()
+            (models / "0.ckpt.json").write_text("{}", encoding="utf-8")
+            folder = models / "0.ckpt"
+            folder.mkdir()
+            (folder / "saved_model.pb").write_bytes(b"not-a-network")
+            args = type("Args", (), {
+                "backend": "predict",
+                "model_dir": str(models),
+                "work_root": str(work),
+                "timeout": None,
+                "require_licence": True,
+                "device": "cpu",
+            })()
+            with self.assertRaises(Exception) as caught:
+                _select_backend(args)
+            self.assertIn("FAILED: missing_licence", str(caught.exception))
+            self.assertNotIn(str(models), str(caught.exception))
+
+    def test_gpu_mode_accepts_one_numbered_device_only(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            models = root / "models"
+            work = root / "work"
+            models.mkdir()
+            work.mkdir()
+            (models / "licence.txt").write_text("MIT\n", encoding="utf-8")
+            (models / "0.ckpt.json").write_text('{"version": 6}', encoding="utf-8")
+            folder = models / "0.ckpt"
+            folder.mkdir()
+            (folder / "saved_model.pb").write_bytes(b"not-a-network")
+            args = type("Args", (), {
+                "backend": "predict",
+                "model_dir": str(models),
+                "work_root": str(work),
+                "timeout": None,
+                "require_licence": True,
+                "device": "gpu",
+            })()
+            with patch.dict(os.environ, {"CUDA_VISIBLE_DEVICES": "all"}):
+                with self.assertRaises(Exception) as caught:
+                    _select_backend(args)
+            self.assertNotIn("FAILED:", str(caught.exception))
+            with patch.dict(os.environ, {"CUDA_VISIBLE_DEVICES": "0"}):
+                backend = _select_backend(args)
+            self.assertEqual(backend._runner._device, "gpu")
 
     def test_a_public_host_does_not_listen(self):
         with patch("ai.external_engines.calamari.server.HTTPServer") as server:

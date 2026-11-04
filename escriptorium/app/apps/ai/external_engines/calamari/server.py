@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -30,6 +31,7 @@ _STARTUP_MESSAGES = frozenset({_REJECTED, _FLAGS, _REQUIRED})
 _LAYOUT_CODES = frozenset({
     "missing_checkpoint",
     "missing_weights",
+    "missing_licence",
     "invalid_json",
     "model_id",
     "unsafe_path",
@@ -119,6 +121,17 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         help="Predict timeout in seconds for --backend predict. Default 30.",
     )
+    parser.add_argument(
+        "--require-licence",
+        action="store_true",
+        help="Refuse to listen when a checkpoint has no short licence label.",
+    )
+    parser.add_argument(
+        "--device",
+        choices=("cpu", "gpu"),
+        default="cpu",
+        help="cpu hides GPUs from the child. gpu keeps one numbered device.",
+    )
     args = parser.parse_args(argv)
     try:
         backend = _select_backend(args)
@@ -144,12 +157,19 @@ def main(argv: list[str] | None = None) -> int:
 def _select_backend(args):
     """Return a predict backend, or None for the unavailable default.
 
-    Callers pass flags. This does not read the process environment.
+    Callers pass flags. CPU mode does not read the process environment.
+    GPU mode reads ``CUDA_VISIBLE_DEVICES`` and accepts one numbered device.
     """
+    require_licence = bool(getattr(args, "require_licence", False))
+    device = getattr(args, "device", "cpu")
+    if device not in {"cpu", "gpu"}:
+        raise _StartupRejected(_REJECTED)
     supplied = (
         args.model_dir is not None
         or args.work_root is not None
         or args.timeout is not None
+        or require_licence
+        or device == "gpu"
     )
     if args.backend != "predict":
         if supplied or args.backend != "unavailable":
@@ -170,10 +190,15 @@ def _select_backend(args):
         report = inspect_model_dir(model_path)
         if not report.checkpoints:
             raise _StartupRejected(_layout_failure(report.code))
+        if require_licence and any(item.licence == "unspecified" for item in report.checkpoints):
+            raise _StartupRejected(_layout_failure("missing_licence"))
+        if device == "gpu" and not _one_gpu_device():
+            raise _StartupRejected(_REJECTED)
         return PredictCalamariBackend(
             model_dir=model_path,
             work_root=work_path,
             timeout_seconds=timeout,
+            device=device,
         )
     except _StartupRejected:
         raise
@@ -181,6 +206,12 @@ def _select_backend(args):
         raise _StartupRejected(_layout_failure(exc.code)) from None
     except Exception:
         raise _StartupRejected(_REJECTED) from None
+
+
+def _one_gpu_device() -> bool:
+    """True when the parent names exactly one numbered GPU device."""
+    visible = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+    return visible.isdigit()
 
 
 def _text(value) -> str | None:

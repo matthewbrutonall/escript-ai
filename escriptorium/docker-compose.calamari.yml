@@ -1,0 +1,61 @@
+# Optional Calamari line service.
+#
+# This file is not loaded by `docker compose up`. From escriptorium/:
+#   export CALAMARI_MODEL_DIR=/absolute/path/to/antiqua_historical
+#   docker compose -f docker-compose.calamari.yml build
+#   docker compose -f docker-compose.calamari.yml up -d
+#   docker compose -f docker-compose.calamari.yml down
+#
+# CALAMARI_MODEL_DIR is a family directory outside this repository.
+# The service has no host port. Its network is internal, so the container
+# cannot open a public connection. Attach the Escript AI web and celery-main
+# services to the same network when the engine row should reach it.
+# The default command is CPU only. It does not request a GPU.
+
+name: escript-ai-calamari
+
+services:
+  calamari:
+    image: escript-ai-calamari:local
+    build:
+      context: app/apps/ai
+      dockerfile: external_engines/calamari/Dockerfile
+    pull_policy: never
+    networks:
+      - calamari
+    environment:
+      CUDA_VISIBLE_DEVICES: ""
+      HIP_VISIBLE_DEVICES: ""
+      NVIDIA_VISIBLE_DEVICES: void
+    volumes:
+      - ${CALAMARI_MODEL_DIR:?set CALAMARI_MODEL_DIR}:/models/current:ro
+      - calamari-work:/work
+    command:
+      - python
+      - -m
+      - ai.external_engines.calamari.server
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8768"
+      - --allow-container-bind
+      - --backend
+      - predict
+      - --require-licence
+      - --device
+      - cpu
+      - --model-dir
+      - /models/current
+      - --work-root
+      - /work
+      - --timeout
+      - "180"
+
+networks:
+  calamari:
+    name: ${CALAMARI_NETWORK:-escript-ai-calamari}
+    internal: true
+
+volumes:
+  calamari-work:
+    name: ${CALAMARI_WORK_VOLUME:-escript-ai-calamari-work}

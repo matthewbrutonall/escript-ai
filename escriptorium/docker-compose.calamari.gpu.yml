@@ -1,0 +1,42 @@
+# Optional GPU overlay. Do not load this while another process is using the GPU.
+# It requests one device. It does not publish a host port.
+#
+#   export CALAMARI_GPU_DEVICE=0
+#   docker compose -f docker-compose.calamari.yml -f docker-compose.calamari.gpu.yml up -d
+#
+# Leave this file unused for the CPU service.
+
+services:
+  calamari:
+    environment:
+      # The reserved host GPU is remapped to device 0 inside the container.
+      CUDA_VISIBLE_DEVICES: "0"
+      HIP_VISIBLE_DEVICES: ""
+      NVIDIA_VISIBLE_DEVICES: ${CALAMARI_GPU_DEVICE:?set CALAMARI_GPU_DEVICE to one device index}
+    command:
+      - python
+      - -m
+      - ai.external_engines.calamari.server
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8768"
+      - --allow-container-bind
+      - --backend
+      - predict
+      - --require-licence
+      - --device
+      - gpu
+      - --model-dir
+      - /models/current
+      - --work-root
+      - /work
+      - --timeout
+      - "180"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${CALAMARI_GPU_DEVICE}"]
+              capabilities: [gpu]
