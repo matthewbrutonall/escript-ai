@@ -41,6 +41,7 @@ REMOTE = (
     "http://192.168.1.9:9/",
     "http://0.0.0.0:9/",
     "http://pylaia-smoke:8766/",
+    "http://loghi.local:8769/",
     "http://[::ffff:127.0.0.1]:9/",
 )
 LOOPBACK = (

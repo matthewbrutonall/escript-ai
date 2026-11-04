@@ -521,6 +521,60 @@ class _WritebackFixture:
             before | {layer.pk},
         )
 
+    def test_loghi_import_stamps_provenance_and_keeps_existing_layers(self):
+        job = self._audit(
+            result_count=1,
+            engine="loghi",
+            model_id="globalise-2023-08",
+            model_version="2023-08",
+        )
+        self._result(job, str(self.line.pk), "kept", position=0)
+        manual = Transcription.objects.get(
+            document=self.document, name=Transcription.DEFAULT_NAME,
+        )
+        kraken = Transcription.objects.create(
+            document=self.document,
+            name="kraken-%s" % uuid.uuid4().hex[:8],
+        )
+        kept_row = LineTranscription.objects.create(
+            transcription=kraken,
+            line=self.line,
+            content="kept",
+            version_source="kraken:local",
+            version_author="tester",
+        )
+        before = set(Transcription.objects.values_list("pk", flat=True))
+        with _no_io():
+            result = import_external_htr_writeback(job.pk)
+        self.assertTrue(result.imported)
+        self.assertEqual(result.code, CODE_IMPORTED)
+        layer = Transcription.objects.get(pk=result.transcription_id)
+        self.assertNotIn(layer.pk, {manual.pk, kraken.pk})
+        written = LineTranscription.objects.get(transcription=layer, line=self.line)
+        self.assertEqual(written.content, "kept")
+        self.assertEqual(
+            written.version_source,
+            "external-htr:loghi:globalise-2023-08"[:128],
+        )
+        self.assertEqual(written.version_source, job.layer_source)
+        gate = self._assert_raw_gate(layer, [self.line.pk])
+        self.assertIsNone(gate.job_id)
+        with self.assertRaises(LayerNotEligible):
+            assert_training_eligible(layer)
+        kept_row.refresh_from_db()
+        self.assertEqual(kept_row.content, "kept")
+        self.assertEqual(kept_row.version_source, "kraken:local")
+        self.assertFalse(AILayerGate.objects.filter(transcription=manual).exists())
+        self.assertFalse(AILayerGate.objects.filter(transcription=kraken).exists())
+        with _no_io():
+            second = import_external_htr_writeback(job.pk)
+        self.assertFalse(second.imported)
+        self.assertEqual(second.code, CODE_ALREADY)
+        self.assertEqual(
+            set(Transcription.objects.values_list("pk", flat=True)),
+            before | {layer.pk},
+        )
+
     def test_removing_the_layer_does_not_allow_another_import(self):
         job = self._audit(result_count=1, empty_text_count=1)
         self._result(job, str(self.line.pk), "", position=0)

@@ -1,0 +1,52 @@
+# Optional Loghi-HTR line service.
+#
+# This file is not loaded by `docker compose up`. From escriptorium/:
+#   export LOGHI_MODEL_DIR=/absolute/path/to/globalise-2023-08
+#   docker compose -f docker-compose.loghi.yml build
+#   docker compose -f docker-compose.loghi.yml up -d
+#   docker compose -f docker-compose.loghi.yml down
+#
+# LOGHI_MODEL_DIR is the converted runtime directory outside this repository.
+# It contains model.keras. Do not mount the Dataverse SavedModel there.
+# The service has no host port. Its network is internal, so the container
+# cannot open a public connection. Attach the Escript AI web and celery-main
+# services to the same network when the engine row should reach it.
+# The command is CPU only. It does not request a GPU.
+
+name: escript-ai-loghi
+
+services:
+  loghi:
+    image: escript-ai-loghi:local
+    build:
+      context: app/apps/ai
+      dockerfile: external_engines/loghi/Dockerfile
+    pull_policy: never
+    networks:
+      - loghi
+    environment:
+      CUDA_VISIBLE_DEVICES: ""
+      HIP_VISIBLE_DEVICES: ""
+      NVIDIA_VISIBLE_DEVICES: void
+      LOGHI_GPUS: "-1"
+      LOGHI_BASE_MODEL_DIR: /models
+      LOGHI_MODEL_NAME: current
+      LOGHI_OUTPUT_PATH: /work/output
+      LOGHI_BATCH_SIZE: "8"
+      LOGHI_PATIENCE: "0.05"
+      UVICORN_HOST: 127.0.0.1
+      UVICORN_PORT: "5000"
+      LOGHI_CONTRACT_TIMEOUT: "1600"
+    volumes:
+      - ${LOGHI_MODEL_DIR:?set LOGHI_MODEL_DIR}:/models/current:ro
+      - loghi-work:/work
+    command: ["/opt/engine/ai/external_engines/loghi/entrypoint.sh"]
+
+networks:
+  loghi:
+    name: ${LOGHI_NETWORK:-escript-ai-loghi}
+    internal: true
+
+volumes:
+  loghi-work:
+    name: ${LOGHI_WORK_VOLUME:-escript-ai-loghi-work}

@@ -220,6 +220,7 @@ class ExternalHtrRunOrmTests(TestCase):
         self.assertIn("HTRflow", names)
         self.assertEqual(names.count("PyLaia"), 1)
         self.assertEqual(names.count("Calamari"), 1)
+        self.assertEqual(names.count("Loghi"), 1)
         placeholder = next(row for row in body["engines"] if row["name"] == "PyLaia")
         self.assertIsNone(placeholder["id"])
         self.assertTrue(placeholder["placeholder"])
@@ -231,6 +232,12 @@ class ExternalHtrRunOrmTests(TestCase):
         self.assertTrue(calamari["placeholder"])
         self.assertFalse(calamari["available"])
         self.assertFalse(calamari["enabled"])
+        loghi = next(row for row in body["engines"] if row["name"] == "Loghi")
+        self.assertIsNone(loghi["id"])
+        self.assertEqual(loghi["engine"], "loghi")
+        self.assertTrue(loghi["placeholder"])
+        self.assertFalse(loghi["available"])
+        self.assertFalse(loghi["enabled"])
         self.assertNotIn("endpoint_url", json.dumps(body))
         htrflow_row = next(row for row in body["engines"] if row["id"] == htrflow.pk)
         self.assertTrue(htrflow_row["available"])
@@ -253,9 +260,11 @@ class ExternalHtrRunOrmTests(TestCase):
             for row in listed
         ))
         remaining = [row for row in listed if row.get("placeholder")]
-        self.assertEqual([row["engine"] for row in remaining], ["calamari"])
+        self.assertEqual([row["engine"] for row in remaining], ["calamari", "loghi"])
         self.assertEqual(remaining[0]["name"], "Calamari")
         self.assertIsNone(remaining[0]["id"])
+        self.assertEqual(remaining[1]["name"], "Loghi")
+        self.assertIsNone(remaining[1]["id"])
         self.assertNotIn("endpoint_url", json.dumps(listed))
         self.assertTrue(any(row["id"] == htrflow.pk and row["name"] == "HTRflow" for row in listed))
 

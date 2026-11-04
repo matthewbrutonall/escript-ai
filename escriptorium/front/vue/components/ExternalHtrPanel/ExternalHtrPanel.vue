@@ -260,7 +260,7 @@ export default {
         },
         engineSelectValue() {
             if (this.configId) return this.configId;
-            if (this.engineName === "pylaia" || this.engineName === "calamari") {
+            if (this.engineName === "pylaia" || this.engineName === "calamari" || this.engineName === "loghi") {
                 return this.engineName;
             }
             return "";
@@ -327,7 +327,7 @@ export default {
             this.modelId = "";
             this.models = [];
             this.error = "";
-            if (value === "pylaia" || value === "calamari") {
+            if (value === "pylaia" || value === "calamari" || value === "loghi") {
                 this.configId = "";
                 this.engineName = value;
                 return;

@@ -33,7 +33,7 @@ Those checks use the ALTO page rectangle. The checked page coordinates matched t
 
 `HTRFLOW_INTEGRATED` is true. The checked browser run selected the engine, recognised one page, imported a new layer, and left that layer raw and training-ineligible. This is not a character-error rate, and it is not a deployment to the public site.
 
-Calamari is listed as a line-recognition choice and is integrated. Loghi, TrOCR, DRetHTR, and Laypa remain future candidates without adapters. The HTRflow page contract is unchanged.
+Calamari is listed as a line-recognition choice and is integrated. Loghi is listed as a line-recognition choice and is integrated. TrOCR, DRetHTR, and Laypa remain future candidates without adapters. The HTRflow page contract is unchanged.
 
 ## SATRN page pipeline
 
