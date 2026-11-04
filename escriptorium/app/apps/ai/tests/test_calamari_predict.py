@@ -10,6 +10,8 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from PIL import Image
+
 from ai.external_engines.calamari.backend import PredictCalamariBackend, UnavailableCalamariBackend
 from ai.external_engines.calamari.check_model import main as check_main
 from ai.external_engines.calamari.predictor import (
@@ -145,8 +147,8 @@ class PredictTests(unittest.TestCase):
             def fake_run(argv, **kwargs):
                 calls.append((argv, kwargs))
                 self.assertFalse(kwargs["shell"])
-                self.assertEqual(kwargs["env"]["CUDA_VISIBLE_DEVICES"], "-1")
-                self.assertEqual(kwargs["env"]["HIP_VISIBLE_DEVICES"], "-1")
+                self.assertEqual(kwargs["env"]["CUDA_VISIBLE_DEVICES"], "")
+                self.assertEqual(kwargs["env"]["HIP_VISIBLE_DEVICES"], "")
                 self.assertEqual(kwargs["env"]["NVIDIA_VISIBLE_DEVICES"], "void")
                 for image in argv[argv.index("--data.images") + 1:]:
                     if image.startswith("--"):
@@ -171,8 +173,7 @@ class PredictTests(unittest.TestCase):
             self.assertEqual([item.line_id for item in parsed.results], ["3", "4"])
             self.assertEqual(parsed.results[0].text, SECRET)
             self.assertEqual(parsed.resources.device, "cpu")
-            self.assertIn("--data.line_height", calls[0][0])
-            self.assertEqual(calls[0][0][calls[0][0].index("--data.line_height") + 1], "48")
+            self.assertNotIn("--data.line_height", calls[0][0])
             self.assertFalse(work.iterdir() and any(work.iterdir()))
             with patch(
                 "ai.external_engines.calamari.predictor.subprocess.run",
@@ -198,6 +199,27 @@ class PredictTests(unittest.TestCase):
                 failed = backend.recognize(_request())
             self.assertEqual(failed.code, "unavailable")
             self.assertNotIn(SECRET, failed.code)
+
+    def test_gpu_mode_reports_the_device_it_was_given(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            work = root / "work"
+            models = root / "models"
+            work.mkdir()
+            models.mkdir()
+            _pair(models, "0.ckpt", {"version": 6, "scenario": {"data": {"line_height": 48}}})
+
+            def fake_run(argv, **kwargs):
+                self.assertEqual(kwargs["env"]["CUDA_VISIBLE_DEVICES"], "0")
+                image = argv[argv.index("--data.images") + 1]
+                (Path(image).parent / "line0001.pred.txt").write_text("kept\n", encoding="utf-8")
+                return SimpleNamespace(returncode=0)
+
+            backend = PredictCalamariBackend(model_dir=models, work_root=work, device="gpu")
+            with patch.dict("os.environ", {"CUDA_VISIBLE_DEVICES": "0"}, clear=False):
+                with patch("ai.external_engines.calamari.predictor.subprocess.run", side_effect=fake_run):
+                    outcome = backend.recognize(_request())
+            self.assertEqual(outcome["resources"]["device"], "gpu")
 
     def test_more_than_one_batch_stays_in_request_order(self):
         with TemporaryDirectory() as tmp:
@@ -236,6 +258,66 @@ class PredictTests(unittest.TestCase):
             self.assertEqual(seen, [32, 1])
             self.assertEqual([row["line_id"] for row in outcome["results"]], [f"L{index}" for index in range(33)])
             self.assertFalse(work.exists() and any(work.iterdir()))
+
+    def test_prepare_writes_black_on_white_for_both_polarities(self):
+        grey = Image.new("RGB", (40, 16), (220, 218, 210))
+        for x in range(8, 32):
+            for y in range(4, 12):
+                grey.putpixel((x, y), (30, 28, 26))
+        grey_bytes = io.BytesIO()
+        grey.save(grey_bytes, format="PNG")
+        inverted = Image.new("L", (40, 16), 10)
+        for x in range(8, 14):
+            for y in range(4, 12):
+                inverted.putpixel((x, y), 245)
+        inverted_bytes = io.BytesIO()
+        inverted.save(inverted_bytes, format="PNG")
+        white = Image.new("L", (12, 8), 240)
+        white_bytes = io.BytesIO()
+        white.save(white_bytes, format="PNG")
+        heavy = Image.new("L", (40, 16), 0)
+        for x in range(40):
+            heavy.putpixel((x, 0), 255)
+            heavy.putpixel((x, 15), 255)
+        for y in range(16):
+            heavy.putpixel((0, y), 255)
+            heavy.putpixel((39, y), 255)
+        heavy_bytes = io.BytesIO()
+        heavy.save(heavy_bytes, format="PNG")
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _pair(root, "0.ckpt", {"scenario": {"data": {}}})
+            checkpoint = inspect_model_dir(root).checkpoints[0]
+            prepared = prepare_predict(
+                checkpoint=checkpoint,
+                work_dir=root,
+                lines=(
+                    SimpleNamespace(line_id="grey", png=grey_bytes.getvalue()),
+                    SimpleNamespace(line_id="inverted", png=inverted_bytes.getvalue()),
+                    SimpleNamespace(line_id="white", png=white_bytes.getvalue()),
+                    SimpleNamespace(line_id="heavy", png=heavy_bytes.getvalue()),
+                    SimpleNamespace(line_id="raw", png=PNG),
+                ),
+            )
+            written = [Path(item) for item in prepared.argv if str(item).endswith(".png")]
+            self.assertEqual(len(written), 5)
+            with Image.open(written[0]) as image:
+                colours = set(image.getdata())
+                self.assertEqual(image.mode, "L")
+            self.assertEqual(colours, {0, 255})
+            self.assertLess(list(Image.open(written[0]).getdata()).count(0), 40 * 16 / 2)
+            with Image.open(written[1]) as image:
+                pixels = list(image.getdata())
+            self.assertEqual(set(pixels), {0, 255})
+            self.assertLess(pixels.count(0), len(pixels) / 2)
+            self.assertEqual(pixels[0], 255)
+            with Image.open(written[2]) as image:
+                self.assertEqual(set(image.getdata()), {255})
+            with Image.open(written[3]) as image:
+                heavy_pixels = list(image.getdata())
+            self.assertEqual(heavy_pixels[0], 255)
+            self.assertGreater(heavy_pixels.count(0), len(heavy_pixels) / 2)
+            self.assertEqual(written[4].read_bytes(), PNG)
 
     def test_prepare_rejects_a_non_png_and_a_timeout_is_not_text(self):
         with TemporaryDirectory() as tmp:

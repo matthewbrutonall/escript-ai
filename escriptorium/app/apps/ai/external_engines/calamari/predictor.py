@@ -6,6 +6,7 @@ description and a weights file or SavedModel directory.
 """
 from __future__ import annotations
 
+import io
 import json
 import os
 import re
@@ -18,9 +19,13 @@ _MAX_LINES = 32
 _PNG = b"\x89PNG\r\n\x1a\n"
 _MODEL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _LICENCE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.+_-]{0,63}$")
+# Calamari 2.3.1 counts every non-empty CUDA_VISIBLE_DEVICES entry as a GPU.
+# "-1" asks for device 0 and then fails when the container has none. An empty
+# value leaves the child on CPU. The same applies to HIP. GPU mode does not
+# use this map: the child keeps the single device the container was given.
 _CPU_ENV = {
-    "CUDA_VISIBLE_DEVICES": "-1",
-    "HIP_VISIBLE_DEVICES": "-1",
+    "CUDA_VISIBLE_DEVICES": "",
+    "HIP_VISIBLE_DEVICES": "",
     "NVIDIA_VISIBLE_DEVICES": "void",
 }
 
@@ -149,9 +154,14 @@ def prepare_predict(
         seen.add(line.line_id)
         stem = f"line{index:04d}"
         image_path = work_dir / f"{stem}.png"
-        image_path.write_bytes(line.png)
+        # These checkpoints were trained on binary line images. A grey
+        # photograph of the same crop decodes to an empty sentence.
+        image_path.write_bytes(_binarize_line_png(line.png))
         images.append(str(image_path))
         outputs.append((line.line_id, work_dir / f"{stem}.pred.txt"))
+    # FileDataParams on calamari-predict 2.3.1 has no line_height. The height
+    # is already stored on the checkpoint processors. Passing the flag makes
+    # the process exit before it writes a prediction.
     argv = [
         "calamari-predict",
         "--checkpoint",
@@ -159,24 +169,31 @@ def prepare_predict(
         "--data.images",
         *images,
     ]
-    if checkpoint.line_height is not None:
-        argv.extend(["--data.line_height", str(checkpoint.line_height)])
     return Prepared(checkpoint.model_id, tuple(argv), tuple(outputs))
 
 
 class PredictRunner:
-    """Run one prepared ``calamari-predict`` command. The child is CPU-only."""
+    """Run one prepared ``calamari-predict`` command.
 
-    def __init__(self, timeout_seconds: int = 30) -> None:
+    ``device="cpu"`` hides every GPU from that child. ``device="gpu"`` leaves
+    ``CUDA_VISIBLE_DEVICES`` as the parent set it. The server accepts GPU
+    mode only for one numbered device.
+    """
+
+    def __init__(self, timeout_seconds: int = 30, device: str = "cpu") -> None:
         if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, int):
             raise LayoutError("timeout")
         if not 0 < timeout_seconds <= 3600:
             raise LayoutError("timeout")
+        if device not in {"cpu", "gpu"}:
+            raise LayoutError("device")
         self._timeout = timeout_seconds
+        self._device = device
 
     def run(self, prepared: Prepared) -> PredictRunResult:
         env = os.environ.copy()
-        env.update(_CPU_ENV)
+        if self._device == "cpu":
+            env.update(_CPU_ENV)
         try:
             completed = subprocess.run(
                 list(prepared.argv),
@@ -209,6 +226,88 @@ class PredictRunner:
                 text = text[:-1]
             lines.append(PredictedLine(line_id, text))
         return PredictRunResult(prepared.model_id, tuple(lines))
+
+
+def _binarize_line_png(payload: bytes) -> bytes:
+    """Return black text on white. Unreadable bytes are left unchanged.
+
+    Dark ink on a light ground stays dark. Light ink on a dark ground is
+    inverted when the border is dark, including a tight crop whose ink is
+    most of the box.
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        return payload
+    try:
+        with Image.open(io.BytesIO(payload)) as image:
+            gray = image.convert("L")
+            gray.load()
+            low, high = gray.getextrema()
+            if low == high:
+                ink = 0 if low < 128 else 255
+                binary = Image.new("L", gray.size, ink)
+            else:
+                binary = gray.point(_binary_table(_otsu_threshold(gray.histogram())))
+            if _border_is_dark(binary):
+                binary = Image.eval(binary, lambda value: 255 - value)
+            buffer = io.BytesIO()
+            binary.save(buffer, format="PNG")
+    except OSError:
+        return payload
+    return buffer.getvalue()
+
+
+def _border_is_dark(image) -> bool:
+    """True when the outer pixels are mostly black."""
+    width, height = image.size
+    if width <= 0 or height <= 0:
+        return False
+    pixels = image.load()
+    dark = 0
+    total = 0
+    for x in range(width):
+        for y in (0, height - 1):
+            total += 1
+            if pixels[x, y] == 0:
+                dark += 1
+    if height > 2:
+        for y in range(1, height - 1):
+            for x in (0, width - 1):
+                total += 1
+                if pixels[x, y] == 0:
+                    dark += 1
+    return dark > total / 2
+
+
+def _otsu_threshold(histogram: list[int]) -> int:
+    total = sum(histogram)
+    if total <= 0:
+        return 0
+    sum_all = sum(index * count for index, count in enumerate(histogram))
+    sum_background = 0
+    weight_background = 0
+    best = -1.0
+    threshold = 0
+    for index, count in enumerate(histogram):
+        weight_background += count
+        if weight_background == 0:
+            continue
+        weight_foreground = total - weight_background
+        if weight_foreground == 0:
+            break
+        sum_background += index * count
+        mean_background = sum_background / weight_background
+        mean_foreground = (sum_all - sum_background) / weight_foreground
+        score = weight_background * weight_foreground * (mean_background - mean_foreground) ** 2
+        if score > best:
+            best = score
+            threshold = index
+    return threshold
+
+
+def _binary_table(threshold: int) -> list[int]:
+    return [0 if value <= threshold else 255 for value in range(256)]
 
 
 def _checkpoint(root: Path, json_path: Path, licence: str) -> tuple[Checkpoint | None, str | None]:
