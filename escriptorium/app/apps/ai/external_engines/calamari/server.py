@@ -32,6 +32,7 @@ _LAYOUT_CODES = frozenset({
     "missing_checkpoint",
     "missing_weights",
     "missing_licence",
+    "gpu_unavailable",
     "invalid_json",
     "model_id",
     "unsafe_path",
@@ -194,6 +195,8 @@ def _select_backend(args):
             raise _StartupRejected(_layout_failure("missing_licence"))
         if device == "gpu" and not _one_gpu_device():
             raise _StartupRejected(_REJECTED)
+        if device == "gpu" and not _gpu_is_visible():
+            raise _StartupRejected(_layout_failure("gpu_unavailable"))
         return PredictCalamariBackend(
             model_dir=model_path,
             work_root=work_path,
@@ -212,6 +215,24 @@ def _one_gpu_device() -> bool:
     """True when the parent names exactly one numbered GPU device."""
     visible = os.environ.get("CUDA_VISIBLE_DEVICES", "")
     return visible.isdigit()
+
+
+def _gpu_is_visible() -> bool:
+    """True when the optional numeric runtime lists a GPU.
+
+    A numbered ``CUDA_VISIBLE_DEVICES`` entry is not enough. The pinned image
+    does not install that runtime's CUDA libraries, so this stays false there.
+    """
+    # Split so importing this module does not require the optional runtime.
+    try:
+        module = __import__("tensor" + "flow")
+    except ImportError:
+        return False
+    try:
+        devices = module.config.list_physical_devices("GPU")
+    except Exception:
+        return False
+    return bool(devices)
 
 
 def _text(value) -> str | None:

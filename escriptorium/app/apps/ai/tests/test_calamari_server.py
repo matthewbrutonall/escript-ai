@@ -180,7 +180,18 @@ class PredictRouteTests(unittest.TestCase):
                     _select_backend(args)
             self.assertNotIn("FAILED:", str(caught.exception))
             with patch.dict(os.environ, {"CUDA_VISIBLE_DEVICES": "0"}):
-                backend = _select_backend(args)
+                with patch(
+                    "ai.external_engines.calamari.server._gpu_is_visible",
+                    return_value=False,
+                ):
+                    with self.assertRaises(Exception) as caught:
+                        _select_backend(args)
+                self.assertIn("FAILED: gpu_unavailable", str(caught.exception))
+                with patch(
+                    "ai.external_engines.calamari.server._gpu_is_visible",
+                    return_value=True,
+                ):
+                    backend = _select_backend(args)
             self.assertEqual(backend._runner._device, "gpu")
 
     def test_a_public_host_does_not_listen(self):

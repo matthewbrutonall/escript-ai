@@ -92,7 +92,7 @@ export CALAMARI_GPU_DEVICE=0
 docker compose -f docker-compose.calamari.yml -f docker-compose.calamari.gpu.yml up -d
 ```
 
-`CALAMARI_GPU_DEVICE` is one host index, not `all`. The overlay reserves that device and sets `CUDA_VISIBLE_DEVICES` to `0`, because the container sees the reserved GPU as device 0. The overlay is not part of the default command. Do not start it while another process is using the GPU.
+`CALAMARI_GPU_DEVICE` is one host index, not `all`. The overlay reserves that device and sets `CUDA_VISIBLE_DEVICES` to `0`, because the container sees the reserved GPU as device 0. The pinned image installs `tensorflow==2.15.1` without the `and-cuda` libraries, so TensorFlow lists no GPU and the server exits at startup with `FAILED: gpu_unavailable`. Do not use the overlay until the image is rebuilt with those libraries and the chosen GPU is free. The CPU service is the tested command.
 
 The tested CPU image reported `calamari-ocr` 2.3.1 and TensorFlow 2.15.1, with no GPU visible to TensorFlow. One synthetic printed line was recognized twice with voter `0.ckpt`: once as black text on white, and once as the same line inverted. Both calls returned the same five-character reading. That is process evidence for this runtime and the pinned model. It is not a character-error rate. The service log stayed empty, and the work directory was empty after each call.
 

@@ -1,4 +1,6 @@
-# Optional GPU overlay. Do not load this while another process is using the GPU.
+# Optional GPU overlay. The pinned image has no TensorFlow CUDA libraries,
+# so the server exits at startup until that image is rebuilt with them.
+# Do not load this while another process is using the GPU.
 # It requests one device. It does not publish a host port.
 #
 #   export CALAMARI_GPU_DEVICE=0
