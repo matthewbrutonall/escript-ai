@@ -52,6 +52,14 @@ integrated. `CALAMARI_INTEGRATED` is true. A real checkpoint and a manual
 workflow were verified. The app image does not install Calamari. See
 `external_engines/calamari/README.md`.
 
+When no saved row is Loghi, the menu adds one Loghi entry with no id,
+no endpoint, and no models. That entry does not create a config row, and
+recognition stays disabled. A saved Loghi row replaces only that entry.
+Its models load through the line contract (`recognize_lines`,
+`POST /v1/recognize`). Laypa is not included. `LOGHI_INTEGRATED` is true.
+The app image does not install Loghi or TensorFlow. See
+`external_engines/loghi/README.md`.
+
 ### Client
 
 `htr_engine_client.py` can `GET /v1/capabilities`, `GET /v1/models`,

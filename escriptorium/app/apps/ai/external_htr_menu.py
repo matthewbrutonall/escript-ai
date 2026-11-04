@@ -11,6 +11,8 @@ PYLAIA_ENGINE = "pylaia"
 PYLAIA_MENU_NAME = "PyLaia"
 CALAMARI_ENGINE = "calamari"
 CALAMARI_MENU_NAME = "Calamari"
+LOGHI_ENGINE = "loghi"
+LOGHI_MENU_NAME = "Loghi"
 
 
 def is_pylaia_config(config) -> bool:
@@ -67,6 +69,34 @@ def calamari_placeholder() -> dict:
     }
 
 
+def is_loghi_config(config) -> bool:
+    """Return whether this saved row is the Loghi-HTR line engine."""
+    name = getattr(config, "name", None)
+    if isinstance(name, str) and LOGHI_ENGINE in name.casefold():
+        return True
+    metadata = getattr(config, "metadata", None)
+    return isinstance(metadata, dict) and metadata.get("engine") == LOGHI_ENGINE
+
+
+def loghi_placeholder() -> dict:
+    """Menu entry used only when no Loghi config row exists.
+
+    It has no id and no endpoint. The images page must not request models
+    or queue recognition for it. Loghi-HTR stays on the line contract.
+    Laypa is not part of this entry.
+    """
+    return {
+        "id": None,
+        "name": LOGHI_MENU_NAME,
+        "engine": LOGHI_ENGINE,
+        "tier": "research",
+        "experimental": True,
+        "enabled": False,
+        "available": False,
+        "placeholder": True,
+    }
+
+
 def engine_menu(configs, rows) -> list:
     """Return the public menu, appending each missing line engine once."""
     listed = list(rows)
@@ -74,4 +104,6 @@ def engine_menu(configs, rows) -> list:
         listed.append(pylaia_placeholder())
     if not any(is_calamari_config(config) for config in configs):
         listed.append(calamari_placeholder())
+    if not any(is_loghi_config(config) for config in configs):
+        listed.append(loghi_placeholder())
     return listed
