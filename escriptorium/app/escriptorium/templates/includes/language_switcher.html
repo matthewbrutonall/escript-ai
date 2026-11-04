@@ -3,16 +3,183 @@
 {% get_available_languages as LANGUAGES %}
 {% get_language_info_list for LANGUAGES as langs %}
 {% if langs|length > 1 %}
+{% with active=LANGUAGE_CODE|slice:":2" %}
 <form class="esai-langs" action="{% url 'set_language' %}" method="post">
   {% csrf_token %}
   <input type="hidden" name="next" value="{{ request.get_full_path }}">
-  <p class="esai-langs-label">{% trans "Language" %}</p>
-  {% for lang in langs %}
-  <button type="submit" name="language" value="{{ lang.code }}"
-          lang="{{ lang.code }}"
-          {% if lang.code == LANGUAGE_CODE %}aria-current="true"{% endif %}>
-    {{ lang.name_local }}
+  <button type="button" class="esai-langs-toggle" aria-haspopup="menu" aria-expanded="false">
+    <span class="esai-langs-label">{% trans "Language" %}</span>
+    <span class="esai-langs-current">
+      {% for lang in langs %}
+        {% if lang.code == LANGUAGE_CODE or lang.code == active %}
+        <span lang="{{ lang.code }}">{{ lang.name_local }}</span>
+        {% endif %}
+      {% endfor %}
+    </span>
+    <span class="esai-langs-caret" aria-hidden="true"></span>
   </button>
-  {% endfor %}
+  <ul class="esai-langs-list" role="menu" hidden>
+    {% for lang in langs %}
+    <li role="none">
+      <button type="submit" role="menuitem" name="language" value="{{ lang.code }}"
+              lang="{{ lang.code }}"
+              {% if lang.code == LANGUAGE_CODE or lang.code == active %}aria-current="true"{% endif %}>
+        {{ lang.name_local }}
+      </button>
+    </li>
+    {% endfor %}
+  </ul>
 </form>
+{% endwith %}
+<script>
+(function () {
+  if (window.__esaiLangMenu) return;
+  window.__esaiLangMenu = true;
+
+  function forms() {
+    return document.querySelectorAll("form.esai-langs");
+  }
+
+  function toggleOf(form) {
+    return form.querySelector(".esai-langs-toggle");
+  }
+
+  function listOf(form) {
+    return form.querySelector(".esai-langs-list");
+  }
+
+  function items(form) {
+    return Array.prototype.slice.call(form.querySelectorAll("[role='menuitem']"));
+  }
+
+  function place(form) {
+    var list = listOf(form);
+    var margin = 8;
+    list.style.insetInlineStart = "auto";
+    list.style.insetInlineEnd = "0";
+    list.style.insetBlockStart = "calc(100% + 0.25rem)";
+    list.style.insetBlockEnd = "auto";
+    var box = list.getBoundingClientRect();
+    if (box.right > window.innerWidth - margin || box.left < margin) {
+      list.style.insetInlineEnd = "auto";
+      list.style.insetInlineStart = "0";
+      box = list.getBoundingClientRect();
+      if (box.right > window.innerWidth - margin || box.left < margin) {
+        list.style.insetInlineStart = "auto";
+        list.style.insetInlineEnd = "0";
+        box = list.getBoundingClientRect();
+      }
+    }
+    var toggleBox = toggleOf(form).getBoundingClientRect();
+    var room = Math.max(96, window.innerHeight - toggleBox.bottom - margin);
+    list.style.maxHeight = "min(16rem, " + Math.floor(room) + "px)";
+  }
+
+  function close(form, restore) {
+    var list = listOf(form);
+    var toggle = toggleOf(form);
+    if (!list || !toggle || list.hidden) return;
+    list.hidden = true;
+    toggle.setAttribute("aria-expanded", "false");
+    if (restore) toggle.focus();
+  }
+
+  function open(form) {
+    forms().forEach(function (other) {
+      if (other !== form) close(other, false);
+    });
+    var list = listOf(form);
+    var toggle = toggleOf(form);
+    list.hidden = false;
+    toggle.setAttribute("aria-expanded", "true");
+    place(form);
+    var current = list.querySelector("[aria-current='true']") || items(form)[0];
+    if (current) current.focus();
+  }
+
+  function prepare() {
+    forms().forEach(function (form, index) {
+      var toggle = toggleOf(form);
+      var list = listOf(form);
+      if (!toggle || !list || toggle.id) return;
+      toggle.id = "esai-lang-button-" + index;
+      list.id = "esai-lang-list-" + index;
+      toggle.setAttribute("aria-controls", list.id);
+      list.setAttribute("aria-labelledby", toggle.id);
+    });
+  }
+
+  document.addEventListener("click", function (event) {
+    var toggle = event.target.closest && event.target.closest(".esai-langs-toggle");
+    if (toggle) {
+      var form = toggle.closest("form.esai-langs");
+      if (toggle.getAttribute("aria-expanded") === "true") close(form, false);
+      else open(form);
+      return;
+    }
+    forms().forEach(function (form) {
+      if (!form.contains(event.target)) close(form, false);
+    });
+  });
+
+  document.addEventListener("keydown", function (event) {
+    var form = event.target.closest && event.target.closest("form.esai-langs");
+    if (event.key === "Escape") {
+      forms().forEach(function (openForm) {
+        var toggle = toggleOf(openForm);
+        if (toggle && toggle.getAttribute("aria-expanded") === "true") {
+          var focused = openForm.contains(document.activeElement);
+          close(openForm, focused);
+        }
+      });
+      return;
+    }
+    if (!form) return;
+    var toggle = toggleOf(form);
+    if (!toggle) return;
+    if (toggle.getAttribute("aria-expanded") !== "true") {
+      if (event.target === toggle && (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Home" || event.key === "End")) {
+        event.preventDefault();
+        open(form);
+        if (event.key === "ArrowUp" || event.key === "End") {
+          var opened = items(form);
+          if (opened.length) opened[opened.length - 1].focus();
+        }
+      }
+      return;
+    }
+    var choices = items(form);
+    if (!choices.length) return;
+    var index = choices.indexOf(document.activeElement);
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      choices[(index + 1) % choices.length].focus();
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      choices[(index - 1 + choices.length) % choices.length].focus();
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      choices[0].focus();
+    } else if (event.key === "End") {
+      event.preventDefault();
+      choices[choices.length - 1].focus();
+    } else if (event.key === "Tab") {
+      close(form, false);
+    }
+  });
+
+  window.addEventListener("resize", function () {
+    forms().forEach(function (form) {
+      var toggle = toggleOf(form);
+      if (toggle && toggle.getAttribute("aria-expanded") === "true") place(form);
+    });
+  });
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", prepare);
+  } else {
+    prepare();
+  }
+})();
+</script>
 {% endif %}

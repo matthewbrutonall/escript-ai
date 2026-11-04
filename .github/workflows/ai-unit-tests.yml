@@ -86,4 +86,4 @@ jobs:
         run: python -m pip check
       - name: Run PostgreSQL-backed core and AI tests
         working-directory: escriptorium/app
-        run: python manage.py test core.tests.test_training_limits core.tests.test_ketos_evaluation core.tests.test_tasks ai.django_integration_tests --noinput -v 1
+        run: python manage.py test core.tests.test_language_switcher core.tests.test_training_limits core.tests.test_ketos_evaluation core.tests.test_tasks ai.django_integration_tests --noinput -v 1
