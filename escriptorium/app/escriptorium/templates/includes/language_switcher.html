@@ -52,9 +52,42 @@
     return Array.prototype.slice.call(form.querySelectorAll("[role='menuitem']"));
   }
 
-  function place(form) {
-    var list = listOf(form);
-    var margin = 8;
+  function overlaps(menu, other, gap) {
+    return menu.left < other.right + gap &&
+      menu.right > other.left - gap &&
+      menu.top < other.bottom + gap &&
+      menu.bottom > other.top - gap;
+  }
+
+  function createButton() {
+    return document.querySelector('a[href$="/projects/create/"]');
+  }
+
+  function resetPlacement(list) {
+    list.style.top = "";
+    list.style.right = "";
+    list.style.bottom = "";
+    list.style.left = "";
+    list.style.insetInlineStart = "";
+    list.style.insetInlineEnd = "";
+    list.style.insetBlockStart = "";
+    list.style.insetBlockEnd = "";
+    list.style.maxHeight = "";
+  }
+
+  function moveTo(form, list, top, left) {
+    var origin = form.getBoundingClientRect();
+    list.style.insetInlineStart = "auto";
+    list.style.insetInlineEnd = "auto";
+    list.style.insetBlockStart = "auto";
+    list.style.insetBlockEnd = "auto";
+    list.style.right = "auto";
+    list.style.bottom = "auto";
+    list.style.top = (top - origin.top) + "px";
+    list.style.left = (left - origin.left) + "px";
+  }
+
+  function fitWithinViewport(list, margin) {
     list.style.insetInlineStart = "auto";
     list.style.insetInlineEnd = "0";
     list.style.insetBlockStart = "calc(100% + 0.25rem)";
@@ -67,12 +100,92 @@
       if (box.right > window.innerWidth - margin || box.left < margin) {
         list.style.insetInlineStart = "auto";
         list.style.insetInlineEnd = "0";
-        box = list.getBoundingClientRect();
       }
     }
+  }
+
+  function coversNav(menu) {
+    var links = document.querySelectorAll(".navbar .nav-link, .navbar-brand, .navbar-toggler");
+    var i;
+    for (i = 0; i < links.length; i++) {
+      var link = links[i].getBoundingClientRect();
+      if (link.width < 1 || link.height < 1) continue;
+      var overlap = Math.min(menu.bottom, link.bottom) - Math.max(menu.top, link.top);
+      if (overlap > 8 && overlaps(menu, link, 0)) return true;
+    }
+    return false;
+  }
+
+  function shiftBeside(form, list, btn, margin, gap) {
+    var box = list.getBoundingClientRect();
+    var width = box.width;
+    var top = box.top;
     var toggleBox = toggleOf(form).getBoundingClientRect();
+    var toggleMid = (toggleBox.left + toggleBox.right) / 2;
+    var options = [btn.left - gap - width, btn.right + gap];
+    options.sort(function (a, b) {
+      return Math.abs(a + width / 2 - toggleMid) - Math.abs(b + width / 2 - toggleMid);
+    });
+    var i;
+    for (i = 0; i < options.length; i++) {
+      var left = options[i];
+      if (left < margin || left + width > window.innerWidth - margin) continue;
+      moveTo(form, list, top, left);
+      var moved = list.getBoundingClientRect();
+      if (!overlaps(moved, btn, gap) && !coversNav(moved) &&
+          moved.left >= margin - 1 && moved.right <= window.innerWidth - margin + 1) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function place(form) {
+    var list = listOf(form);
+    var toggle = toggleOf(form);
+    if (!list || !toggle) return;
+    var margin = 8;
+    var gap = 12;
+    resetPlacement(list);
+    var toggleBox = toggle.getBoundingClientRect();
     var room = Math.max(96, window.innerHeight - toggleBox.bottom - margin);
     list.style.maxHeight = "min(16rem, " + Math.floor(room) + "px)";
+    fitWithinViewport(list, margin);
+
+    var button = createButton();
+    if (!button) return;
+    var btn = button.getBoundingClientRect();
+    if (btn.width < 1 || btn.height < 1) return;
+    if (!overlaps(list.getBoundingClientRect(), btn, gap)) return;
+    if (shiftBeside(form, list, btn, margin, gap)) return;
+
+    resetPlacement(list);
+    list.style.maxHeight = "min(16rem, " + Math.floor(room) + "px)";
+    fitWithinViewport(list, margin);
+    var box = list.getBoundingClientRect();
+    var above = Math.floor(btn.top - box.top - gap);
+    if (above >= 96) {
+      list.style.maxHeight = Math.min(above, Math.floor(room)) + "px";
+      if (!overlaps(list.getBoundingClientRect(), btn, gap)) return;
+    }
+
+    var belowTop = btn.bottom + gap;
+    var belowRoom = Math.floor(window.innerHeight - belowTop - margin);
+    if (belowRoom < 48) return;
+    var width = list.getBoundingClientRect().width;
+    var rtl = document.documentElement.getAttribute("dir") === "rtl";
+    var left = rtl ? toggleBox.left : toggleBox.right - width;
+    if (left < margin) left = margin;
+    if (left + width > window.innerWidth - margin) {
+      left = Math.max(margin, window.innerWidth - margin - width);
+    }
+    list.style.maxHeight = "min(16rem, " + belowRoom + "px)";
+    moveTo(form, list, belowTop, left);
+    box = list.getBoundingClientRect();
+    if (box.left < margin) moveTo(form, list, belowTop, left + (margin - box.left));
+    else if (box.right > window.innerWidth - margin) {
+      moveTo(form, list, belowTop, left - (box.right - (window.innerWidth - margin)));
+    }
   }
 
   function close(form, restore) {
@@ -106,6 +219,13 @@
       list.id = "esai-lang-list-" + index;
       toggle.setAttribute("aria-controls", list.id);
       list.setAttribute("aria-labelledby", toggle.id);
+      var collapse = form.closest(".navbar-collapse");
+      if (!collapse || collapse.__esaiLangPlace) return;
+      collapse.__esaiLangPlace = true;
+      collapse.addEventListener("transitionend", function () {
+        var openToggle = toggleOf(form);
+        if (openToggle && openToggle.getAttribute("aria-expanded") === "true") place(form);
+      });
     });
   }
 
