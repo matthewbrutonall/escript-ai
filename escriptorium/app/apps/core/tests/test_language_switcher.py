@@ -29,6 +29,7 @@ class LanguageSwitcherTests(TestCase):
             self.assertIn('value="%s"' % code, html)
             self.assertIn(get_language_info(code)["name_local"], html)
         self.assertEqual(html.count('aria-current="true"'), 1)
+        self.assertIn('a[href$="/projects/create/"]', html)
 
     def test_selecting_a_language_keeps_every_language_available(self):
         response = self.client.post(
