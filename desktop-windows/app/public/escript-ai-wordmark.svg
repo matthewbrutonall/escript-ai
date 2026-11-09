@@ -1,0 +1,9 @@
+<svg width="226" height="54" viewBox="0 0 226 54" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Escript AI</title>
+  <desc id="desc">Escript AI wordmark</desc>
+  <rect x="1" y="1" width="52" height="52" rx="10" fill="#29423C"/>
+  <path d="M15 15H39V21H22V25H37V31H22V37H40V43H15V15Z" fill="#F9F6EF"/>
+  <path d="M31.5 12.5C37.5 10.9 42.4 12.5 45.8 17.3" stroke="#C2775F" stroke-width="2.5" stroke-linecap="round"/>
+  <text x="65" y="35" fill="#F4EFE6" font-family="Inter, Helvetica Neue, Arial, sans-serif" font-size="27" font-weight="750" letter-spacing="0">Escript</text>
+  <text x="164" y="39" fill="#E2A08A" font-family="Georgia, Times New Roman, serif" font-size="37" font-style="italic" font-weight="600" letter-spacing="0">AI</text>
+</svg>

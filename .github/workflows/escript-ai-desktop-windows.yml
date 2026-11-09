@@ -1,0 +1,50 @@
+name: Escript AI Desktop Windows build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['codex/windows-installer-build']
+    paths:
+      - 'desktop-windows/**'
+      - '.github/workflows/escript-ai-desktop-windows.yml'
+  pull_request:
+    paths:
+      - 'desktop-windows/**'
+      - '.github/workflows/escript-ai-desktop-windows.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  windows-installer:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop-windows/app/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install NSIS
+        run: choco install nsis --yes --no-progress
+
+      - name: Install frontend dependencies
+        working-directory: desktop-windows/app
+        run: npm ci
+
+      - name: Build Windows installer
+        working-directory: desktop-windows/app
+        run: npm run tauri build
+
+      - name: Upload unsigned installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: escript-ai-desktop-windows-unsigned
+          path: desktop-windows/app/src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 14
