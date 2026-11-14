@@ -84,6 +84,11 @@ jobs:
         run: python -m pip install --no-cache-dir -r escriptorium/app/requirements.txt
       - name: Check application dependencies
         run: python -m pip check
+      - name: Check real Redis worker, cache and notifications
+        working-directory: escriptorium/app
+        env:
+          ESCRIPT_REDIS_SMOKE: '1'
+        run: python tests/redis_worker_smoke.py
       - name: Run PostgreSQL-backed core and AI tests
         working-directory: escriptorium/app
         run: python manage.py test core.tests.test_language_switcher core.tests.test_training_limits core.tests.test_ketos_evaluation core.tests.test_tasks ai.django_integration_tests --noinput -v 1
