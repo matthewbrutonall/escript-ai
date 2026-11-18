@@ -17,6 +17,10 @@ from reporting.tasks import start_task_reporting  # noqa F401
 
 
 class TasksTestCase(CoreFactoryTestCase):
+    def test_align_routes_to_jvm_queue(self):
+        route = align.app.amqp.router.route({}, align.name)
+        self.assertEqual(route["queue"].name, "jvm")
+
     def makeTranscriptionContent(self):
         self.part = self.factory.make_part()
         self.factory.make_part(document=self.part.document)

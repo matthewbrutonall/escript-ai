@@ -75,6 +75,12 @@ services:
     <<: *app
     command: "celery -A escriptorium worker -l INFO -E -Ofair --prefetch-multiplier 1 -Q low-priority -c ${CELERY_LOW_CONC:-10} --max-tasks-per-child=10"
 
+  celery-jvm:
+    <<: *app
+    environment:
+      - JAVA_TOOL_OPTIONS=-XX:-UseBASE64Intrinsics
+    command: "celery -A escriptorium worker -l INFO -E -Ofair --prefetch-multiplier 1 -Q jvm -c 1 --max-tasks-per-child=1"
+
   celery-gpu: &celery-gpu
     <<: *app
     environment:
