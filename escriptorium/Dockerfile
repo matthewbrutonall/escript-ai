@@ -14,6 +14,10 @@ RUN npm run production
 
 FROM docker.io/library/python:3.12-slim-bookworm
 
+# Java4Shell mitigation (CVE-2026-114938). This image currently targets x86_64;
+# omit this option from ARM builds because the JVM will not start with it there.
+ENV JAVA_TOOL_OPTIONS="-XX:-UseBASE64Intrinsics"
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     DEBIAN_FRONTEND=noninteractive \
