@@ -41,6 +41,24 @@ logger = logging.getLogger(__name__)
 User = get_user_model()
 
 
+def _job_links(document):
+    from django.urls import reverse
+    return [{"text": "Open the document", "src": reverse("document-detail", kwargs={"pk": document.pk}), "targetBlank": False}]
+
+
+def _fail_job(job, exc, *, page_index=None, page_total=None, code=None):
+    from .errors import classify, public_message
+    code = code or classify(exc)
+    message = public_message(code, page_index=page_index, page_total=page_total)
+    if job:
+        job.status = job.STATUS_ERROR
+        job.error = str(exc)[:2000]
+        job.error_code = code
+        job.error_public = message
+        job.save(update_fields=["status", "error", "error_code", "error_public", "updated_at"])
+    return message
+
+
 @app.task(bind=True, autoretry_for=(MemoryError,), default_retry_delay=600)
 def ai_transcribe(self, instance_pks, ai_config_pk=None, transcription_pk=None,
                   user_pk=None, job_pk=None, per_crop=6, **kwargs):
@@ -58,15 +76,13 @@ def ai_transcribe(self, instance_pks, ai_config_pk=None, transcription_pk=None,
     try:
         parts = load_parts_for_transcription(instance_pks, transcription)
         assert_dispatch_allowed(transcription.document, config, user=user,
-                                est_cost=job.est_cost if job else 0.0)
+                                est_cost=max(0.0, job.est_cost - job.actual_cost) if job else 0.0)
         api_key = resolve_api_key(config, user=user)
         backend = get_backend(config, api_key=api_key)
     except (CrossDocumentError, RemoteAIForbidden, ValueError, RuntimeError) as e:
         logger.exception(e)
-        if job:
-            job.status = job.STATUS_ERROR
-            job.error = str(e)[:2000]
-            job.save()
+        message = _fail_job(job, e)
+        notify_user(user, message, id="ai-transcription-error", level='danger', links=_job_links(transcription.document))
         raise
 
     if job:
@@ -75,11 +91,24 @@ def ai_transcribe(self, instance_pks, ai_config_pk=None, transcription_pk=None,
         job.parts_count = len(parts)
         job.save()
 
+    gate, _ = AILayerGate.objects.get_or_create(
+        transcription=transcription, defaults={'job': job})
+    gate.job = job
+    gate.state = AILayerGate.STATE_RAW
+    gate.comparison = None
+    gate.sample_line_pks = []
+    gate.mean_cer = None
+    gate.held_out_cer = None
+    gate.held_out_evaluation = {}
+    gate.held_out_part_pks = []
+    gate.save()
+    AILineDisagreement.objects.filter(gate=gate).delete()
+
     total_cost = 0.0
     written_pks = []
     examples = load_examples_for_document(transcription.document)
     process = client_process("ai.tasks.ai_transcribe")
-    for part in parts:
+    for index, part in enumerate(parts, start=1):
         send_event("document", part.document.pk, "part:workflow", {
             "id": part.pk, "process": process, "status": "ongoing",
             "task_id": self.request.id})
@@ -89,21 +118,13 @@ def ai_transcribe(self, instance_pks, ai_config_pk=None, transcription_pk=None,
                                   examples=examples)
             written_pks.extend(res.get('written_line_pks') or [])
             total_cost += res['cost']
-            AIUsageLedger.objects.create(
-                job=job, provider=config.provider, model_id=config.model_id,
-                tokens_in=res['tokens_in'], tokens_out=res['tokens_out'],
-                actual_cost=res['cost'], user=user, document=part.document)
             send_event("document", part.document.pk, "part:workflow", {
                 "id": part.pk, "process": process, "status": "done",
                 "task_id": self.request.id})
         except Exception as e:
             logger.exception(e)
-            if job:
-                job.status = job.STATUS_ERROR
-                job.error = str(e)[:2000]
-                job.save()
-            notify_user(user, _("Something went wrong during AI transcription!"),
-                        id="ai-transcription-error", level='danger')
+            message = _fail_job(job, e, page_index=index, page_total=len(parts))
+            notify_user(user, message, id="ai-transcription-error", level='danger', links=_job_links(part.document))
             send_event("document", part.document.pk, "part:workflow", {
                 "id": part.pk, "process": process, "status": "canceled",
                 "task_id": self.request.id})
@@ -116,8 +137,11 @@ def ai_transcribe(self, instance_pks, ai_config_pk=None, transcription_pk=None,
             transcription.document, transcription, parts, user)
         rows = _disagreement_rows(transcription, comparison, written_pks)
         _write_layer_gate(job, transcription, comparison, rows, written_pks)
-    notify_user(user, _("AI transcription done!"),
-                id="ai-transcription-success", level='success')
+    if job and job.lines_flagged:
+        message = _("AI transcription finished: %(written)d lines written, %(flagged)d lines left empty for you to check.") % {"written": job.lines_written, "flagged": job.lines_flagged}
+    else:
+        message = _("AI transcription finished: %(written)d lines written.") % {"written": job.lines_written} if job else _("AI transcription done!")
+    notify_user(user, message, id="ai-transcription-success", level='success', links=_job_links(transcription.document))
     return {"cost": total_cost}
 
 
@@ -208,27 +232,40 @@ def ai_seg_review(self, instance_pks, ai_config_pk=None, user_pk=None,
 
     parts = list(DocumentPart.objects.filter(pk__in=instance_pks).order_by('order'))
     if not parts:
+        job = AIJob.objects.filter(pk=job_pk).first() if job_pk else None
+        user = User.objects.filter(pk=user_pk).first() if user_pk else None
+        if job:
+            _fail_job(job, ValueError('no pages'), code='no_pages')
+        if user: notify_user(user, _fail_job(None, ValueError('no pages'), code='no_pages'), id="ai-seg-review-error", level='danger')
         return {"cost": 0}
     document = parts[0].document
-    config = AIBackendConfig.objects.get(pk=ai_config_pk)
     user = User.objects.filter(pk=user_pk).first() if user_pk else None
     job = AIJob.objects.filter(pk=job_pk).first() if job_pk else None
+    try:
+        config = AIBackendConfig.objects.get(pk=ai_config_pk)
+    except Exception as e:
+        message = _fail_job(job, e)
+        if user: notify_user(user, message, id="ai-seg-review-error", level='danger', links=_job_links(document))
+        raise
     try:
         # Same contract as ai_transcribe: mixed pks must not inherit the
         # first part's document for policy, budget, events, or suggestions.
         assert_parts_belong(document, parts)
         assert_dispatch_allowed(
             document, config, user=user,
-            est_cost=job.est_cost if job else 0.0)
+            est_cost=max(0.0, job.est_cost - job.actual_cost) if job else 0.0)
     except (CrossDocumentError, RemoteAIForbidden, RuntimeError) as e:
-        if job:
-            job.status = job.STATUS_ERROR
-            job.error = str(e)[:2000]
-            job.save()
+        message = _fail_job(job, e)
+        notify_user(user, message, id="ai-seg-review-error", level='danger', links=_job_links(document))
         raise
 
-    api_key = resolve_api_key(config, user=user)
-    backend = get_backend(config, api_key=api_key)
+    try:
+        api_key = resolve_api_key(config, user=user)
+        backend = get_backend(config, api_key=api_key)
+    except Exception as e:
+        message = _fail_job(job, e)
+        if user: notify_user(user, message, id="ai-seg-review-error", level='danger', links=_job_links(document))
+        raise
     if job:
         job.status = job.STATUS_RUNNING
         job.task_id = self.request.id
@@ -242,6 +279,7 @@ def ai_seg_review(self, instance_pks, ai_config_pk=None, user_pk=None,
     total_cost = 0.0
     n_sugg = 0
     part_errors = []
+    first_part_error = None
     for part in parts:
         send_event("document", document.pk, "part:workflow", {
             "id": part.pk, "process": process, "status": "ongoing",
@@ -250,11 +288,15 @@ def ai_seg_review(self, instance_pks, ai_config_pk=None, user_pk=None,
             res = review_part_segmentation(part, backend)
         except Exception as e:
             logger.exception("ai: seg review failed on part %s", part.pk)
+            first_part_error = first_part_error or e
             part_errors.append(f"part {part.pk}: {e}")
             send_event("document", document.pk, "part:workflow", {
                 "id": part.pk, "process": process, "status": "canceled",
                 "task_id": self.request.id})
             continue
+        if res.get('error') is not None:
+            first_part_error = first_part_error or res['error']
+            part_errors.append(f"part {part.pk}: {res['error']}")
         total_cost += res['cost']
         AIUsageLedger.objects.create(
             job=job, provider=config.provider, model_id=config.model_id,
@@ -279,16 +321,21 @@ def ai_seg_review(self, instance_pks, ai_config_pk=None, user_pk=None,
 
     if job:
         if part_errors and n_sugg == 0:
-            job.status = job.STATUS_ERROR
-            job.error = "; ".join(part_errors)[:2000]
-            notify_user(user, _("Something went wrong during AI segmentation review!"),
-                        id="ai-seg-review-error", level='danger')
+            _fail_job(job, first_part_error or RuntimeError(part_errors[0]))
+            notify_user(user, job.error_public,
+                        id="ai-seg-review-error", level='danger',
+                        links=_job_links(document))
         else:
             job.status = job.STATUS_DONE
             if part_errors:
                 job.error = "; ".join(part_errors)[:2000]
-            notify_user(user, _("AI segmentation review done!"),
-                        id="ai-seg-review-success", level='success')
+                from .errors import MESSAGES
+                job.error_code = 'partial_failure'
+                job.error_public = MESSAGES['partial_failure']
+            notify_user(user, job.error_public if part_errors else _("AI segmentation review done!"),
+                        id="ai-seg-review-success",
+                        level='warning' if part_errors else 'success',
+                        links=_job_links(document))
         job.save()
     elif n_sugg:
         notify_user(user, _("AI segmentation review done!"),

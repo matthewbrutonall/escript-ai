@@ -97,6 +97,7 @@ export const actions = {
     },
 
     async fetchContent({ commit, rootState }, transcription) {
+        commit("lines/setEngineNotes", {}, { root: true });
         // first create a default transcription for every line
         rootState.lines.all.forEach(function (line) {
             const tr = {
@@ -137,6 +138,14 @@ export const actions = {
             if (data.next) await fetchPage(page + 1);
         };
         await fetchPage(1);
+        if (transcription == rootState.transcriptions.selectedTranscription) {
+            try {
+                const { data } = await api.retrieveEngineLineNotes(rootState.document.id, rootState.parts.pk, transcription);
+                const notes = {};
+                (data?.lines || []).forEach((note) => { notes[note.line] = note; });
+                commit("lines/setEngineNotes", notes, { root: true });
+            } catch (_) { /* optional engine notes never block transcription loading */ }
+        }
         commit("hasLoadedTranscriptions", true);
     },
 

@@ -3,6 +3,7 @@ import {
     cancelTask,
     createTranscriptionLayer,
     exportDocument,
+    estimateAiTranscription,
     queueImport,
     segmentDocument,
     trainRecognizerModel,
@@ -11,6 +12,7 @@ import {
     transcribeDocumentAI,
 } from "../../../src/api";
 import initialFormState from "../util/initialFormState";
+import i18n from "../../i18n";
 
 // initial state
 const state = () => ({
@@ -303,6 +305,16 @@ const actions = {
      * Queue the transcription task for a document.
      */
     async transcribeDocument({ rootState }, { documentId, parts }) {
+        const selected = rootState?.forms?.transcribe?.model || "";
+        if (String(selected).startsWith("ai:")) {
+            let estimate = null;
+            try {
+                ({ data: estimate } = await estimateAiTranscription({ documentId, backend: String(selected).slice(3), parts }));
+            } catch (_) {
+                throw new Error(i18n.t("transcribe.estimateFailed"));
+            }
+            if (estimate?.allowed !== true) throw new Error(estimate?.reason || i18n.t("transcribe.estimateFailed"));
+        }
         // first, create a transcription layer by POSTing the name to the endpoint
         const { data } = await createTranscriptionLayer({
             documentId,
@@ -311,7 +323,6 @@ const actions = {
         // then, use the result to set the "transcription" param to new layer's pk
         if (data) {
             const transcription = data.pk;
-            const selected = rootState?.forms?.transcribe?.model || "";
             if (String(selected).startsWith("ai:")) {
                 await transcribeDocumentAI({
                     documentId,

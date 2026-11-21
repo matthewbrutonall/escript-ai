@@ -8,6 +8,9 @@ axios.defaults.withCredentials = true;
 export const retrieveDocument = async (document_id) =>
     await axios.get(`/documents/${document_id}/`);
 
+export const retrieveEngineLineNotes = async (document_id, part_id, transcription) =>
+    await axios.get(`/documents/${document_id}/external-htr/line-notes/`, { params: { part: part_id, transcription } });
+
 export const retrievePage = async (document_id, part_id, transcription, page) =>
     await axios.get(
         `/documents/${document_id}/parts/${part_id}/transcriptions/?transcription=${transcription}&page=${page}`,

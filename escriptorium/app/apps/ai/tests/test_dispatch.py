@@ -3,6 +3,7 @@ import unittest
 from types import SimpleNamespace
 
 from ai.dispatch import (
+    BudgetExceeded,
     CrossDocumentError,
     RemoteAIForbidden,
     assert_dispatch_allowed,
@@ -90,13 +91,15 @@ class EgressTests(unittest.TestCase):
     def test_budget_failure_raises(self):
         cfg = SimpleNamespace(provider="local", is_local=True,
                               model_id="llava", key_ref=None)
-        with self.assertRaises(RuntimeError) as ctx:
+        with self.assertRaises(BudgetExceeded) as ctx:
             assert_dispatch_allowed(
                 SimpleNamespace(pk=1), cfg,
                 user=SimpleNamespace(pk=3),
                 get_policy=lambda doc: None,
                 budget_ok=False)
         self.assertIn("budget", str(ctx.exception))
+        self.assertIsInstance(ctx.exception, RuntimeError)
+        self.assertEqual(ctx.exception.estimate, 0.0)
 
     def test_remote_allowed_with_key_and_no_policy(self):
         cfg = SimpleNamespace(provider="gemini", is_local=False,

@@ -191,7 +191,7 @@ export default {
                 } else if (job.status === "error") {
                     this.running = false;
                     this.stopPoll();
-                    const err = job.error || this.$t("seg.error");
+                    const err = job.message || job.error || this.$t("seg.error");
                     await this.refresh();
                     this.error = err;
                 }

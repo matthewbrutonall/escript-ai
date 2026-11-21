@@ -19,6 +19,10 @@
                 color="secondary"
                 :message="modelHint"
             />
+            <p v-if="isAiModel && estimateState === 'loading'">{{ $t('transcribe.estimating') }}</p>
+            <EscrAlert v-if="isAiModel && estimateState === 'ready' && estimate && estimate.allowed" color="secondary" :message="estimateMessage" />
+            <EscrAlert v-else-if="isAiModel && estimateState === 'ready' && estimate && !estimate.allowed" color="danger" :message="estimate.reason" />
+            <p v-else-if="isAiModel && estimateState === 'failed'">{{ $t('transcribe.estimateFailed') }}</p>
             <AutocompleteField
                 :label="$t('transcribe.model')"
                 :disabled="disabled || (!models && !aiBackends.length)"
@@ -61,6 +65,7 @@
 </template>
 <script>
 import { mapActions, mapState } from "vuex";
+import { estimateAiTranscription } from "../../../src/api/document";
 import AutocompleteField from "../AutocompleteDropdown/AutocompleteField.vue";
 import DropdownField from "../Dropdown/DropdownField.vue";
 import EscrAlert from "../Alert/Alert.vue";
@@ -132,17 +137,29 @@ export default {
             required: true,
         },
     },
+    data: () => ({ estimate: null, estimateState: "idle", estimateSeq: 0 }),
     computed: {
         ...mapState({
             model: (state) => state.forms.transcribe.model,
             layerName: (state) => state.forms.transcribe.layerName,
+            documentId: (state) => state.document.id,
+            selectedParts: (state) => state.images.selectedParts || [],
         }),
         /**
          * this form is invalid and cannot be submitted if it is missing model
          * or layer name
          */
         invalid() {
-            return !this.layerName || !this.model;
+            return !this.layerName || !this.model || (this.isAiModel && (this.estimateState !== "ready" || !this.estimate || !this.estimate.allowed));
+        },
+        estimateMessage() {
+            if (!this.estimate) return "";
+            if (this.estimate.is_local) return this.$t('transcribe.localEstimate');
+            const amount = this.estimate.estimate_usd < 0.01 ? this.$t('transcribe.lessThanCent') : `$${Number(this.estimate.estimate_usd).toFixed(2)}`;
+            const cap = this.estimate.month_cap_usd == null ? "" : ` ${this.$t('transcribe.budgetEstimate', { spent: Number(this.estimate.month_spent_usd).toFixed(2), cap: Number(this.estimate.month_cap_usd).toFixed(2) })}`;
+            const noLines = this.estimate.pages_without_lines ? ` ${this.$t('transcribe.noLines', { n: this.estimate.pages_without_lines })}` : "";
+            const backend = (this.aiBackends || []).find((item) => `ai:${item.pk}` === String(this.model));
+            return this.$t('transcribe.hostedEstimate', { amount, pages: this.estimate.pages, lines: this.estimate.lines, provider: backend?.provider || backend?.name || "AI provider" }) + cap + noLines;
         },
         isAiModel() {
             return String(this.model || "").startsWith("ai:");
@@ -251,7 +268,7 @@ export default {
         handleModelChange(e) {
             const value = e.target.value;
             this.handleGenericInput({ form: "transcribe", field: "model", value });
-            if (!String(value).startsWith("ai:")) return;
+            if (!String(value).startsWith("ai:")) { this.estimate = null; this.estimateState = "idle"; return; }
             const backend = (this.aiBackends || []).find(
                 (b) => `ai:${b.pk}` === String(value),
             );
@@ -261,8 +278,20 @@ export default {
                 field: "layerName",
                 value: this.uniqueLayerName(`AI — ${backend.name}`),
             });
+            this.refreshEstimate();
+        },
+        async refreshEstimate() {
+            if (!this.isAiModel) { this.estimateState = "idle"; this.estimate = null; return; }
+            const seq = ++this.estimateSeq; this.estimateState = "loading";
+            try { const { data } = await estimateAiTranscription({ documentId: this.documentId, backend: String(this.model).slice(3), parts: this.selectedParts }); if (seq === this.estimateSeq) { this.estimate = data; this.estimateState = "ready"; } }
+            catch (_) { if (seq === this.estimateSeq) this.estimateState = "failed"; }
         },
     },
+    watch: {
+        selectedParts() { this.refreshEstimate(); },
+        documentId() { this.refreshEstimate(); },
+    },
+    mounted() { this.refreshEstimate(); },
 };
 </script>
 <style scoped>

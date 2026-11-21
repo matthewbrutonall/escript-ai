@@ -1,6 +1,7 @@
 """Segmentation review parse + mapping. No Django, no mask writes."""
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from ai.dispatch import CrossDocumentError, assert_parts_belong
 from ai.seg_review import (
@@ -119,3 +120,24 @@ class SegReviewDocumentGuardTests(unittest.TestCase):
         ]
         with self.assertRaises(CrossDocumentError):
             assert_parts_belong(doc, parts)
+
+
+class SegReviewFailureTests(unittest.TestCase):
+    def test_vlm_failure_is_returned_for_job_reporting(self):
+        line = SimpleNamespace(pk=8)
+        relation = SimpleNamespace(all=lambda: SimpleNamespace(order_by=lambda *_: [line]))
+        part = SimpleNamespace(pk=4, lines=relation, image=SimpleNamespace(path="unused.png"))
+        class ImageContext:
+            def __enter__(self): return self
+            def __exit__(self, *_args): return False
+        image = ImageContext()
+        backend = SimpleNamespace(transcribe_region=lambda *_: (_ for _ in ()).throw(RuntimeError("provider down")))
+        with patch("ai.pipeline._line_masks", return_value=[[(0, 0), (1, 0), (1, 1)]]), \
+                patch("ai.pipeline.overlap_spurious_items", return_value=[]), \
+                patch("ai.pipeline.Image.open", return_value=image), \
+                patch("ai.pipeline.render_numbered_lines", return_value=object()), \
+                patch("ai.pipeline.merge_geom_spurious", side_effect=lambda _geom, parsed: parsed), \
+                patch("ai.pipeline.suggestions_from_review", return_value=[]):
+            result = __import__("ai.pipeline", fromlist=["review_part_segmentation"]).review_part_segmentation(part, backend)
+        self.assertIsInstance(result["error"], RuntimeError)
+        self.assertEqual(str(result["error"]), "provider down")

@@ -27,6 +27,12 @@ class APIKeyUnavailable(RuntimeError):
     """A configured user key cannot be used; shared credentials must not replace it."""
 
 
+class BudgetExceeded(RuntimeError):
+    def __init__(self, message, *, estimate=0.0, spent=0.0, cap=None):
+        super().__init__(message)
+        self.estimate, self.spent, self.cap = estimate, spent, cap
+
+
 def resolve_api_key(config, user=None):
     """Use shared keys only when no user key exists. Never log key material."""
     from django.conf import settings
@@ -145,10 +151,16 @@ def assert_dispatch_allowed(document, config, user=None, est_cost=0.0, *,
                 f"No API key resolved for {config.provider}:{config.model_id} "
                 f"(key_ref={getattr(config, 'key_ref', None)!r}).")
     if user is not None:
-        ok = budget_ok if budget_ok is not None else check_budget(user, est_cost)
+        if budget_ok is not None:
+            ok, spent, cap = budget_ok, None, None
+        else:
+            spent, cap = user_month_spend(user), user_monthly_cap(user)
+            from .budget import budget_allows
+            ok = budget_allows(spent, cap, est_cost)
         if not ok:
-            raise RuntimeError(
-                f"User {getattr(user, 'pk', user)} has no remaining AI budget.")
+            raise BudgetExceeded(
+                f"User {getattr(user, 'pk', user)} has no remaining AI budget.",
+                estimate=est_cost, spent=spent, cap=cap)
 
 
 def assert_parts_belong(document, parts):

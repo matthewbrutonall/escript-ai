@@ -65,8 +65,9 @@
                         v-for="t in trainingTranscriptions"
                         :key="t.id || t.pk"
                         :value="t.id || t.pk"
+                        :disabled="isBlocked(t)"
                     >
-                        {{ t.name }}
+                        {{ t.name }}{{ isBlocked(t) ? " " + $t("training.needsReview") : "" }}
                     </option>
                 </select>
             </div>
@@ -110,22 +111,23 @@ export default {
          * choose manual by default
          */
         trainingTranscriptions() {
-            return (this.availableTranscriptions || []).filter((t) => {
-                const gate = t.ai_gate;
-                return !gate || gate.state === "training-eligible";
-            });
+            return this.availableTranscriptions || [];
         },
         currentDefaultTranscriptionId() {
-            if (this.defaultTranscriptionId) {
+            const stored = this.trainingTranscriptions.find((t) => String(t.id || t.pk) === String(this.defaultTranscriptionId));
+            if (stored && !this.isBlocked(stored)) {
                 return this.defaultTranscriptionId;
             }
-            const avail = this.trainingTranscriptions;
+            const avail = this.trainingTranscriptions.filter((t) => !this.isBlocked(t));
             if (!avail?.length) {
                 return "";
             }
             const manual = avail.find((t) => t.name === "manual");
             return manual ? manual.id || manual.pk : avail[0].id || avail[0].pk;
         },
+    },
+    methods: {
+        isBlocked(t) { return Boolean(t.ai_gate && t.ai_gate.state !== "training-eligible"); },
     },
 };
 </script>

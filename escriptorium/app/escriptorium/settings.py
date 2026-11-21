@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/2.1/ref/settings/
 """
 
 import importlib.metadata
+import math
 import os
 import sys
 
@@ -553,8 +554,10 @@ QUOTA_GPU_MINUTES = int(os.environ['QUOTA_GPU_MINUTES']) if os.environ.get('QUOT
 # Per-user override: ai.AIUserQuota.monthly_usd.
 try:
     AI_MONTHLY_BUDGET_USD = float(os.environ['AI_MONTHLY_BUDGET_USD']) if os.environ.get('AI_MONTHLY_BUDGET_USD') else None
-except ValueError:
-    AI_MONTHLY_BUDGET_USD = None
+    if AI_MONTHLY_BUDGET_USD is not None and not math.isfinite(AI_MONTHLY_BUDGET_USD):
+        raise ValueError
+except ValueError as exc:
+    raise RuntimeError('AI_MONTHLY_BUDGET_USD must be a number.') from exc
 
 # Number of days that we have to wait before sending a new email to a user that reached one or more of its quotas
 QUOTA_NOTIFICATIONS_TIMEOUT = int(os.environ.get('QUOTA_NOTIFICATIONS_TIMEOUT', '3'))

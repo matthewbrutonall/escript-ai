@@ -355,6 +355,9 @@ export const retrieveAiBackends = async () =>
 export const retrieveAiJobs = async (documentId) =>
     await axios.get(`/documents/${documentId}/ai_jobs/`);
 
+export const estimateAiTranscription = async ({ documentId, backend, parts, perCrop, mode }) =>
+    await axios.post(`/documents/${documentId}/ai_estimate/`, { backend, parts, per_crop: perCrop, mode });
+
 export const startAiSegReview = async ({ documentId, backend, parts }) =>
     await axios.post(`/documents/${documentId}/ai_seg_review/`, {
         backend,

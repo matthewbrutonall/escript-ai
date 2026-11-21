@@ -196,6 +196,7 @@
                             <dd>{{ transcriptionConfidence }}</dd>
                         </dl>
                     </div>
+                    <AIJobsCard ref="aiJobs" :document-id="id" />
                     <AISampleReview :document-id="id" />
                     <AISegReview :document-id="id" />
                     <!-- Characters section -->
@@ -336,6 +337,7 @@
 import ReconnectingWebSocket from "reconnectingwebsocket";
 import { mapActions, mapState } from "vuex";
 import AISampleReview from "../../components/AISampleReview/AISampleReview.vue";
+import AIJobsCard from "../../components/AIJobsCard/AIJobsCard.vue";
 import AISegReview from "../../components/AISegReview/AISegReview.vue";
 import AlignModal from "../../components/AlignModal/AlignModal.vue";
 import DownloadArchiveModal from "../../components/DownloadArchiveModal/DownloadArchiveModal.vue";
@@ -373,6 +375,7 @@ import "./Document.css";
 export default {
     name: "EscrDocumentDashboard",
     components: {
+        AIJobsCard,
         AISampleReview,
         AISegReview,
         AlignModal,
@@ -749,6 +752,7 @@ export default {
             ) {
                 // these may be frequent, so throttle
                 this.fetchDocumentTasksThrottled();
+                this.$refs.aiJobs?.refresh();
 
                 if (data.name === "import:done") {
                     this.handleImportDone();

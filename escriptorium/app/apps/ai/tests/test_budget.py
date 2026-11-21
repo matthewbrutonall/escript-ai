@@ -1,11 +1,23 @@
 """Budget + key precedence. No Django."""
 import unittest
+from types import SimpleNamespace
+
+from ai.budget import estimate_cost_from_counts
 
 from ai.budget import budget_allows, remaining
 from ai.secrets import decrypt_key, encrypt_key, pick_api_key
 
 
 class BudgetTests(unittest.TestCase):
+    def test_estimate_cost_from_counts(self):
+        local = SimpleNamespace(provider='local', max_edge_px=1024)
+        hosted = SimpleNamespace(provider='gemini', max_edge_px=1024)
+        self.assertEqual(estimate_cost_from_counts(local, [0, 13]), 0.0)
+        self.assertEqual(estimate_cost_from_counts(hosted, [0]), 0.0)
+        one_call = estimate_cost_from_counts(hosted, [6])
+        self.assertAlmostEqual(estimate_cost_from_counts(hosted, [13]), one_call * 3)
+        segmentation = estimate_cost_from_counts(hosted, [0, 13], segmentation=True)
+        self.assertAlmostEqual(segmentation, 2 * one_call)
     def test_unlimited_when_cap_missing(self):
         self.assertTrue(budget_allows(999, None, 10))
         self.assertTrue(budget_allows(999, -1, 10))

@@ -145,6 +145,9 @@
                     <span class="selected-count">
                         {{ $t("images.nSelected", { n: selectedParts.length }) }}
                     </span>
+                    <EscrButton color="outline-danger" size="small" :disabled="loading.images" :label="$t('images.deleteSelected', { n: selectedParts.length })" :on-click="() => openDeleteModal()">
+                        <template #button-icon><TrashIcon /></template>
+                    </EscrButton>
                     <div
                         v-if="isReorderMode"
                         class="escr-toolbar-center"
@@ -558,7 +561,7 @@
                     v-if="deleteModalOpen"
                     :body-text="partTitleToDelete
                         ? $t('confirm.deleteNamed', { name: partTitleToDelete })
-                        : $t('confirm.deleteSelectedImages')"
+                        : $t('confirm.deleteSelectedImages', { n: selectedParts.length })"
                     :confirm-verb="$t('common.delete')"
                     :title="selectedParts.length === 1
                         ? $t('confirm.deleteImageTitle')

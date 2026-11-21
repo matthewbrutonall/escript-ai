@@ -8,10 +8,12 @@ from django.test import TestCase, override_settings
 
 from ai.admin import AIUserKeyForm
 from ai.dispatch import APIKeyUnavailable, assert_dispatch_allowed, resolve_api_key
-from ai.models import AIBackendConfig, AIJob, AIUserKey
+from ai.models import AIBackendConfig, AIJob, AILayerGate, AIUsageLedger, AIUserKey, AIUserQuota
+from ai.serializers import AITranscribeSerializer
+from api.serializers import CollectionRecognizeSerializer
 from ai.secrets import encrypt_key
-from ai.tasks import ai_transcribe
-from core.models import Transcription
+from ai.tasks import ai_seg_review, ai_transcribe
+from core.models import Line, OcrModel, Transcription, VirtualCollection, VirtualCollectionItem
 from core.tests.factory import CoreFactory
 
 
@@ -98,6 +100,83 @@ class UserKeyTests(TestCase):
         self.assertEqual(job.status, job.STATUS_ERROR)
         self.assertEqual(job.error, str(result.result))
         self.assertNotIn('user-test-key', job.error)
+
+    def test_estimate_and_transcribe_validation_refuse_over_budget_without_creating_jobs(self):
+        document = self.factory.make_document(owner=self.user)
+        part = self.factory.make_part(document=document)
+        transcription = Transcription.objects.create(document=document, name='budget test')
+        self.factory.make_content(part, amount=1, transcription=transcription)
+        self.assertTrue(Line.objects.filter(document_part=part).exists())
+        AIUserQuota.objects.create(user=self.user, monthly_usd=0.000000001)
+        jobs_before = AIJob.objects.count()
+        context = {
+            'view': SimpleNamespace(request=SimpleNamespace(user=self.user)),
+            'document': document,
+        }
+        serializer = AITranscribeSerializer(
+            data={'backend': self.config.pk, 'parts': [part.pk]}, context=context)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('budget', str(serializer.errors).lower())
+        self.assertEqual(AIJob.objects.count(), jobs_before)
+
+        self.client.force_login(self.user)
+        response = self.client.post(
+            '/api/documents/%s/ai_estimate/' % document.pk,
+            data={'backend': self.config.pk, 'parts': [part.pk]},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertFalse(response.json()['allowed'])
+        self.assertEqual(response.json()['reason_code'], 'budget')
+        self.assertEqual(AIJob.objects.count(), jobs_before)
+        self.assertEqual(AIUsageLedger.objects.count(), 0)
+
+    def test_collection_training_validation_blocks_raw_ai_layer_before_model_creation(self):
+        document = self.factory.make_document(owner=self.user)
+        part = self.factory.make_part(document=document)
+        layer = Transcription.objects.create(document=document, name='unreviewed AI layer')
+        AILayerGate.objects.create(transcription=layer, state=AILayerGate.STATE_RAW)
+        collection = VirtualCollection.objects.create(name='review gate', owner=self.user)
+        VirtualCollectionItem.objects.create(
+            collection=collection, document_part=part, transcription_layer=layer)
+        models_before = OcrModel.objects.count()
+        serializer = CollectionRecognizeSerializer(
+            data={'model_name': 'must not be created'},
+            context={'request': SimpleNamespace(user=self.user), 'collection': collection},
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('not been reviewed', str(serializer.errors))
+        self.assertEqual(OcrModel.objects.count(), models_before)
+
+    def test_partial_segmentation_review_failure_is_visible_and_keeps_serializable_result(self):
+        document = self.factory.make_document(owner=self.user)
+        first = self.factory.make_part(document=document)
+        second = self.factory.make_part(document=document)
+        job = AIJob.objects.create(
+            backend=self.config, document=document, created_by=self.user,
+            mode=AIJob.MODE_SEG_REVIEW,
+        )
+        partial_message = 'AI segmentation review finished with some pages unavailable. Check the page results before relying on the suggestions.'
+        outcomes = [
+            {'error': RuntimeError('first page provider failure'), 'suggestions': [], 'cost': 0, 'tokens_in': 0, 'tokens_out': 0},
+            {'error': None, 'suggestions': [{'kind': 'missed', 'line': None, 'payload': {}}], 'cost': 0, 'tokens_in': 0, 'tokens_out': 0},
+        ]
+        notices = []
+        with patch('ai.tasks.get_backend', return_value=object()), \
+                patch('ai.tasks.review_part_segmentation', side_effect=outcomes), \
+                patch('ai.tasks.notify_user', side_effect=lambda _user, message, **kwargs: notices.append((message, kwargs))):
+            result = ai_seg_review.apply(kwargs={
+                'instance_pks': [first.pk, second.pk], 'ai_config_pk': self.config.pk,
+                'user_pk': self.user.pk, 'job_pk': job.pk,
+            }, throw=False)
+        self.assertEqual(result.state, 'SUCCESS')
+        json.dumps(result.result)
+        job.refresh_from_db()
+        self.assertEqual(job.status, job.STATUS_DONE)
+        self.assertEqual(job.error_code, 'partial_failure')
+        self.assertEqual(job.error_public, partial_message)
+        self.assertEqual(notices[-1][0], partial_message)
+        self.assertEqual(notices[-1][1]['level'], 'warning')
 
     @override_settings(SECRET_KEY='a-beautiful-snowflake')
     def test_admin_refuses_new_keys_with_default_secret(self):

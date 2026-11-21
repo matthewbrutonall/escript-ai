@@ -181,6 +181,81 @@ class ExternalHtrRunOrmTests(TestCase):
         self.assertEqual(hosted_response.json()["message"], "hosted engines are not used for this action")
         self.assertEqual(ExternalHTRRun.objects.count(), 0)
 
+    def test_editor_line_notes_are_limited_to_imported_job_outcomes(self):
+        config = self._config("http://127.0.0.1:9/")
+        imported = Transcription.objects.create(document=self.document, name="external notes")
+        other = Transcription.objects.create(document=self.document, name="other layer")
+        job = ExternalHTRJob.objects.create(
+            document=self.document, part=self.part, config=config,
+            imported=True, imported_transcription=imported,
+        )
+        ExternalHTRLineResult.objects.create(
+            job=job, line_id=str(self.kept.pk), position=0, status="included",
+            text="", warnings=[],
+        )
+        ExternalHTRLineResult.objects.create(
+            job=job, line_id=str(self.skipped.pk), position=1, status="skipped",
+            code="no-crop",
+        )
+        ExternalHTRLineResult.objects.create(
+            job=job, line_id="not-a-line-id", position=2, status="failed",
+        )
+        response = self.client.get(self._url("external-htr/line-notes/"), {
+            "part": self.part.pk, "transcription": imported.pk,
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"lines": [
+            {"line": self.kept.pk, "status": "included", "empty": True, "warning_count": 0},
+            {"line": self.skipped.pk, "status": "skipped", "empty": False, "warning_count": 0},
+        ]})
+        self.assertEqual(self.client.get(self._url("external-htr/line-notes/"), {
+            "part": self.part.pk, "transcription": other.pk,
+        }).json(), {"lines": []})
+        stranger = Client()
+        stranger.force_login(self.stranger)
+        self.assertEqual(stranger.get(self._url("external-htr/line-notes/"), {
+            "part": self.part.pk, "transcription": imported.pk,
+        }).status_code, 404)
+
+    def test_bulk_delete_parts_scopes_ids_and_renumbers_remaining(self):
+        parts = []
+        for index in range(5):
+            upload, size = _png()
+            parts.append(DocumentPart.objects.create(
+                document=self.document, image=upload, image_file_size=size,
+                original_filename="bulk-%s.png" % index,
+            ))
+        foreign_project = Project.objects.create(
+            name="foreign", slug=uuid.uuid4().hex[:12], owner=self.stranger,
+        )
+        foreign_document = Document.objects.create(
+            name="foreign", owner=self.stranger, project=foreign_project,
+        )
+        upload, size = _png()
+        foreign_part = DocumentPart.objects.create(
+            document=foreign_document, image=upload, image_file_size=size,
+            original_filename="foreign.png",
+        )
+        response = self._post("bulk_delete_parts/", {
+            "parts": [parts[1].pk, parts[2].pk, parts[4].pk, foreign_part.pk],
+        })
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["deleted"], 3)
+        remaining = list(DocumentPart.objects.filter(document=self.document).order_by("order"))
+        self.assertEqual([part.pk for part in remaining], [self.part.pk, parts[0].pk, parts[3].pk])
+        self.assertEqual([part.order for part in remaining], [0, 1, 2])
+        self.assertTrue(DocumentPart.objects.filter(pk=foreign_part.pk).exists())
+        self.assertEqual(self._post("bulk_delete_parts/", {"parts": "bad"}).status_code, 400)
+        self.assertEqual(self._post("bulk_delete_parts/", {"parts": [True]}).status_code, 400)
+        self.assertEqual(self._post("bulk_delete_parts/", {"parts": [1.5]}).status_code, 400)
+        stranger = Client()
+        stranger.force_login(self.stranger)
+        self.assertIn(stranger.post(
+            "/api/documents/%s/bulk_delete_parts/" % self.document.pk,
+            data=json.dumps({"parts": [parts[0].pk]}),
+            content_type="application/json",
+        ).status_code, (403, 404))
+
     def test_queue_failure_is_terminal_and_does_not_include_the_exception(self):
         config = self._config("http://127.0.0.1:9/")
 
