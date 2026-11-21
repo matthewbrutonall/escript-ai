@@ -163,7 +163,7 @@ class UserKeyTests(TestCase):
         ]
         notices = []
         with patch('ai.tasks.get_backend', return_value=object()), \
-                patch('ai.tasks.review_part_segmentation', side_effect=outcomes), \
+                patch('ai.pipeline.review_part_segmentation', side_effect=outcomes), \
                 patch('ai.tasks.notify_user', side_effect=lambda _user, message, **kwargs: notices.append((message, kwargs))):
             result = ai_seg_review.apply(kwargs={
                 'instance_pks': [first.pk, second.pk], 'ai_config_pk': self.config.pk,
