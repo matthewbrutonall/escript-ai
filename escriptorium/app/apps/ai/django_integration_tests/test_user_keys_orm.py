@@ -1,5 +1,6 @@
 """Stored credentials fail closed. Hosted provider calls never run."""
 import os
+import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
