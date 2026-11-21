@@ -125,6 +125,8 @@ class AIJob(models.Model):
         max_length=64, null=True, blank=True,
         help_text=_("Celery task id, set when the worker starts. Not the TaskGroup pk."))
     error = models.TextField(blank=True)
+    error_code = models.CharField(max_length=64, blank=True, default="")
+    error_public = models.CharField(max_length=400, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -56,3 +56,6 @@ export const bulkMoveParts = async ({ documentId, parts, index }) =>
         parts,
         index,
     });
+
+export const bulkDeleteParts = async ({ documentId, parts }) =>
+    await axios.post(`/documents/${documentId}/bulk_delete_parts/`, { parts });

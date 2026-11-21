@@ -1,6 +1,7 @@
 <template>
     <div
         v-if="gates && gates.length"
+        id="ai-layer-review"
         class="escr-card escr-card-padding escr-ai-sample-review"
     >
         <h2>{{ $t("gate.title") }}</h2>

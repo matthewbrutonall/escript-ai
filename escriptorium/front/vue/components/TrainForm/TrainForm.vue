@@ -41,6 +41,12 @@
             :option-groups="modelOptionGroups"
             :on-change="onChangeBaseModel"
         />
+        <p v-if="blockedTrainingDocuments.length" class="escr-help-text escr-training-gate-note">
+            {{ $t('train.reviewRequired') }}
+            <span v-for="(doc, index) in blockedTrainingDocuments.slice(0, 5)" :key="doc.id">
+                <a :href="`/document/${doc.id}/#ai-layer-review`" target="_blank" rel="noopener">{{ doc.name }}</a><span v-if="index < Math.min(blockedTrainingDocuments.length, 5) - 1">, </span>
+            </span>
+        </p>
         <label
             class="escr-form-field escr-overwrite"
             title="You must be the owner of the model to overwrite its file."
@@ -136,6 +142,13 @@ export default {
             currentCollection: (state) => state.currentCollection,
             isCollectionDirty: (state) => state.dirty,
         }),
+        blockedTrainingDocuments() {
+            const seen = new Set();
+            return (this.currentCollection.items || []).filter((item) => {
+                if (!item.transcription_gate_state || item.transcription_gate_state === "training-eligible" || seen.has(item.document_id)) return false;
+                seen.add(item.document_id); return true;
+            }).map((item) => ({ id: item.document_id, name: item.document_name }));
+        },
         isValid() {
             // Require either a new name or an override of an existing model
             return (

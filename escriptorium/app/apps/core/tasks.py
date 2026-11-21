@@ -1214,7 +1214,9 @@ def train(transcription_pk=None, model_pk=None, task_group_pk=None,
                 "id": model.pk if model is not None else None,
             })
         if user:
-            user.notify(_("Something went wrong during the training process!"),
+            from ai.gate import LayerNotEligible
+            message = (_("Training did not start: an AI layer in the training set has not been reviewed. Finish “AI layer review” on its document page, then try again.") if isinstance(e, LayerNotEligible) else _("Something went wrong during the training process!"))
+            user.notify(message,
                         id="training-error", level='danger')
         logger.exception(e)
     else:
@@ -1588,8 +1590,10 @@ def train_from_collection(collection_pk=None, model_pk=None, task_group_pk=None,
             },
         )
         if user:
+            from ai.gate import LayerNotEligible
+            message = (_("Training did not start: an AI layer in the training set has not been reviewed. Finish “AI layer review” on its document page, then try again.") if isinstance(e, LayerNotEligible) else _("Something went wrong during the training process!"))
             user.notify(
-                _("Something went wrong during the training process!"),
+                message,
                 id="training-error",
                 level="danger",
             )

@@ -1,6 +1,7 @@
 import axios from "axios";
 import {
     bulkMoveParts,
+    bulkDeleteParts,
     deleteDocumentPart,
     moveDocumentPart,
     retrieveDocument,
@@ -60,42 +61,35 @@ const actions = {
      */
     async deleteSelectedParts({ commit, dispatch, rootState, state }) {
         commit("setLoading", { key: "images", loading: true });
+        const requested = [...state.selectedParts];
+        let deleted = 0;
+        let failure = null;
         try {
-            // delete each selected part
-            await Promise.all(
-                state.selectedParts.map(async (pk) => {
-                    return await deleteDocumentPart({
+            if (requested.length === 1) {
+                await deleteDocumentPart({ documentId: rootState.document.id, partPk: requested[0] });
+                deleted = 1;
+            } else {
+                for (let i = 0; i < requested.length; i += 200) {
+                    const { data } = await bulkDeleteParts({
                         documentId: rootState.document.id,
-                        partPk: pk,
+                        parts: requested.slice(i, i + 200),
                     });
-                }),
-            );
-
-            // re-fetch parts and update count
-            await dispatch("fetchParts");
-            commit(
-                "document/setPartsCount",
-                rootState.document.partsCount - state.selectedParts.length,
-                { root: true },
-            );
-
-            // deselect deleted parts
-            commit("setSelectedParts", []);
-
-            // give user success feedback and close modal
-            dispatch(
-                "alerts/add",
-                {
-                    color: "success",
-                    message: "Image(s) deleted successfully",
-                },
-                { root: true },
-            );
-            commit("setDeleteModalOpen", false);
+                    deleted += data?.deleted ?? 0;
+                }
+            }
         } catch (error) {
-            dispatch("alerts/addError", error, { root: true });
+            failure = error;
+        } finally {
+            try { await dispatch("fetchParts"); } catch (refreshError) { failure = failure || refreshError; }
+            finally {
+                commit("setSelectedParts", []);
+                commit("setDeleteModalOpen", false);
+                commit("setLoading", { key: "images", loading: false });
+            }
         }
-        commit("setLoading", { key: "images", loading: false });
+        if (deleted < requested.length) dispatch("alerts/add", { color: "alert", message: `${deleted} of ${requested.length} images were deleted. The rest could not be removed.`, delay: 0 }, { root: true });
+        else if (failure) dispatch("alerts/addError", failure, { root: true });
+        else dispatch("alerts/add", { color: "success", message: `${deleted} images deleted` }, { root: true });
     },
     /**
      * Fetch the document and its images, and set on state.
@@ -218,6 +212,7 @@ const actions = {
                 );
             });
             commit("setNextPage", data.next || "");
+            commit("document/setPartsCount", data.count, { root: true });
         } else {
             throw new Error("Unable to retrieve additional images");
         }
@@ -245,6 +240,7 @@ const actions = {
                 { root: true },
             );
             commit("setNextPage", data.next || "");
+            commit("document/setPartsCount", data.count, { root: true });
         } else {
             throw new Error("Unable to retrieve document images");
         }

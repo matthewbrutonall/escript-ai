@@ -4,9 +4,12 @@
         @mouseleave="hideOverlay"
         @click="edit"
     >
+        <title v-if="engineNote">{{ engineNoteText }}</title>
         <polygon
             :fill="(legacyModeEnabled && globalConfidenceVisible) || confidenceVizOn ? maskFillColor : 'transparent'"
             :stroke="maskStrokeColor"
+            :stroke-dasharray="engineNote ? '6 4' : null"
+            :stroke-width="engineNote ? 2 : null"
             :points="maskPoints"
         />
         <path
@@ -79,11 +82,22 @@ export default Vue.extend({
             return this.line ? "textPath"+this.line.pk : "";
         },
         maskStrokeColor() {
+            if (this.engineNote) return "#d9822b";
             if (this.line.currentTrans && this.line.currentTrans.content) {
                 return "none";
             } else {
                 return "lightgrey";
             }
+        },
+        engineNote() {
+            const note = this.$store.state.lines.engineNotes?.[this.line.pk];
+            const hasText = Boolean(this.line.currentTrans && this.line.currentTrans.content);
+            return note && !hasText ? note : null;
+        },
+        engineNoteText() {
+            if (this.engineNote?.empty) return "The recognition engine returned no text for this line.";
+            if (["skipped", "failed"].includes(this.engineNote?.status)) return "The recognition engine did not process this line.";
+            return "The recognition engine reported a warning for this line.";
         },
         lineAvgConfidence() {
             // compute the average confidence for the current line

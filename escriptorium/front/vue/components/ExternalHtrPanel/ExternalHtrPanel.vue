@@ -133,6 +133,7 @@
                             <li
                                 v-for="line in page.lines"
                                 :key="line.line_id"
+                                :class="{ 'escr-external-htr-flagged': line.empty || line.warning_count > 0 }"
                             >
                                 {{ lineOutcome(line) }}
                             </li>
@@ -142,6 +143,7 @@
                 </tr>
             </tbody>
         </table>
+        <p v-if="flaggedCounts.empty || flaggedCounts.warnings" class="escr-external-htr-error">{{ $t('externalHtr.flaggedSummary', flaggedCounts) }}</p>
         <div class="escr-external-htr-actions">
             <button
                 type="button"
@@ -247,6 +249,9 @@ export default {
         pages() {
             return this.run && Array.isArray(this.run.pages) ? this.run.pages : [];
         },
+        flaggedCounts() {
+            return this.pages.reduce((counts, page) => ({ empty: counts.empty + (page.empty_text || 0), warnings: counts.warnings + (page.warnings || 0) }), { empty: 0, warnings: 0 });
+        },
         lineHeightBlocked() {
             if (this.engineName !== "pylaia" || !this.selectedModel) return false;
             const height = this.selectedModel.line_height;
@@ -292,7 +297,8 @@ export default {
         lineOutcome(line) {
             const empty = line.empty ? ` ${this.$t("externalHtr.empty")}` : "";
             const code = line.code ? ` (${line.code})` : "";
-            return `${line.line_id}: ${line.status}${code}${empty}, ${this.$t("externalHtr.length", { n: line.text_length || 0 })}`;
+            const warned = line.warning_count > 0 ? ` ${this.$t("externalHtr.warned", { n: line.warning_count })}` : "";
+            return `${line.line_id}: ${line.status}${code}${empty}${warned}, ${this.$t("externalHtr.length", { n: line.text_length || 0 })}`;
         },
         async loadEngines() {
             this.error = "";

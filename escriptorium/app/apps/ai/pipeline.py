@@ -32,6 +32,20 @@ from .triage import normalised_cer
 
 logger = logging.getLogger(__name__)
 
+
+def _record_usage(job, config, user, part, tokens_in, tokens_out, cost):
+    if job is None:
+        return
+    from django.apps import apps
+    apps.get_model('ai', 'AIUsageLedger').objects.create(
+        job=job, provider=config.provider, model_id=config.model_id,
+        tokens_in=tokens_in, tokens_out=tokens_out, actual_cost=cost,
+        user=user, document=part.document)
+    job.tokens_in += tokens_in
+    job.tokens_out += tokens_out
+    job.actual_cost += cost
+    job.save(update_fields=['tokens_in', 'tokens_out', 'actual_cost'])
+
 DEFAULT_PROMPT = (
     "This is a crop of a manuscript page. Each text line is highlighted with a "
     "distinct translucent colour and labelled by colour name in the left margin. "
@@ -112,8 +126,8 @@ def transcribe_one_line(backend, image, mask, prompt):
     return backend.transcribe_region(crop, [LINE_KEY], prompt)
 
 
-def _per_line_group(im, lines, masks, backend, config, transcription,
-                    version_source, author, comparison, disagreements,
+def _per_line_group(im, lines, masks, backend, config, transcription, job,
+                    version_source, author, user, comparison, disagreements,
                     written_line_pks, written, flagged, tok_in, tok_out, cost,
                     witness_raw=""):
     """Tight single-line crops when colour-key is unsafe or incomplete."""
@@ -129,7 +143,9 @@ def _per_line_group(im, lines, masks, backend, config, transcription,
             continue
         tok_in += line_result.tokens_in
         tok_out += line_result.tokens_out
-        cost += backend.cost(line_result.tokens_in, line_result.tokens_out)
+        call_cost = backend.cost(line_result.tokens_in, line_result.tokens_out)
+        cost += call_cost
+        _record_usage(job, config, user, line.document_part, line_result.tokens_in, line_result.tokens_out, call_cost)
         text = extract_line_text(line_result)
         if text:
             _record_write(
@@ -203,7 +219,7 @@ def transcribe_part(part, config, transcription, backend, *, user=None,
                 written, flagged, tok_in, tok_out, cost = _per_line_group(
                     im, [group[i] for i in overlap_idxs],
                     [group_masks[i] for i in overlap_idxs],
-                    backend, config, transcription, version_source, author,
+                    backend, config, transcription, job, version_source, author, user,
                     comparison, disagreements, written_line_pks,
                     written, flagged, tok_in, tok_out, cost)
                 continue
@@ -216,7 +232,9 @@ def transcribe_part(part, config, transcription, backend, *, user=None,
                 crop_img, keys, build_prompt(config, keys, examples=examples))
             tok_in += result.tokens_in
             tok_out += result.tokens_out
-            cost += backend.cost(result.tokens_in, result.tokens_out)
+            call_cost = backend.cost(result.tokens_in, result.tokens_out)
+            cost += call_cost
+            _record_usage(job, config, user, part, result.tokens_in, result.tokens_out, call_cost)
             if result.unknown_keys:
                 logger.warning("ai: unexpected keys %s on part %s (parser, not "
                                "dropped lines)", result.unknown_keys, part.pk)
@@ -238,7 +256,7 @@ def transcribe_part(part, config, transcription, backend, *, user=None,
                 written, flagged, tok_in, tok_out, cost = _per_line_group(
                     im, [group[i] for i in fallback_idxs],
                     [group_masks[i] for i in fallback_idxs],
-                    backend, config, transcription, version_source, author,
+                    backend, config, transcription, job, version_source, author, user,
                     comparison, disagreements, written_line_pks,
                     written, flagged, tok_in, tok_out, cost,
                     witness_raw=result.raw)
@@ -246,10 +264,7 @@ def transcribe_part(part, config, transcription, backend, *, user=None,
     if job:
         job.lines_written += written
         job.lines_flagged += flagged
-        job.tokens_in += tok_in
-        job.tokens_out += tok_out
-        job.actual_cost += cost
-        job.save()
+        job.save(update_fields=['lines_written', 'lines_flagged'])
 
     return dict(lines_written=written, lines_flagged=flagged,
                 tokens_in=tok_in, tokens_out=tok_out, cost=cost,
@@ -290,10 +305,13 @@ def review_part_segmentation(part, backend):
         tokens_in = result.tokens_in
         tokens_out = result.tokens_out
         cost = backend.cost(tokens_in, tokens_out)
-    except Exception:
+    except Exception as exc:
         logger.exception(
             "ai: VLM seg review failed on part %s; keeping geometry flags",
             part.pk)
+        failure = exc
+    else:
+        failure = None
     parsed = merge_geom_spurious(geom, parsed)
     suggestions = suggestions_from_review(lines, parsed)
     return dict(
@@ -303,4 +321,5 @@ def review_part_segmentation(part, backend):
         cost=cost,
         raw=raw,
         parsed=parsed,
+        error=failure,
     )

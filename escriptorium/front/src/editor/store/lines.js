@@ -3,6 +3,7 @@ import * as api from "../api";
 
 export const initialState = () => ({
     all: [],
+    engineNotes: {},
     editedLine: null,
     autoOrder: true,
     selectedPk: null,
@@ -25,6 +26,7 @@ export const getters = {
 };
 
 export const mutations = {
+    setEngineNotes(state, notes) { state.engineNotes = notes; },
     setSelected(state, pk) {
         state.selectedPk = pk;
         state.selectedToken++;

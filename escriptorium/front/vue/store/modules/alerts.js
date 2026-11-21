@@ -31,6 +31,7 @@ const actions = {
                 commit("addAlert", {
                     color: "alert",
                     message: `Error: ${err}`,
+                    delay: 0,
                 });
             } else {
                 Object.entries(err || {}).forEach(
@@ -39,16 +40,27 @@ const actions = {
                             commit("addAlert", {
                                 color: "alert",
                                 message: `Error: ${value}`,
+                                delay: 0,
                             });
                         } else {
                             commit("addAlert", {
                                 color: "alert",
                                 message: `Error for field ${key}: ${value}`,
+                                delay: 0,
                             });
                         }
                     },
                 );
             }
+        } else if (
+            response?.status === 400 && response.data && typeof response.data === "object" &&
+            !Array.isArray(response.data) && !response.data.message
+        ) {
+            Object.entries(response.data).forEach(([key, value]) => {
+                const text = Array.isArray(value) ? value.join(" ") : String(value);
+                const generic = ["non_field_errors", "detail", "transcription"].includes(key);
+                commit("addAlert", { color: "alert", message: generic ? `Error: ${text}` : `Error for field ${key}: ${text}`, delay: 0 });
+            });
         } else {
             commit("addAlert", {
                 color: "alert",

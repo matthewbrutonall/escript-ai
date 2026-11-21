@@ -374,6 +374,7 @@ def _page_from_job(job, attempts):
             "code": row.code if isinstance(row.code, str) and row.code in _PUBLIC else "",
             "empty": status == "included" and text == "",
             "text_length": len(text) if status == "included" else 0,
+            "warning_count": len(row.warnings) if isinstance(row.warnings, list) else 0,
         })
     completed = job.status == "completed"
     return {

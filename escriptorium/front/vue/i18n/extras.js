@@ -33,6 +33,7 @@ const en = {
         fixThis: "Fix this",
         fixPartial: "Optional guide text for this line (leave as-is to re-read):",
     },
+    aiJobs: { title: "AI jobs", started: "Started", type: "Type", layer: "Layer", backend: "Backend", status: "Status", lines: "Written / empty", cost: "Cost", transcription: "Transcription", segReview: "Segmentation review", failed: "The job failed.", technical: "Technical detail", flagged: "{n} lines were left empty. Open the editor to fill them in or use 'Fix this' in the review below." },
     seg: {
         title: "AI segmentation review",
         help: "Overlapping boxes are flagged automatically. Accept deletes those lines. Type labels are written onto the line. Missed and order notes are only ticked off — you still draw or reorder in the editor.",
@@ -58,6 +59,7 @@ const en = {
     },
     editor: {
         segmentation: "Segmentation",
+        reviewRequired: "AI-made layers must be reviewed before they can be used for training. Open the document and complete “AI layer review”:",
         transcription: "Transcription",
         lineOrdering: "Text / Line Ordering",
         imageAnnotation: "Image Annotation",
@@ -244,7 +246,7 @@ const en = {
         deleteImageTitle: "Delete Image",
         deleteImagesTitle: "Delete Images",
         deleteNamed: "Are you sure you want to delete {name}?",
-        deleteSelectedImages: "Are you sure you want to delete the selected image(s)?",
+        deleteSelectedImages: "Delete {n} images? Their lines and transcriptions are deleted too. This cannot be undone.",
         noImages: "There are no images to display.",
     },
     externalHtr: {
@@ -260,6 +262,8 @@ const en = {
         licence: "Licence reported by the engine: {licence}",
         lineHeight: "Line images are resized to {height} pixels high before they are sent.",
         lineHeightMissing: "This model did not report a usable line height, so recognition cannot start.",
+        flaggedSummary: "{empty} lines came back with no text and {warnings} warnings were reported. These lines will be imported empty and marked in the editor so you can find them.",
+        warned: "({n} warning(s))",
         pageLevel: "This engine reads the whole page, including its layout and line text. It does not send separate line images.",
         beamRefused: "This model does not use one beam, so recognition cannot start.",
         start: "Recognise selected pages",
@@ -305,7 +309,7 @@ const ar = {
     characters: { title: "الحروف", empty: "لا حروف للعرض.", byCharacter: "حسب الحرف", byFrequency: "حسب التكرار" },
     train: { modelType: "نوع النموذج", modelName: "اسم النموذج", namePlaceholder: "سمِّ النموذج…", nameRequired: "الاسم مطلوب ما لم تستبدل نموذجًا", baseModel: "نموذج أساسي (اختياري)", baseHelp: "اختر نموذجًا للصقل أو اتركه فارغًا للتدريب من الصفر.", overwrite: "استبدال الموجود", overwriteHelp: "يجب أن تملك النموذج الأساسي لاستبدال ملفه.", start: "بدء التدريب", recognition: "التعرّف", segmentation: "التقسيم" },
     collection: { load: "تحميل مجموعة:", startNew: "بدء جديد", untitled: "مجموعة بلا عنوان", name: "اسم المجموعة", namePlaceholder: "سمِّ المجموعة…", partsStaged: "{n} أجزاء جاهزة", save: "حفظ المجموعة" },
-    confirm: { deleteDocumentBody: "هل تريد حذف هذه الوثيقة؟", cancelUploadTitle: "إلغاء الرفع الجاري", cancelUploadBody: "الرفع ما زال جاريًا. هل تريد الإلغاء؟ قد تُفقد الرفوعات الناقصة.", yesCancel: "نعم، إلغاء", overwriteSegTitle: "استبدال التقسيم والنسخ", overwriteSegBody: "المتابعة ستحذف أي نسخ موجودة.", cancelTaskTitle: "إلغاء المهمة", cancelTaskBody: "هل تريد إلغاء هذه المهمة؟", redrawMasksBody: "هل تريد إعادة رسم كل الأقنعة على الصور المحددة؟", deleteImageTitle: "حذف صورة", deleteImagesTitle: "حذف صور", deleteNamed: "هل تريد حذف {name}؟", deleteSelectedImages: "هل تريد حذف الصور المحددة؟", noImages: "لا صور للعرض." },
+    confirm: { deleteDocumentBody: "هل تريد حذف هذه الوثيقة؟", cancelUploadTitle: "إلغاء الرفع الجاري", cancelUploadBody: "الرفع ما زال جاريًا. هل تريد الإلغاء؟ قد تُفقد الرفوعات الناقصة.", yesCancel: "نعم، إلغاء", overwriteSegTitle: "استبدال التقسيم والنسخ", overwriteSegBody: "المتابعة ستحذف أي نسخ موجودة.", cancelTaskTitle: "إلغاء المهمة", cancelTaskBody: "هل تريد إلغاء هذه المهمة؟", redrawMasksBody: "هل تريد إعادة رسم كل الأقنعة على الصور المحددة؟", deleteImageTitle: "حذف صورة", deleteImagesTitle: "حذف صور", deleteNamed: "هل تريد حذف {name}؟", noImages: "لا صور للعرض." },
 };
 
 const hi = {
@@ -328,7 +332,7 @@ const hi = {
     characters: { title: "अक्षर", empty: "कोई अक्षर नहीं।", byCharacter: "अक्षर से", byFrequency: "आवृत्ति से" },
     train: { modelType: "मॉडल प्रकार", modelName: "मॉडल नाम", namePlaceholder: "मॉडल का नाम…", nameRequired: "नाम चाहिए जब तक आप अधिलेखित न करें", baseModel: "आधार मॉडल (वैकल्पिक)", baseHelp: "सूक्ष्म-ट्यून करने के लिए मॉडल चुनें, या खाली छोड़ें।", overwrite: "मौजूदा अधिलेखित करें", overwriteHelp: "फ़ाइल अधिलेखित करने के लिए आप स्वामी होने चाहिए।", start: "प्रशिक्षण शुरू", recognition: "पहचान", segmentation: "खंडन" },
     collection: { load: "संग्रह लोड करें:", startNew: "नया शुरू", untitled: "बिना शीर्षक संग्रह", name: "संग्रह नाम", namePlaceholder: "संग्रह का नाम…", partsStaged: "{n} भाग तैयार", save: "संग्रह सहेजें" },
-    confirm: { deleteDocumentBody: "क्या आप यह दस्तावेज़ हटाना चाहते हैं?", cancelUploadTitle: "चल रहा अपलोड रद्द", cancelUploadBody: "अपलोड चल रहा है। रद्द करें? अधूरा अपलोड खो सकता है।", yesCancel: "हाँ, रद्द", overwriteSegTitle: "खंडन और लिप्यंतरण अधिलेखित", overwriteSegBody: "जारी रखने पर मौजूदा लिप्यंतरण हट जाएगा।", cancelTaskTitle: "कार्य रद्द", cancelTaskBody: "क्या आप यह कार्य रद्द करना चाहते हैं?", redrawMasksBody: "चयनित छवियों पर सभी मास्क फिर बनाएँ?", deleteImageTitle: "छवि हटाएँ", deleteImagesTitle: "छवियाँ हटाएँ", deleteNamed: "क्या आप {name} हटाना चाहते हैं?", deleteSelectedImages: "चयनित छवियाँ हटाएँ?", noImages: "कोई छवि नहीं।" },
+    confirm: { deleteDocumentBody: "क्या आप यह दस्तावेज़ हटाना चाहते हैं?", cancelUploadTitle: "चल रहा अपलोड रद्द", cancelUploadBody: "अपलोड चल रहा है। रद्द करें? अधूरा अपलोड खो सकता है।", yesCancel: "हाँ, रद्द", overwriteSegTitle: "खंडन और लिप्यंतरण अधिलेखित", overwriteSegBody: "जारी रखने पर मौजूदा लिप्यंतरण हट जाएगा।", cancelTaskTitle: "कार्य रद्द", cancelTaskBody: "क्या आप यह कार्य रद्द करना चाहते हैं?", redrawMasksBody: "चयनित छवियों पर सभी मास्क फिर बनाएँ?", deleteImageTitle: "छवि हटाएँ", deleteImagesTitle: "छवियाँ हटाएँ", deleteNamed: "क्या आप {name} हटाना चाहते हैं?", noImages: "कोई छवि नहीं।" },
 };
 
 const pl = {
@@ -351,7 +355,7 @@ const pl = {
     characters: { title: "Znaki", empty: "Brak znaków.", byCharacter: "wg znaku", byFrequency: "wg częstości" },
     train: { modelType: "Typ modelu", modelName: "Nazwa modelu", namePlaceholder: "Nazwa modelu…", nameRequired: "Nazwa jest wymagana, chyba że nadpisujesz", baseModel: "Model bazowy (opcjonalnie)", baseHelp: "Wybierz model do dotrenowania albo zostaw puste.", overwrite: "Nadpisz istniejący", overwriteHelp: "Musisz być właścicielem, aby nadpisać plik.", start: "Rozpocznij trening", recognition: "Rozpoznawanie", segmentation: "Segmentacja" },
     collection: { load: "Wczytaj kolekcję:", startNew: "Nowa", untitled: "Kolekcja bez nazwy", name: "Nazwa kolekcji", namePlaceholder: "Nazwa kolekcji…", partsStaged: "{n} części w kolejce", save: "Zapisz kolekcję" },
-    confirm: { deleteDocumentBody: "Usunąć ten dokument?", cancelUploadTitle: "Anuluj trwające wysyłanie", cancelUploadBody: "Wysyłanie trwa. Anulować? Nieukończone pliki mogą zginąć.", yesCancel: "Tak, anuluj", overwriteSegTitle: "Nadpisz segmentację i transkrypcje", overwriteSegBody: "Kontynuacja usunie istniejące transkrypcje.", cancelTaskTitle: "Anuluj zadanie", cancelTaskBody: "Anulować to zadanie?", redrawMasksBody: "Przerysować wszystkie maski na wybranych obrazach?", deleteImageTitle: "Usuń obraz", deleteImagesTitle: "Usuń obrazy", deleteNamed: "Usunąć {name}?", deleteSelectedImages: "Usunąć wybrane obrazy?", noImages: "Brak obrazów." },
+    confirm: { deleteDocumentBody: "Usunąć ten dokument?", cancelUploadTitle: "Anuluj trwające wysyłanie", cancelUploadBody: "Wysyłanie trwa. Anulować? Nieukończone pliki mogą zginąć.", yesCancel: "Tak, anuluj", overwriteSegTitle: "Nadpisz segmentację i transkrypcje", overwriteSegBody: "Kontynuacja usunie istniejące transkrypcje.", cancelTaskTitle: "Anuluj zadanie", cancelTaskBody: "Anulować to zadanie?", redrawMasksBody: "Przerysować wszystkie maski na wybranych obrazach?", deleteImageTitle: "Usuń obraz", deleteImagesTitle: "Usuń obrazy", deleteNamed: "Usunąć {name}?", noImages: "Brak obrazów." },
 };
 
 const it = {
@@ -374,7 +378,7 @@ const it = {
     characters: { title: "Caratteri", empty: "Nessun carattere.", byCharacter: "per carattere", byFrequency: "per frequenza" },
     train: { modelType: "Tipo di modello", modelName: "Nome modello", namePlaceholder: "Nome del modello…", nameRequired: "Il nome è obbligatorio se non si sovrascrive", baseModel: "Modello base (opzionale)", baseHelp: "Scegli un modello da affinare oppure lascia vuoto.", overwrite: "Sovrascrivi esistente", overwriteHelp: "Devi essere proprietario per sovrascrivere il file.", start: "Avvia addestramento", recognition: "Riconoscimento", segmentation: "Segmentazione" },
     collection: { load: "Carica collezione:", startNew: "Nuova", untitled: "Collezione senza titolo", name: "Nome collezione", namePlaceholder: "Nome della collezione…", partsStaged: "{n} parti in coda", save: "Salva collezione" },
-    confirm: { deleteDocumentBody: "Eliminare questo documento?", cancelUploadTitle: "Annulla caricamento in corso", cancelUploadBody: "Il caricamento è in corso. Annullare? I file incompleti possono perdersi.", yesCancel: "Sì, annulla", overwriteSegTitle: "Sovrascrivi segmentazione e trascrizioni", overwriteSegBody: "Continuando si eliminano le trascrizioni esistenti.", cancelTaskTitle: "Annulla attività", cancelTaskBody: "Annullare questa attività?", redrawMasksBody: "Ridisegnare tutte le maschere sulle immagini selezionate?", deleteImageTitle: "Elimina immagine", deleteImagesTitle: "Elimina immagini", deleteNamed: "Eliminare {name}?", deleteSelectedImages: "Eliminare le immagini selezionate?", noImages: "Nessuna immagine." },
+    confirm: { deleteDocumentBody: "Eliminare questo documento?", cancelUploadTitle: "Annulla caricamento in corso", cancelUploadBody: "Il caricamento è in corso. Annullare? I file incompleti possono perdersi.", yesCancel: "Sì, annulla", overwriteSegTitle: "Sovrascrivi segmentazione e trascrizioni", overwriteSegBody: "Continuando si eliminano le trascrizioni esistenti.", cancelTaskTitle: "Annulla attività", cancelTaskBody: "Annullare questa attività?", redrawMasksBody: "Ridisegnare tutte le maschere sulle immagini selezionate?", deleteImageTitle: "Elimina immagine", deleteImagesTitle: "Elimina immagini", deleteNamed: "Eliminare {name}?", noImages: "Nessuna immagine." },
 };
 
 const es = {
@@ -397,7 +401,7 @@ const es = {
     characters: { title: "Caracteres", empty: "No hay caracteres.", byCharacter: "por carácter", byFrequency: "por frecuencia" },
     train: { modelType: "Tipo de modelo", modelName: "Nombre del modelo", namePlaceholder: "Nombre del modelo…", nameRequired: "Hace falta un nombre salvo que se sobrescriba", baseModel: "Modelo base (opcional)", baseHelp: "Elija un modelo para afinar o déjelo vacío.", overwrite: "Sobrescribir existente", overwriteHelp: "Debe ser el propietario para sobrescribir el archivo.", start: "Empezar entrenamiento", recognition: "Reconocimiento", segmentation: "Segmentación" },
     collection: { load: "Cargar colección:", startNew: "Nueva", untitled: "Colección sin título", name: "Nombre de colección", namePlaceholder: "Nombre de la colección…", partsStaged: "{n} partes en cola", save: "Guardar colección" },
-    confirm: { deleteDocumentBody: "¿Eliminar este documento?", cancelUploadTitle: "Cancelar subida en curso", cancelUploadBody: "La subida sigue. ¿Cancelar? Pueden perderse archivos incompletos.", yesCancel: "Sí, cancelar", overwriteSegTitle: "Sobrescribir segmentación y transcripciones", overwriteSegBody: "Continuar eliminará las transcripciones existentes.", cancelTaskTitle: "Cancelar tarea", cancelTaskBody: "¿Cancelar esta tarea?", redrawMasksBody: "¿Redibujar todas las máscaras en las imágenes seleccionadas?", deleteImageTitle: "Eliminar imagen", deleteImagesTitle: "Eliminar imágenes", deleteNamed: "¿Eliminar {name}?", deleteSelectedImages: "¿Eliminar las imágenes seleccionadas?", noImages: "No hay imágenes." },
+    confirm: { deleteDocumentBody: "¿Eliminar este documento?", cancelUploadTitle: "Cancelar subida en curso", cancelUploadBody: "La subida sigue. ¿Cancelar? Pueden perderse archivos incompletos.", yesCancel: "Sí, cancelar", overwriteSegTitle: "Sobrescribir segmentación y transcripciones", overwriteSegBody: "Continuar eliminará las transcripciones existentes.", cancelTaskTitle: "Cancelar tarea", cancelTaskBody: "¿Cancelar esta tarea?", redrawMasksBody: "¿Redibujar todas las máscaras en las imágenes seleccionadas?", deleteImageTitle: "Eliminar imagen", deleteImagesTitle: "Eliminar imágenes", deleteNamed: "¿Eliminar {name}?", noImages: "No hay imágenes." },
 };
 
 const pt = {
@@ -420,7 +424,7 @@ const pt = {
     characters: { title: "Caracteres", empty: "Não há caracteres.", byCharacter: "por carácter", byFrequency: "por frequência" },
     train: { modelType: "Tipo de modelo", modelName: "Nome do modelo", namePlaceholder: "Nome do modelo…", nameRequired: "É preciso um nome salvo substituição", baseModel: "Modelo de base (opcional)", baseHelp: "Escolha um modelo para afinar ou deixe vazio.", overwrite: "Substituir existente", overwriteHelp: "Tem de ser o proprietário para substituir o ficheiro.", start: "Iniciar treino", recognition: "Reconhecimento", segmentation: "Segmentação" },
     collection: { load: "Carregar coleção:", startNew: "Nova", untitled: "Coleção sem título", name: "Nome da coleção", namePlaceholder: "Nome da coleção…", partsStaged: "{n} partes em fila", save: "Guardar coleção" },
-    confirm: { deleteDocumentBody: "Eliminar este documento?", cancelUploadTitle: "Cancelar carregamento em curso", cancelUploadBody: "O carregamento continua. Cancelar? Ficheiros incompletos podem perder-se.", yesCancel: "Sim, cancelar", overwriteSegTitle: "Substituir segmentação e transcrições", overwriteSegBody: "Continuar elimina as transcrições existentes.", cancelTaskTitle: "Cancelar tarefa", cancelTaskBody: "Cancelar esta tarefa?", redrawMasksBody: "Redesenhar todas as máscaras nas imagens selecionadas?", deleteImageTitle: "Eliminar imagem", deleteImagesTitle: "Eliminar imagens", deleteNamed: "Eliminar {name}?", deleteSelectedImages: "Eliminar as imagens selecionadas?", noImages: "Não há imagens." },
+    confirm: { deleteDocumentBody: "Eliminar este documento?", cancelUploadTitle: "Cancelar carregamento em curso", cancelUploadBody: "O carregamento continua. Cancelar? Ficheiros incompletos podem perder-se.", yesCancel: "Sim, cancelar", overwriteSegTitle: "Substituir segmentação e transcrições", overwriteSegBody: "Continuar elimina as transcrições existentes.", cancelTaskTitle: "Cancelar tarefa", cancelTaskBody: "Cancelar esta tarefa?", redrawMasksBody: "Redesenhar todas as máscaras nas imagens selecionadas?", deleteImageTitle: "Eliminar imagem", deleteImagesTitle: "Eliminar imagens", deleteNamed: "Eliminar {name}?", noImages: "Não há imagens." },
 };
 
 const fr = {
@@ -444,7 +448,7 @@ const fr = {
     characters: { title: "Caractères", empty: "Aucun caractère.", byCharacter: "par caractère", byFrequency: "par fréquence" },
     train: { modelType: "Type de modèle", modelName: "Nom du modèle", namePlaceholder: "Nom du modèle…", nameRequired: "Un nom est requis sauf écrasement", baseModel: "Modèle de base (optionnel)", baseHelp: "Choisissez un modèle à affiner ou laissez vide.", overwrite: "Écraser l’existant", overwriteHelp: "Vous devez être propriétaire pour écraser le fichier.", start: "Lancer l’entraînement", recognition: "Reconnaissance", segmentation: "Segmentation" },
     collection: { load: "Charger une collection :", startNew: "Nouvelle", untitled: "Collection sans titre", name: "Nom de la collection", namePlaceholder: "Nom de la collection…", partsStaged: "{n} parties en attente", save: "Enregistrer la collection" },
-    confirm: { deleteDocumentBody: "Supprimer ce document ?", cancelUploadTitle: "Annuler le téléversement en cours", cancelUploadBody: "Des téléversements sont en cours. Annuler ? Des fichiers incomplets peuvent être perdus.", yesCancel: "Oui, annuler", overwriteSegTitle: "Écraser segmentation et transcriptions", overwriteSegBody: "Continuer supprime les transcriptions existantes.", cancelTaskTitle: "Annuler la tâche", cancelTaskBody: "Annuler cette tâche ?", redrawMasksBody: "Redessiner tous les masques sur les images sélectionnées ?", deleteImageTitle: "Supprimer l’image", deleteImagesTitle: "Supprimer des images", deleteNamed: "Supprimer {name} ?", deleteSelectedImages: "Supprimer les images sélectionnées ?", noImages: "Aucune image." },
+    confirm: { deleteDocumentBody: "Supprimer ce document ?", cancelUploadTitle: "Annuler le téléversement en cours", cancelUploadBody: "Des téléversements sont en cours. Annuler ? Des fichiers incomplets peuvent être perdus.", yesCancel: "Oui, annuler", overwriteSegTitle: "Écraser segmentation et transcriptions", overwriteSegBody: "Continuer supprime les transcriptions existantes.", cancelTaskTitle: "Annuler la tâche", cancelTaskBody: "Annuler cette tâche ?", redrawMasksBody: "Redessiner tous les masques sur les images sélectionnées ?", deleteImageTitle: "Supprimer l’image", deleteImagesTitle: "Supprimer des images", deleteNamed: "Supprimer {name} ?", noImages: "Aucune image." },
 };
 
 const de = {
@@ -468,7 +472,7 @@ const de = {
     characters: { title: "Zeichen", empty: "Keine Zeichen.", byCharacter: "nach Zeichen", byFrequency: "nach Häufigkeit" },
     train: { modelType: "Modelltyp", modelName: "Modellname", namePlaceholder: "Modellname…", nameRequired: "Name nötig, außer beim Überschreiben", baseModel: "Basismodell (optional)", baseHelp: "Modell zum Feintuning wählen oder leer lassen.", overwrite: "Vorhandenes überschreiben", overwriteHelp: "Sie müssen Eigentümer sein, um die Datei zu überschreiben.", start: "Training starten", recognition: "Erkennung", segmentation: "Segmentierung" },
     collection: { load: "Sammlung laden:", startNew: "Neu", untitled: "Unbenannte Sammlung", name: "Sammlungsname", namePlaceholder: "Name der Sammlung…", partsStaged: "{n} Teile bereit", save: "Sammlung speichern" },
-    confirm: { deleteDocumentBody: "Dieses Dokument löschen?", cancelUploadTitle: "Laufenden Upload abbrechen", cancelUploadBody: "Uploads laufen. Abbrechen? Unvollständige Dateien können verloren gehen.", yesCancel: "Ja, abbrechen", overwriteSegTitle: "Segmentierung und Transkriptionen überschreiben", overwriteSegBody: "Weiter löscht vorhandene Transkriptionen.", cancelTaskTitle: "Aufgabe abbrechen", cancelTaskBody: "Diese Aufgabe abbrechen?", redrawMasksBody: "Alle Masken auf den ausgewählten Bildern neu zeichnen?", deleteImageTitle: "Bild löschen", deleteImagesTitle: "Bilder löschen", deleteNamed: "{name} löschen?", deleteSelectedImages: "Ausgewählte Bilder löschen?", noImages: "Keine Bilder." },
+    confirm: { deleteDocumentBody: "Dieses Dokument löschen?", cancelUploadTitle: "Laufenden Upload abbrechen", cancelUploadBody: "Uploads laufen. Abbrechen? Unvollständige Dateien können verloren gehen.", yesCancel: "Ja, abbrechen", overwriteSegTitle: "Segmentierung und Transkriptionen überschreiben", overwriteSegBody: "Weiter löscht vorhandene Transkriptionen.", cancelTaskTitle: "Aufgabe abbrechen", cancelTaskBody: "Diese Aufgabe abbrechen?", redrawMasksBody: "Alle Masken auf den ausgewählten Bildern neu zeichnen?", deleteImageTitle: "Bild löschen", deleteImagesTitle: "Bilder löschen", deleteNamed: "{name} löschen?", noImages: "Keine Bilder." },
 };
 
 const ur = {
@@ -492,7 +496,7 @@ const ur = {
     characters: { title: "حروف", empty: "کوئی حرف نہیں۔", byCharacter: "حرف کے لحاظ سے", byFrequency: "تعدد کے لحاظ سے" },
     train: { modelType: "ماڈل کی قسم", modelName: "ماڈل کا نام", namePlaceholder: "ماڈل کا نام…", nameRequired: "بدلنے کے سوا نام درکار", baseModel: "بنیادی ماڈل (اختیاری)", baseHelp: "صقل کے لیے ماڈل چنیں یا خالی چھوڑیں۔", overwrite: "موجودہ بدل دیں", overwriteHelp: "فائل بدلنے کے لیے مالک ہونا چاہیے۔", start: "تربیت شروع", recognition: "شناخت", segmentation: "قطعہ بندی" },
     collection: { load: "مجموعہ لوڈ:", startNew: "نیا", untitled: "بے عنوان مجموعہ", name: "مجموعے کا نام", namePlaceholder: "مجموعے کا نام…", partsStaged: "{n} حصے تیار", save: "مجموعہ محفوظ" },
-    confirm: { deleteDocumentBody: "یہ دستاویز حذف کریں؟", cancelUploadTitle: "جاری اپ لوڈ منسوخ", cancelUploadBody: "اپ لوڈ جاری ہے۔ منسوخ؟ نامکمل فائلیں ضائع ہو سکتی ہیں۔", yesCancel: "ہاں، منسوخ", overwriteSegTitle: "قطعہ بندی اور نقول بدل دیں", overwriteSegBody: "جاری رکھنے سے موجودہ نقول مٹیں گی۔", cancelTaskTitle: "کام منسوخ", cancelTaskBody: "یہ کام منسوخ کریں؟", redrawMasksBody: "منتخب تصاویر پر سب نقاب دوبارہ بنائیں؟", deleteImageTitle: "تصویر حذف", deleteImagesTitle: "تصاویر حذف", deleteNamed: "{name} حذف کریں؟", deleteSelectedImages: "منتخب تصاویر حذف کریں؟", noImages: "کوئی تصویر نہیں۔" },
+    confirm: { deleteDocumentBody: "یہ دستاویز حذف کریں؟", cancelUploadTitle: "جاری اپ لوڈ منسوخ", cancelUploadBody: "اپ لوڈ جاری ہے۔ منسوخ؟ نامکمل فائلیں ضائع ہو سکتی ہیں۔", yesCancel: "ہاں، منسوخ", overwriteSegTitle: "قطعہ بندی اور نقول بدل دیں", overwriteSegBody: "جاری رکھنے سے موجودہ نقول مٹیں گی۔", cancelTaskTitle: "کام منسوخ", cancelTaskBody: "یہ کام منسوخ کریں؟", redrawMasksBody: "منتخب تصاویر پر سب نقاب دوبارہ بنائیں؟", deleteImageTitle: "تصویر حذف", deleteImagesTitle: "تصاویر حذف", deleteNamed: "{name} حذف کریں؟", noImages: "کوئی تصویر نہیں۔" },
 };
 
 const tr = {
@@ -516,7 +520,7 @@ const tr = {
     characters: { title: "Karakterler", empty: "Karakter yok.", byCharacter: "karaktere göre", byFrequency: "sıklığa göre" },
     train: { modelType: "Model türü", modelName: "Model adı", namePlaceholder: "Model adı…", nameRequired: "Üzerine yazılmıyorsa ad gerekir", baseModel: "Taban model (isteğe bağlı)", baseHelp: "İnce ayar için model seçin veya boş bırakın.", overwrite: "Var olanın üzerine yaz", overwriteHelp: "Dosyanın üzerine yazmak için sahip olmalısınız.", start: "Eğitimi başlat", recognition: "Tanıma", segmentation: "Bölütleme" },
     collection: { load: "Koleksiyon yükle:", startNew: "Yeni", untitled: "Adsız koleksiyon", name: "Koleksiyon adı", namePlaceholder: "Koleksiyon adı…", partsStaged: "{n} parça hazır", save: "Koleksiyonu kaydet" },
-    confirm: { deleteDocumentBody: "Bu belge silinsin mi?", cancelUploadTitle: "Süren yüklemeyi iptal et", cancelUploadBody: "Yükleme sürüyor. İptal? Eksik dosyalar kaybolabilir.", yesCancel: "Evet, iptal", overwriteSegTitle: "Bölütleme ve çevriyazıların üzerine yaz", overwriteSegBody: "Devam mevcut çevriyazıları siler.", cancelTaskTitle: "Görevi iptal et", cancelTaskBody: "Bu görev iptal edilsin mi?", redrawMasksBody: "Seçili görüntülerdeki tüm maskeler yeniden çizilsin mi?", deleteImageTitle: "Görüntüyü sil", deleteImagesTitle: "Görüntüleri sil", deleteNamed: "{name} silinsin mi?", deleteSelectedImages: "Seçili görüntüler silinsin mi?", noImages: "Görüntü yok." },
+    confirm: { deleteDocumentBody: "Bu belge silinsin mi?", cancelUploadTitle: "Süren yüklemeyi iptal et", cancelUploadBody: "Yükleme sürüyor. İptal? Eksik dosyalar kaybolabilir.", yesCancel: "Evet, iptal", overwriteSegTitle: "Bölütleme ve çevriyazıların üzerine yaz", overwriteSegBody: "Devam mevcut çevriyazıları siler.", cancelTaskTitle: "Görevi iptal et", cancelTaskBody: "Bu görev iptal edilsin mi?", redrawMasksBody: "Seçili görüntülerdeki tüm maskeler yeniden çizilsin mi?", deleteImageTitle: "Görüntüyü sil", deleteImagesTitle: "Görüntüleri sil", deleteNamed: "{name} silinsin mi?", noImages: "Görüntü yok." },
 };
 
 const te = {
@@ -540,7 +544,7 @@ const te = {
     characters: { title: "అక్షరాలు", empty: "అక్షరాలు లేవు.", byCharacter: "అక్షరం ప్రకారం", byFrequency: "పౌనఃపున్యం ప్రకారం" },
     train: { modelType: "నమూనా రకం", modelName: "నమూనా పేరు", namePlaceholder: "నమూనా పేరు…", nameRequired: "ఓవర్‌రైట్ కాకపోతే పేరు అవసరం", baseModel: "ఆధార నమూనా (ఐచ్ఛికం)", baseHelp: "సూక్ష్మ శిక్షణకు నమూనా ఎంచుకోండి లేదా ఖాళీగా ఉంచండి.", overwrite: "ఉన్నదానిపై రాయి", overwriteHelp: "ఫైల్‌పై రాయడానికి మీరు యజమాని కావాలి.", start: "శిక్షణ మొదలు", recognition: "గుర్తింపు", segmentation: "విభజన" },
     collection: { load: "సేకరణ లోడ్:", startNew: "కొత్త", untitled: "పేరులేని సేకరణ", name: "సేకరణ పేరు", namePlaceholder: "సేకరణ పేరు…", partsStaged: "{n} భాగాలు సిద్ధం", save: "సేకరణ సేవ్" },
-    confirm: { deleteDocumentBody: "ఈ పత్రం తొలగించాలా?", cancelUploadTitle: "నడుస్తున్న అప్‌లోడ్ రద్దు", cancelUploadBody: "అప్‌లోడ్ నడుస్తోంది. రద్దు? అసంపూర్ణ ఫైళ్లు పోవచ్చు.", yesCancel: "అవును, రద్దు", overwriteSegTitle: "విభజన మరియు లిప్యంతరీకరణలపై రాయి", overwriteSegBody: "కొనసాగిస్తే ఉన్న లిప్యంతరీకరణలు తొలగుతాయి.", cancelTaskTitle: "పని రద్దు", cancelTaskBody: "ఈ పని రద్దు చేయాలా?", redrawMasksBody: "ఎంచుకున్న చిత్రాలపై అన్ని ముసుగులు మళ్లీ గీయాలా?", deleteImageTitle: "చిత్రం తొలగించు", deleteImagesTitle: "చిత్రాలు తొలగించు", deleteNamed: "{name} తొలగించాలా?", deleteSelectedImages: "ఎంచుకున్న చిత్రాలు తొలగించాలా?", noImages: "చిత్రాలు లేవు." },
+    confirm: { deleteDocumentBody: "ఈ పత్రం తొలగించాలా?", cancelUploadTitle: "నడుస్తున్న అప్‌లోడ్ రద్దు", cancelUploadBody: "అప్‌లోడ్ నడుస్తోంది. రద్దు? అసంపూర్ణ ఫైళ్లు పోవచ్చు.", yesCancel: "అవును, రద్దు", overwriteSegTitle: "విభజన మరియు లిప్యంతరీకరణలపై రాయి", overwriteSegBody: "కొనసాగిస్తే ఉన్న లిప్యంతరీకరణలు తొలగుతాయి.", cancelTaskTitle: "పని రద్దు", cancelTaskBody: "ఈ పని రద్దు చేయాలా?", redrawMasksBody: "ఎంచుకున్న చిత్రాలపై అన్ని ముసుగులు మళ్లీ గీయాలా?", deleteImageTitle: "చిత్రం తొలగించు", deleteImagesTitle: "చిత్రాలు తొలగించు", deleteNamed: "{name} తొలగించాలా?", noImages: "చిత్రాలు లేవు." },
 };
 
 export default { en, ar, hi, pl, it, es, pt, fr, de, ur, tr, te };

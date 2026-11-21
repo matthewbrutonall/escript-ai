@@ -253,7 +253,8 @@ class HtrflowRunOrmTests(TestCase):
              ("line-c", "skipped", "no_geometry", False, 0)},
         )
         for line in page["lines"]:
-            self.assertEqual(set(line), {"line_id", "status", "code", "empty", "text_length"})
+            self.assertEqual(set(line), {"line_id", "status", "code", "empty", "text_length", "warning_count"})
+            self.assertEqual(line["warning_count"], 0)
         blob = "\n".join(captured.output)
         self.assertIn("htrflow run %s completed" % finished.pk, blob)
         for secret in (KEPT, "skip-me", SECRET_FILE, SECRET_PATH, SECRET_TITLE, "synthetic-page"):

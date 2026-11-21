@@ -1589,6 +1589,7 @@ class VirtualCollectionItemSerializer(serializers.ModelSerializer):
     document_id = serializers.ReadOnlyField(source="document_part.document.id")
     document_name = serializers.ReadOnlyField(source="document_part.document.name")
     part_order = serializers.ReadOnlyField(source="document_part.order")
+    transcription_gate_state = serializers.SerializerMethodField()
 
     class Meta:
         model = VirtualCollectionItem
@@ -1601,7 +1602,18 @@ class VirtualCollectionItemSerializer(serializers.ModelSerializer):
             "document_name",
             "transcription_layer",
             "part_order",
+            "transcription_gate_state",
         ]
+
+    def get_transcription_gate_state(self, obj):
+        if not obj.transcription_layer_id:
+            return None
+        from django.core.exceptions import ObjectDoesNotExist
+        try:
+            gate = obj.transcription_layer.ai_gate
+        except ObjectDoesNotExist:
+            return None
+        return gate.state if gate else None
 
     def get_part_name(self, obj):
         # get the best name to show for the part when shown on the frontend
@@ -1839,6 +1851,23 @@ class CollectionRecognizeSerializer(BaseCollectionTrainSerializer):
         self.fields["model"].queryset = OcrModel.objects.filter(
             job=OcrModel.MODEL_JOB_RECOGNIZE
         ).for_user_read(user)
+
+    def validate(self, data):
+        data = super().validate(data)
+        from ai.gate import LayerNotEligible, assert_training_eligible
+        blocked, seen = [], set()
+        items = VirtualCollectionItem.objects.filter(collection=self.collection).select_related('transcription_layer__document')
+        for item in items:
+            layer = item.transcription_layer
+            if layer is None or layer.pk in seen: continue
+            seen.add(layer.pk)
+            try: assert_training_eligible(layer)
+            except LayerNotEligible: blocked.append(layer)
+        if blocked:
+            names = "; ".join(f'“{layer.name}” in “{layer.document.name}”' for layer in blocked[:5])
+            more = f" and {len(blocked) - 5} more" if len(blocked) > 5 else ""
+            raise serializers.ValidationError({'transcription': [f"These AI layers have not been reviewed and cannot be used for training: {names}{more}. Open each document, finish “AI layer review”, then start training again."]})
+        return data
 
 
 class CollectionSegmentSerializer(BaseCollectionTrainSerializer):

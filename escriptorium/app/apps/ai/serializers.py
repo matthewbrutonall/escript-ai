@@ -17,6 +17,7 @@ def narrow_related(field, queryset):
     getattr(field, 'child_relation', field).queryset = queryset
 
 from .dispatch import (
+    BudgetExceeded,
     CrossDocumentError,
     RemoteAIForbidden,
     assert_dispatch_allowed,
@@ -26,6 +27,15 @@ from .gate import ACK_PHRASE, assemble_sample_lines
 from .models import (
     AIBackendConfig, AIJob, AILayerGate, AISegSuggestion, AIUsageLedger,
 )
+
+
+def _budget_sentence(exc):
+    from .errors import MESSAGES
+    if exc.cap is None or exc.spent is None:
+        return MESSAGES['budget']
+    if float(exc.cap) == 0:
+        return 'AI transcription is switched off for your account (monthly budget is $0).'
+    return 'This job is estimated at about $%.2f. You have used $%.2f of your $%.2f monthly AI budget, so it was not started.' % (float(exc.estimate), float(exc.spent), float(exc.cap))
 
 
 class AILayerGateSerializer(serializers.ModelSerializer):
@@ -118,11 +128,17 @@ class AITranscribeSerializer(ProcessSerializerMixin, serializers.Serializer):
             raise serializers.ValidationError(
                 {'transcription': 'Transcription must belong to this document.'})
         config = data['backend']
+        from .budget import estimate_job_cost
+        estimate = estimate_job_cost(config, parts, data.get('per_crop') or 6)
         try:
-            assert_dispatch_allowed(self.document, config, user=self.user)
+            assert_dispatch_allowed(self.document, config, user=self.user, est_cost=estimate)
+        except BudgetExceeded as e:
+            raise serializers.ValidationError(_budget_sentence(e))
         except (RemoteAIForbidden, RuntimeError) as e:
-            raise serializers.ValidationError(str(e))
+            from .errors import classify, public_message
+            raise serializers.ValidationError(public_message(classify(e)))
         data['parts'] = parts
+        data['est_cost'] = estimate
         return data
 
     def process(self):
@@ -137,6 +153,7 @@ class AITranscribeSerializer(ProcessSerializerMixin, serializers.Serializer):
             transcription, _ = Transcription.objects.get_or_create(
                 document=self.document, name=name)
         parts = self.validated_data['parts']
+        per_crop = self.validated_data.get('per_crop') or 6
         job = AIJob.objects.create(
             backend=config,
             document=self.document,
@@ -146,6 +163,7 @@ class AITranscribeSerializer(ProcessSerializerMixin, serializers.Serializer):
             parts_count=len(parts),
             created_by=self.user,
             task_group=self.task_group,
+            est_cost=self.validated_data['est_cost'],
         )
         ai_transcribe.delay(
             instance_pks=[p.pk for p in parts],
@@ -153,7 +171,7 @@ class AITranscribeSerializer(ProcessSerializerMixin, serializers.Serializer):
             transcription_pk=transcription.pk,
             user_pk=self.user.pk,
             job_pk=job.pk,
-            per_crop=self.validated_data.get('per_crop') or 6,
+            per_crop=per_crop,
         )
 
 
@@ -255,6 +273,53 @@ class AIFixSerializer(serializers.Serializer):
         }
 
 
+class AIEstimateSerializer(serializers.Serializer):
+    backend = serializers.PrimaryKeyRelatedField(queryset=AIBackendConfig.objects.all())
+    parts = serializers.PrimaryKeyRelatedField(queryset=DocumentPart.objects.all(), many=True, required=False)
+    per_crop = serializers.IntegerField(required=False, min_value=1, max_value=8, default=6)
+    mode = serializers.ChoiceField(choices=('transcribe', 'seg_review'), required=False, default='transcribe')
+
+    def __init__(self, *args, document=None, user=None, **kwargs):
+        self.document, self.user = document, user
+        super().__init__(*args, **kwargs)
+        if document is not None:
+            self.fields['backend'].queryset = AIBackendConfig.objects.filter(Q(public=True) | Q(owner=user) | Q(owner__isnull=True))
+            narrow_related(self.fields['parts'], DocumentPart.objects.filter(document=document))
+
+    def validate(self, data):
+        data = super().validate(data)
+        parts = data.get('parts') or list(self.document.parts.all())
+        try:
+            assert_parts_belong(self.document, parts)
+        except CrossDocumentError as exc:
+            raise serializers.ValidationError({'parts': str(exc)})
+        data['parts'] = parts
+        from .budget import estimate_job_cost
+        data['estimate'] = estimate_job_cost(data['backend'], parts, data['per_crop'], segmentation=data['mode'] == 'seg_review')
+        return data
+
+    def create(self, validated_data):
+        from .budget import remaining
+        from .dispatch import user_month_spend, user_monthly_cap
+        from .errors import classify, public_message
+        config, parts, estimate = validated_data['backend'], validated_data['parts'], validated_data['estimate']
+        spent, cap = user_month_spend(self.user), user_monthly_cap(self.user)
+        allowed, code, reason = True, '', ''
+        try:
+            assert_dispatch_allowed(self.document, config, user=self.user, est_cost=estimate)
+        except Exception as exc:
+            allowed = False; code = classify(exc)
+            reason = _budget_sentence(exc) if isinstance(exc, BudgetExceeded) else public_message(code)
+        from django.db.models import Count
+        counts = dict(Line.objects.filter(document_part__in=parts).values_list('document_part_id').annotate(n=Count('pk')))
+        line_count = sum(counts.values())
+        return {'estimate_usd': estimate, 'pages': len(parts), 'lines': line_count,
+                'pages_without_lines': sum(1 for part in parts if counts.get(part.pk, 0) == 0),
+                'is_local': bool(getattr(config, 'is_local', False)), 'month_spent_usd': spent,
+                'month_cap_usd': cap, 'remaining_usd': remaining(spent, cap), 'allowed': allowed,
+                'reason_code': code, 'reason': reason}
+
+
 class AISegReviewSerializer(ProcessSerializerMixin, serializers.Serializer):
     """POST .../documents/{id}/ai_seg_review/ — suggestions only, no mask writes."""
     PROCESS_NAME = 'AI segmentation review'
@@ -281,10 +346,16 @@ class AISegReviewSerializer(ProcessSerializerMixin, serializers.Serializer):
         except CrossDocumentError as e:
             raise serializers.ValidationError({'parts': str(e)})
         try:
-            assert_dispatch_allowed(self.document, data['backend'], user=self.user)
+            from .budget import estimate_job_cost
+            estimate = estimate_job_cost(data['backend'], parts, segmentation=True)
+            assert_dispatch_allowed(self.document, data['backend'], user=self.user, est_cost=estimate)
+        except BudgetExceeded as e:
+            raise serializers.ValidationError(_budget_sentence(e))
         except (RemoteAIForbidden, RuntimeError) as e:
-            raise serializers.ValidationError(str(e))
+            from .errors import classify, public_message
+            raise serializers.ValidationError(public_message(classify(e)))
         data['parts'] = parts
+        data['est_cost'] = estimate
         return data
 
     def process(self):
@@ -301,6 +372,7 @@ class AISegReviewSerializer(ProcessSerializerMixin, serializers.Serializer):
             parts_count=len(parts),
             created_by=self.user,
             task_group=self.task_group,
+            est_cost=self.validated_data['est_cost'],
         )
         ai_seg_review.delay(
             instance_pks=[p.pk for p in parts],

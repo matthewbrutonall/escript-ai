@@ -45,7 +45,7 @@ MESSAGE_MODEL_ID = "model was not accepted"
 MESSAGE_NONE = "no pages were selected"
 MESSAGE_QUEUE = "recognition job was not queued"
 _PAGE_CAP = 100
-_LINE_KEYS = ("line_id", "status", "code", "empty", "text_length")
+_LINE_KEYS = ("line_id", "status", "code", "empty", "text_length", "warning_count")
 _PAGE_KEYS = (
     "part_id", "status", "code", "requested", "skipped", "results",
     "empty_text", "warnings", "job_id", "attempts", "lines",
@@ -248,6 +248,35 @@ def _denied(document, user):
     if not Document.objects.for_user(user).filter(pk=pk).exists():
         return _error(CODE_PERMISSION, MESSAGE_PERMISSION, status.HTTP_403_FORBIDDEN)
     return None
+
+
+def _positive_int(value):
+    if isinstance(value, bool): return None
+    if isinstance(value, int): return value if value >= 1 else None
+    if isinstance(value, str) and value.isdigit():
+        parsed = int(value)
+        return parsed if parsed >= 1 else None
+    return None
+
+
+def line_notes(document, user, part_id, transcription_id):
+    denied = _denied(document, user)
+    if denied is not None: return denied
+    part, layer = _positive_int(part_id), _positive_int(transcription_id)
+    if part is None or layer is None: return Response({"lines": []})
+    from ai.models import ExternalHTRJob
+    job = ExternalHTRJob.objects.filter(document=document, part_id=part, imported_transcription_id=layer).order_by("-pk").first()
+    if job is None: return Response({"lines": []})
+    notes = []
+    for row in job.lines.order_by("position", "pk")[:5000]:
+        line_id = row.line_id if isinstance(row.line_id, str) else ""
+        if not line_id.isdigit(): continue
+        warnings = row.warnings if isinstance(row.warnings, list) else []
+        text = row.text if isinstance(row.text, str) else ""
+        included = row.status == "included"
+        if included and text != "" and not warnings: continue
+        notes.append({"line": int(line_id), "status": row.status if row.status in ("included", "skipped", "failed") else "failed", "empty": included and text == "", "warning_count": len(warnings)})
+    return Response({"lines": notes})
 
 
 def _refused(document, config):

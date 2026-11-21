@@ -704,12 +704,25 @@ class DocumentViewSet(ModelViewSet):
         from ai.external_htr_user import import_run
         return import_run(self.get_object(), request.user, run_id)
 
+    @action(detail=True, methods=['get'], url_path='external-htr/line-notes')
+    def external_htr_line_notes(self, request, pk=None):
+        from ai.external_htr_user import line_notes
+        return line_notes(self.get_object(), request.user, request.query_params.get('part'), request.query_params.get('transcription'))
+
     @action(detail=True, methods=['post'])
     def ai_fix(self, request, pk=None):
         from ai.serializers import AIFixSerializer
         document = self.get_object()
         ser = AIFixSerializer(
             data=request.data, document=document, user=request.user)
+        ser.is_valid(raise_exception=True)
+        return Response(ser.save())
+
+    @action(detail=True, methods=['post'])
+    def ai_estimate(self, request, pk=None):
+        from ai.serializers import AIEstimateSerializer
+        document = self.get_object()
+        ser = AIEstimateSerializer(data=request.data, document=document, user=request.user)
         ser.is_valid(raise_exception=True)
         return Response(ser.save())
 
@@ -721,15 +734,22 @@ class DocumentViewSet(ModelViewSet):
     @action(detail=True, methods=['get'])
     def ai_jobs(self, request, pk=None):
         from ai.models import AIJob
-        qs = AIJob.objects.filter(document=self.get_object()).order_by('-pk')[:20]
+        qs = AIJob.objects.filter(document=self.get_object()).select_related('transcription', 'backend').order_by('-pk')[:20]
         return Response([{
             'pk': j.pk,
             'status': j.status,
             'mode': j.mode,
-            'error': j.error,
+            'error_code': j.error_code,
+            'message': j.error_public,
+            'error': j.error if request.user.is_staff else '',
             'parts_count': j.parts_count,
             'lines_flagged': j.lines_flagged,
+            'lines_written': j.lines_written,
             'actual_cost': j.actual_cost,
+            'est_cost': j.est_cost,
+            'created_at': j.created_at,
+            'layer': j.transcription.name if j.transcription_id else '',
+            'backend': j.backend.name if j.backend_id else '',
         } for j in qs])
 
     @action(detail=True, methods=['get'])
@@ -924,6 +944,24 @@ class DocumentViewSet(ModelViewSet):
             return Response({'status': 'moved'})
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['post'])
+    def bulk_delete_parts(self, request, pk=None):
+        document = self.get_object()
+        raw = request.data.get('parts')
+        if not isinstance(raw, list) or not raw or len(raw) > 5000:
+            return Response({'error': 'parts must be a non-empty list of at most 5000 ids.'}, status=400)
+        if any(isinstance(item, bool) or not isinstance(item, (int, str)) or (isinstance(item, str) and not item.isdigit()) for item in raw):
+            return Response({'error': 'parts must be integers.'}, status=400)
+        try:
+            pks = {int(item) for item in raw}
+        except (TypeError, ValueError):
+            return Response({'error': 'parts must be integers.'}, status=400)
+        deleted = 0
+        for part in DocumentPart.objects.filter(document=document, pk__in=pks).order_by('-order'):
+            part.delete()
+            deleted += 1
+        return Response({'status': 'deleted', 'deleted': deleted, 'requested': len(pks)})
 
     @action(detail=True, methods=['post'])
     def share(self, request, pk=None):
